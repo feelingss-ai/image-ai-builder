@@ -58,6 +58,7 @@
     "formidable": "^3.5.3",
     "heic2any": "^0.0.4",
     "http-status": "^1.8.1",
+    "image-dataset": "^1.12.0",
     "jquery": "^3.7.1",
     "listening-on": "^2.0.9",
     "marked": "^12.0.2",

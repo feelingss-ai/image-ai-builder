@@ -25,6 +25,12 @@ import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate, MessageException } from '../../exception.js'
 import { IonButton } from '../components/ion-button.js'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
@@ -86,6 +92,35 @@ function rotateAnnotationImage(image) {
   rotateImageInline(image)
 }
 `)
+
+//Function to take the label of user input (e.g. label: 1 = dog) and return the title of the label
+function getFolderByLabel(labelID: number) {
+  const row = db
+    .prepare<
+      { id: number },
+      { title: string }
+    >(`SELECT title FROM label WHERE id = :id`)
+    .get({ id: labelID })
+  if (!row) return null
+
+  const labelTitle = row.title
+  // dataset folder should be locate directly under root (image-ai-builder), if changed location, please change the following line
+  return labelTitle
+}
+
+//Function to search database using imageID, return filename
+function searchImageByID(imageID: number) {
+  const image = db
+    .prepare<
+      { id: number },
+      { filename: string }
+    >(`SELECT filename FROM image WHERE id = :id`)
+    .get({ id: imageID })
+  if (image) {
+    return image.filename
+  }
+  return null
+}
 
 let page = (
   <>
@@ -337,8 +372,32 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
       })
 
     let image = proxy.image[last_annotation.image_id]
-
+    let answer = proxy.image_label[last_annotation.id].answer
     delete proxy.image_label[last_annotation.id]
+
+    removeImageFromDataset(answer)
+
+    function removeImageFromDataset(answer: number) {
+      const folderName = getFolderByLabel(label_id)
+      if (!folderName) {
+        throw new Error('Dataset folder not found for label ' + label_id)
+      }
+      const datasetDir = path.resolve(process.cwd(), 'dataset')
+      let folderPath
+      if (answer === 1) {
+        folderPath = path.join(datasetDir, folderName)
+      } else {
+        folderPath = path.join(datasetDir, `!` + folderName)
+      }
+      const filePath = path.join(folderPath, image.filename)
+
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+        console.log(`Removed ${filePath}`)
+      } else {
+        console.log(`File not found: ${filePath}`)
+      }
+    }
 
     // TODO update the counts
     context.ws.send([
@@ -410,6 +469,34 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
         answer: +input.answer,
       },
     )
+
+    searchImageByFilename(input.answer)
+
+    //Function to search uploaded folder using filename, then copy the image to the correspond dataset folder
+    function searchImageByFilename(answer: number) {
+      const filename = searchImageByID(input.image)
+      if (!filename) {
+        throw new Error('Image not found')
+      }
+      const folderName = getFolderByLabel(input.label)
+      if (!folderName) {
+        throw new Error('Folder not found')
+      }
+
+      const uploadsDir = path.resolve(process.cwd(), 'downloaded', 'uploads')
+      const datasetDir = path.resolve(process.cwd(), 'dataset')
+      const srcPath = path.join(uploadsDir, filename)
+      let destPath
+      if (answer === 0) {
+        destPath = path.join(datasetDir, `!` + folderName)
+      } else {
+        destPath = path.join(datasetDir, folderName)
+      }
+      const destFilePath = path.join(destPath, filename)
+
+      fs.copyFileSync(srcPath, destFilePath)
+      console.log(`Copied ${srcPath} to ${destFilePath}`)
+    }
 
     let next_image = select_next_image.get({ label_id: input.label })
     context.ws.send([

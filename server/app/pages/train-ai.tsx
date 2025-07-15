@@ -24,6 +24,9 @@ import { ServerMessage } from '../../../client/types.js'
 import { sleep } from '@beenotung/tslib/async/wait.js'
 import { del, notNull, pick } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
+import { modelsCache, datasetCache } from 'image-dataset/dist/cache.js'
+import { saveClassifierModelMetadata } from 'image-dataset/dist/model.js'
+import { config } from 'image-dataset/dist/config.js'
 
 let pageTitle = (
   <Locale en="Train AI Model" zh_hk="訓練 AI 模型" zh_cn="训练 AI 模型" />
@@ -298,48 +301,82 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
   if (input.training_mode === 'scratch') {
     del(proxy.training_stats, { id: notNull })
     let code = /* javascript */ `
-loss_canvas.chart.data.labels = []
-loss_canvas.chart.data.datasets[0].data = []
-loss_canvas.chart.data.datasets[1].data = []
-loss_canvas.chart.update();
+    loss_canvas.chart.data.labels = []
+    loss_canvas.chart.data.datasets[0].data = []
+    loss_canvas.chart.data.datasets[1].data = []
+    loss_canvas.chart.update();
 
-accuracy_canvas.chart.data.labels = []
-accuracy_canvas.chart.data.datasets[0].data = []
-accuracy_canvas.chart.data.datasets[1].data = []
-accuracy_canvas.chart.update();
-    `
+    accuracy_canvas.chart.data.labels = []
+    accuracy_canvas.chart.data.datasets[0].data = []
+    accuracy_canvas.chart.data.datasets[1].data = []
+    accuracy_canvas.chart.update();
+      `
     broadcast(['eval', code])
   }
   async function train() {
-    for (let i = 0; i < input.epoch_no; i++) {
-      await sleep(50)
-      let epoch = proxy.training_stats.length + 1
-      let train_loss = Math.random() * 10
-      let val_loss = Math.random() * 10
-      let train_accuracy = Math.random()
-      let val_accuracy = Math.random()
-      proxy.training_stats.push({
-        user_id: user!.id!,
-        learning_rate: input.learning_rate,
-        epoch,
-        train_loss,
-        train_accuracy,
-        val_loss,
-        val_accuracy,
-      })
-      let code = /* javascript */ `
-loss_canvas.chart.data.labels.push('${epoch}');
-loss_canvas.chart.data.datasets[0].data.push(${train_loss});
-loss_canvas.chart.data.datasets[1].data.push(${val_loss});
-loss_canvas.chart.update();
+    let { classifierModel, metadata } = await modelsCache.get()
+    let { x, y, classCounts } = await datasetCache.get()
+    let epochs = input.epoch_no
+    let total_epochs = proxy.training_stats.length + epochs
+    let batchSize = 32
+    let total_batches = Math.ceil(x.shape[0] / batchSize)
+    let loss = '',
+      accuracy = ''
+    let val_loss = 0
+    let val_accuracy = 0
+    console.log(`\nTraining ${epochs} epochs...`)
+    await classifierModel.train({
+      x,
+      y,
+      classCounts,
+      epochs,
+      batchSize,
+      verbose: 0,
+      callbacks: [
+        {
+          onEpochBegin(epoch: number, logs: any) {
+            process.stdout.write(
+              `Epoch: ${epoch + 1}/${total_epochs}, Batch: 1/${total_batches}`,
+            )
+          },
+          onBatchEnd: (batch: number, logs: any) => {
+            accuracy = formatNumber(logs.categoricalAccuracy)
+            loss = formatNumber(logs.loss)
+            process.stdout.write(
+              `\rEpoch: ${proxy.training_stats.length + 1}/${total_epochs}, Batch: ${batch + 1}/${total_batches}, Accuracy: ${accuracy}, Loss: ${loss}`,
+            )
+          },
+          onEpochEnd: (epoch: number, logs: any) => {
+            process.stdout.write(`\n`)
+            const absoluteEpoch = proxy.training_stats.length + 1
+            proxy.training_stats.push({
+              user_id: user!.id!,
+              learning_rate: input.learning_rate,
+              epoch: absoluteEpoch,
+              train_loss: Number(loss),
+              train_accuracy: Number(accuracy),
+              val_loss,
+              val_accuracy,
+            })
+            let code = /* javascript */ `
+            loss_canvas.chart.data.labels.push('${absoluteEpoch}');
+            loss_canvas.chart.data.datasets[0].data.push('${loss}');
+            loss_canvas.chart.data.datasets[1].data.push('${val_loss}');
+            loss_canvas.chart.update();
 
-accuracy_canvas.chart.data.labels.push('${epoch}');
-accuracy_canvas.chart.data.datasets[0].data.push(${train_accuracy});
-accuracy_canvas.chart.data.datasets[1].data.push(${val_accuracy});
-accuracy_canvas.chart.update();
-  `
-      broadcast(['eval', code])
-    }
+            accuracy_canvas.chart.data.labels.push('${absoluteEpoch}');
+            accuracy_canvas.chart.data.datasets[0].data.push('${accuracy}');
+            accuracy_canvas.chart.data.datasets[1].data.push('${val_accuracy}');
+            accuracy_canvas.chart.update();
+              `
+            broadcast(['eval', code])
+          },
+        },
+      ],
+    })
+    await classifierModel.save()
+    metadata.name = classifierModel.classNames[1]
+    await saveClassifierModelMetadata(config.classifierModelDir, metadata)
   }
   train()
   throw EarlyTerminate
@@ -351,6 +388,19 @@ function broadcast(message: ServerMessage) {
       session.ws.send(message)
     }
   })
+}
+
+function formatNumber(x: number) {
+  if (x >= 1) {
+    return x.toFixed(2)
+  }
+  if (x >= 0.1) {
+    return x.toFixed(3)
+  }
+  if (x >= 0.01) {
+    return x.toFixed(4)
+  }
+  return x.toExponential(2)
 }
 
 let routes = {
