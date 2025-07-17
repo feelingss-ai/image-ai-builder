@@ -21,7 +21,7 @@ export function renderIonicTemplate(
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta
       name="viewport"
-      content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=6.0"
+      content="user-scalable=no, viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=6.0"
     />
     <title>`)
   typeof options.title == 'function' ? options.title(stream) : stream.write(options.title)
@@ -93,6 +93,7 @@ export function renderIonicTemplate(
         display: none;
       }
     </style>
+    <script src="https://hammerjs.github.io/dist/hammer.min.js"></script>
     `)
   typeof options.app == 'function' ? options.app(stream) : stream.write(options.app)
   stream.write(/* html */ `
