@@ -36,25 +36,91 @@ let style = Style(/* css */ `
 
 let script = Script(/* js */ `
 
-  document.querySelector('#webcamOutput').style.display = 'none';
-  document.querySelector('#image').style.display='none';
+//avoid load model multiple times
+window.modelCache ||= {}
 
-  function pickPreviewPhoto() {
-  document.querySelector('#previewPhotoInput').click();
-  document.querySelector('#webcamOutput').style.display = 'none';
-  document.querySelector('#image').style.display='block';
+function loadLabelModel(label_dir) {
+  let url = '/saved_models/' + label_dir + '/model.json'
+  window.modelCache[url] ||= tf.loadLayersModel(url)
+  let p = window.modelCache[url]
+  p.catch(err => {
+    console.error('failed to load label model:', { url, err })
+    delete window.modelCache[url]
+  })
+  return p
 }
 
-document.querySelector('#previewPhotoInput').onchange = function(event) {
+document.querySelector('#webcamOutput').style.display = 'none';
+document.querySelector('#image').style.display='none';
+
+function pickPreviewPhoto() {
+document.querySelector('#previewPhotoInput').click();
+document.querySelector('#webcamOutput').style.display = 'none';
+document.querySelector('#image').style.display='block';
+}
+
+document.querySelector('#previewPhotoInput').onchange = async function(event) {
   
   let file = event.target.files[0];
   if (!file) return;
+
+  let model = await loadLabelModel('classifier_model_crayfish');
 
   let reader = new FileReader();
   reader.onload = function(e) {
     let image = document.querySelector('img');
     image.src = e.target.result;
     image.file = file;
+
+    let img = new Image();
+    img.src = e.target.result;
+
+    img.onload = async function() {
+      // 1. Resize image to 40x32 (width=40, height=32) to match input size 1280 = 40*32
+      const width = 40;
+      const height = 32;
+
+      // Create a hidden canvas to draw the resized image
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+
+      // Draw resized image on canvas
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Get pixel data - returns an Uint8ClampedArray with RGBA (4 values per pixel)
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+
+      // Convert to grayscale and normalize
+      const grayscaleData = new Float32Array(width * height);
+      for (let i = 0; i < width * height; i++) {
+        const r = data[i * 4];
+        const g = data[i * 4 + 1];
+        const b = data[i * 4 + 2];
+        // Simple grayscale: average of RGB
+        grayscaleData[i] = (r + g + b) / 3 / 255;
+      }
+
+      // Create input tensor shaped [1, 1280]
+      const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
+
+      // Predict
+      const prediction = model.predict(inputTensor);
+      const probabilities = prediction.arraySync()[0];
+
+      console.log('Class probabilities:', probabilities);
+
+      const classNames = ['!小龍蝦', '小龍蝦'];
+      const maxIndex = probabilities.indexOf(Math.max(...probabilities));
+      const predictedClass = classNames[maxIndex];
+
+      console.log("Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
+      
+      //update label progress value
+      document.querySelector('#🦞').value =  (probabilities[maxIndex] * 100).toFixed(2)
+    };
   };
   reader.readAsDataURL(file);
 
@@ -93,9 +159,8 @@ async function toggleWebcam() {
     return currentStream;
   } catch (err) {
     console.error('Webcam access denied or error:', err);
+    }
   }
-}
-  
 }
 `)
 
@@ -112,6 +177,7 @@ let page = (
     </ion-header>
     <ion-content id="PreviewAI" class="ion-no-padding">
       <Main />
+      <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     </ion-content>
     {script}
   </>
@@ -171,7 +237,7 @@ function Main(attrs: {}, context: Context) {
           {mapArray(proxy.label, label => (
             <div class="label-container">
               <div class="class-label">{label.title}</div>
-              <progress value="10" max="100"></progress>
+              <progress id={label.title} value="10" max="100"></progress>
             </div>
           ))}
         </div>
