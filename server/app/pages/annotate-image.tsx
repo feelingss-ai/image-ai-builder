@@ -482,20 +482,6 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
       if (!folderName) {
         throw new Error('Folder not found')
       }
-
-      const uploadsDir = path.resolve(process.cwd(), 'downloaded', 'uploads')
-      const datasetDir = path.resolve(process.cwd(), 'dataset')
-      const srcPath = path.join(uploadsDir, filename)
-      let destPath
-      if (answer === 0) {
-        destPath = path.join(datasetDir, `!` + folderName)
-      } else {
-        destPath = path.join(datasetDir, folderName)
-      }
-      const destFilePath = path.join(destPath, filename)
-
-      fs.copyFileSync(srcPath, destFilePath)
-      console.log(`Copied ${srcPath} to ${destFilePath}`)
     }
 
     let next_image = select_next_image.get({ label_id: input.label })

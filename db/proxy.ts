@@ -137,6 +137,8 @@ export type TrainingStats = {
   id?: null | number
   user_id: number
   user?: User
+  label_id: number
+  label?: Label
   epoch: number
   learning_rate: number
   train_accuracy: number
@@ -215,6 +217,7 @@ export let proxy = proxySchema<DBProxy>({
     training_stats: [
       /* foreign references */
       ['user', { field: 'user_id', table: 'user' }],
+      ['label', { field: 'label_id', table: 'label' }],
     ],
   },
 })

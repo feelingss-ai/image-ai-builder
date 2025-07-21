@@ -82,7 +82,12 @@ let homePage = (
             2. <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />
           </Link>
           <Link tagName="ion-item" href={'/train-ai'}>
-            3. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
+            3.{' '}
+            <Locale
+              en="Train AI Model"
+              zh_hk="訓練 AI 模型"
+              zh_cn="训练 AI 模型"
+            />
           </Link>
           <Link tagName="ion-item" href={'/preview-ai'}>
             4. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />

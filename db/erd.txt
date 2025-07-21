@@ -150,6 +150,7 @@ training_stats
 --------------
 id integer PK
 user_id integer FK >0- user.id
+label_id integer FK >0- label.id
 epoch integer
 learning_rate real
 train_accuracy real
@@ -159,7 +160,7 @@ val_loss real
 
 
 # zoom: 1.000
-# view: (-151, 445)
+# view: (136, 711)
 # text-bg: #6495ed
 # text-color: #000000
 # diagram-bg: #f5f5f5
@@ -177,8 +178,8 @@ val_loss real
 # user (450, 680)
 # verification_code (50, 550)
 # verification_attempt (50, 372)
-# content_report (515, 948)
+# content_report (570, 1151)
 # image (1251, 636)
 # label (1255, 869)
 # image_label (921, 771)
-# training_stats (64, 1057)
+# training_stats (73, 1019)
