@@ -140,6 +140,9 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
         
         //update label progress value
         document.querySelector(label).value =  (probabilities[1] * 100).toFixed(2) //0: no 1: yes
+
+        // Dispose tensors to avoid memory leaks
+      prediction.dispose && prediction.dispose();
       };
     }
     reader.readAsDataURL(file);
@@ -148,6 +151,91 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
   // Reset input so user can select the same file again if needed
   event.target.value = '';
 };
+
+realtimeDetectionInterval = null;
+
+async function startRealtimeDetection() {
+  // Make sure models are loaded
+  const models = {};
+  for (let model_dir of models_dir) {
+    models[model_dir] = await loadLabelModel(model_dir);
+  }
+
+  const video = document.querySelector('video');
+  const width = 40, height = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  // Clear any previous interval
+  if (realtimeDetectionInterval) clearInterval(realtimeDetectionInterval);
+
+  realtimeDetectionInterval = setInterval(async () => {
+    if (video.readyState < 2) return; // Not enough data
+
+    // Draw current video frame to canvas
+    ctx.drawImage(video, 0, 0, width, height);
+
+    // Get pixel data
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+
+    // Convert to grayscale and normalize
+    const grayscaleData = new Float32Array(width * height);
+    for (let i = 0; i < width * height; i++) {
+      const r = data[i * 4];
+      const g = data[i * 4 + 1];
+      const b = data[i * 4 + 2];
+      grayscaleData[i] = (r + g + b) / 3 / 255;
+    }
+
+    // Create input tensor
+    const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
+
+    // Predict for each model
+    for (let model_dir of models_dir) {
+      const model = models[model_dir];
+      const prediction = model.predict(inputTensor);
+      const probabilities = (await prediction.array())[0];
+
+      const classNames = ['no', 'yes'];
+      const maxIndex = probabilities.indexOf(Math.max(...probabilities));
+      const predictedClass = classNames[maxIndex];
+
+      console.log(model_dir);
+      console.log("Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
+
+      let label = '';
+      switch (model_dir) {
+        case 'classifier_model_crayfish':
+          label = '#label-1';
+          break;
+        case 'classifier_model_open_tail':
+          label = '#label-4';
+          break;
+        case 'classifier_model_raise_claw':
+          label = '#label-5';
+          break;
+        default:
+          break;
+      }
+      document.querySelector(label).value = (probabilities[1] * 100).toFixed(2);
+
+      // Dispose tensors to avoid memory leaks
+      prediction.dispose && prediction.dispose();
+    }
+    inputTensor.dispose && inputTensor.dispose();
+  }, 1000); // Run every 1s (adjust as needed)
+}
+
+// To stop detection when webcam is off:
+function stopRealtimeDetection() {
+  if (realtimeDetectionInterval) {
+    clearInterval(realtimeDetectionInterval);
+    realtimeDetectionInterval = null;
+  }
+}
 
 currentStream = null;
 
@@ -166,6 +254,7 @@ async function toggleWebcam() {
     video.srcObject = null;
     // Hide video
     currentStream = null;
+    stopRealtimeDetection();
     document.querySelector('#webcamOutput').style.display = 'none';
     document.querySelector("#webcamBtnOff").style.display="none";
     document.querySelector("#webcamBtnOn").style.display="block";
@@ -177,6 +266,7 @@ async function toggleWebcam() {
     const video = document.querySelector('video'); 
     video.srcObject = currentStream;
     video.play();
+    startRealtimeDetection();
     return currentStream;
   } catch (err) {
     console.error('Webcam access denied or error:', err);
