@@ -9,3 +9,4 @@ dist/
 *.tgz
 .DS_Store
 bundle.js
+public/image.jpg
