@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <style>
+      #app {
+        display: flex;
+      }
+      canvas,
+      img {
+        width: 247px;
+        height: 300px;
+        outline: 1px solid red;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <img src="image.jpg" id="image" />
+      <canvas id="canvas"></canvas>
+    </div>
+
+    <script>
+      let image = document.getElementById('image')
+      let canvas = document.getElementById('canvas')
+      image.onload = function () {
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+        let context = canvas.getContext('2d')
+
+        let camera = {
+          // range from 0 to 1 -> 0 to image.naturalWidth
+          x: 0.75,
+          // range from 0 to 1 -> 0 to image.naturalHeight
+          y: 0.75,
+          // range from 0 to 1 -> 0 to image.naturalWidth
+          width: 0.5,
+          // range from 0 to 1 -> 0 to image.naturalHeight
+          height: 0.5,
+          // range from 0 to 1 -> 0 to 2pi
+          rotate: 1 / 4, // 45 degrees
+        }
+
+        image.onmousemove = function (e) {
+          let rect = image.getBoundingClientRect()
+          let x = e.clientX - rect.left
+          let y = e.clientY - rect.top
+          camera.x = x / rect.width
+          camera.y = y / rect.height
+        }
+
+        // top left corner
+        // camera.x = 0.25
+        // camera.y = 0.25
+
+        // // top right corner
+        // camera.x = 0.75
+        // camera.y = 0.25
+
+        // bottom left corner
+        // camera.x = 0.25
+        // camera.y = 0.75
+
+        // bottom right corner
+        // camera.x = 0.75
+        // camera.y = 0.75
+
+        function render() {
+          // Reset transform
+          context.setTransform(1, 0, 0, 1, 0, 0)
+          context.clearRect(0, 0, canvas.width, canvas.height)
+
+          let width = camera.width * image.naturalWidth
+          let height = camera.height * image.naturalHeight
+          let centerX = camera.x * image.naturalWidth
+          let centerY = camera.y * image.naturalHeight
+          let rotate = camera.rotate * 2 * Math.PI
+
+          // Calculate scale factors
+          let scaleX = canvas.width / width
+          let scaleY = canvas.height / height
+
+          // Move the origin to the top-left of the crop area in the image, then scale
+          let left = centerX - width / 2
+          let top = centerY - height / 2
+
+          let time = performance.now() / 1000
+          let scale = (Math.sin(time - Math.PI / 2) + 1) / 2
+          //   scale = 1
+
+          // translate and scale
+          context.scale(scaleX, scaleY)
+          context.translate(-left, -top)
+
+          // rotate in center of the crop area
+          context.translate(+left + width / 2, +top + height / 2)
+          context.rotate(rotate * scale)
+          context.translate(-left - width / 2, -top - height / 2)
+
+          // Draw the image at (0,0) in image space
+          context.drawImage(image, 0, 0)
+          requestAnimationFrame(render)
+        }
+        render()
+      }
+    </script>
+  </body>
+</html>
