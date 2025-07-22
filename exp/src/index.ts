@@ -1,4 +1,4 @@
-console.log('Hello World')
+console.log('Hello World bye bye')
 
 let image = document.getElementById('image') as HTMLImageElement
 
@@ -112,31 +112,81 @@ cameraCanvas.addEventListener('touchmove', event => {
     let lastTouch1 = lastTouches[currentTouch1.identifier]
     let lastTouch2 = lastTouches[currentTouch2.identifier]
 
-    let currentDistance = Math.hypot(
-      currentTouch1.clientX - currentTouch2.clientX,
-      currentTouch1.clientY - currentTouch2.clientY,
-    )
+    let lastDx = lastTouch1.clientX - lastTouch2.clientX
+    let lastDy = lastTouch1.clientY - lastTouch2.clientY
+    let currentDx = currentTouch1.clientX - currentTouch2.clientX
+    let currentDy = currentTouch1.clientY - currentTouch2.clientY
 
-    let lastDistance = Math.hypot(
-      lastTouch1.clientX - lastTouch2.clientX,
-      lastTouch1.clientY - lastTouch2.clientY,
-    )
+    let distanceX = Math.abs(currentDx)
+    let distanceY = Math.abs(currentDy)
+    // let ratio = Math.max(distanceX / distanceY, distanceY / distanceX)
 
-    let scale = currentDistance / lastDistance
-    camera.width /= scale
-    camera.height /= scale
+    let scaleX = Math.abs(currentDx) / Math.abs(lastDx)
+    let scaleY = Math.abs(currentDy) / Math.abs(lastDy)
+
+    if (distanceX / distanceY > 2) {
+      scaleY = 1
+    } else if (distanceY / distanceX > 2) {
+      scaleX = 1
+    }
+
+    let newWidth = camera.width / scaleX
+    let newHeight = camera.height / scaleY
+    let width = newWidth * image.naturalWidth
+    let height = newHeight * image.naturalHeight
+    let left = camera.x * image.naturalWidth - width / 2
+    let top = camera.y * image.naturalHeight - height / 2
+    let right = left + width
+    let bottom = top + height
+
+    if (left >= 0 && right <= image.naturalWidth) {
+      camera.width = newWidth
+    } else if (newWidth <= 1) {
+      camera.width = newWidth
+      camera.x -= (newWidth - camera.width) / 2
+    }
+
+    if (top >= 0 && bottom <= image.naturalHeight) {
+      camera.height = newHeight
+    } else if (newHeight <= 1) {
+      camera.height = newHeight
+      camera.y -= (newHeight - camera.height) / 2
+    }
 
     // check if overflow
-    {
-    }
+    // {
+    //   let width = camera.width * image.naturalWidth
+    //   let height = camera.height * image.naturalHeight
+    //   let left = camera.x * image.naturalWidth - width / 2
+    //   let top = camera.y * image.naturalHeight - height / 2
+    //   let right = left + width
+    //   let bottom = top + height
+
+    //   if (left < 0) {
+    //     camera.x = camera.width / 2
+    //   }
+    //   if (top < 0) {
+    //     camera.y = camera.height / 2
+    //   }
+
+    //   if (right >= image.naturalWidth) {
+    //     camera.x = 1 - camera.width / 2
+    //   }
+    //   if (bottom >= image.naturalHeight) {
+    //     camera.y = 1 - camera.height / 2
+    //   }
+    // }
 
     debugMessage.textContent =
       'scale: ' +
       JSON.stringify(
         {
-          lastDistance,
-          currentDistance,
-          scale,
+          scaleX,
+          scaleY,
+          lastDx,
+          lastDy,
+          currentDx,
+          currentDy,
           width: camera.width,
           height: camera.height,
         },
