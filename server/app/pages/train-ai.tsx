@@ -408,10 +408,10 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
     epochs: number
     learning_rate: number
     batchSize: number
-    total_epochs: number
   }) {
     let { label, label_index } = options
     let label_id = label.id!
+    let epochs = options.epochs
     let classifierModel = await getClassifierModel(label)
     let rows = select_image_filename_by_label.all({ label_id })
     let embeddings = []
@@ -424,26 +424,38 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
       classCounts[row.answer]++
       answers.push(row.answer)
     }
-    let x = tf.stack(embeddings)
-    let y = tf.stack(answers)
+    let x = tf.concat(embeddings)
+    let y = tf.oneHot(answers, 2)
+    let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
+    console.log(label_id, initialEpoch)
     await classifierModel.train({
       x,
       y,
-      initialEpoch: count_epoch_by_label.get({ label_id }) || 0,
+      epochs,
       callbacks: [
         {
           onEpochEnd(epoch: number, logs?: Logs) {
             let accuracy = formatNumber(logs!.categoricalAccuracy)
             let loss = formatNumber(logs!.loss)
             let label = JSON.stringify(epoch + 1)
+            proxy.training_stats.push({
+              user_id: options.userID,
+              learning_rate: options.learning_rate,
+              epoch: initialEpoch + epoch + 1,
+              train_loss: Number(loss),
+              train_accuracy: Number(accuracy),
+              val_loss: 0,
+              val_accuracy: 0,
+              label_id: label_id,
+            })
             broadcast([
               'eval',
-              /* javascript */ `
-train_loss_canvas.chart.data.labels[${epoch}] = ${label}
-train_loss_canvas.chart.data.datasets[${label_index}].data[${epoch}] = ${loss};
+              /* javascript */ `          
+train_loss_canvas.chart.data.labels[${epoch} + ${initialEpoch}] = ${epoch} + ${initialEpoch} + 1
+train_loss_canvas.chart.data.datasets[${label_index}].data[${epoch} + ${initialEpoch}] = ${loss};
 
-train_accuracy_canvas.chart.data.labels[${epoch}] = ${label}
-train_accuracy_canvas.chart.data.datasets[${label_index}].data[${epoch}] = ${accuracy};
+train_accuracy_canvas.chart.data.labels[${epoch} + ${initialEpoch}] = ${epoch} + ${initialEpoch} + 1
+train_accuracy_canvas.chart.data.datasets[${label_index}].data[${epoch} + ${initialEpoch}] = ${accuracy};
 
 train_loss_canvas.chart.update();
 train_accuracy_canvas.chart.update();
@@ -455,201 +467,21 @@ train_accuracy_canvas.chart.update();
     })
     x.dispose()
     y.dispose()
+    await classifierModel.save()
   }
+
   let labels = pick(proxy.label, ['id', 'title', 'dependency_id'])
   for (let i = 0; i < labels.length; i++) {
-    let label: Label = labels[i]
     trainModel({
-      label_index: label['id']!,
-      label: label,
+      label_index: labels[i]['id']!,
+      label: labels[i],
       userID: user!.id!,
       epochs: input.epoch_no,
       learning_rate: input.learning_rate,
       batchSize: 32,
-      total_epochs: 0,
     })
   }
-  /*
-  trainModel({
-    label_index: 1,
-    label: label,
-    userID: user!.id!,
-    epochs: input.epoch_no,
-    learning_rate: input.learning_rate
-  })
-    */
-  /*
-  //get the last epoch number from training_stats table
-  let epoch = proxy.training_stats.length + 1
-  async function train() {
-    let data: any[] = []
-    let epochs = input.epoch_no
-    //const total_epochs = proxy.training_stats.length + epochs
-    const total_epochs = 20
-    let batchSize = 32
-    let loss = 0,
-      accuracy = 0
-    let val_loss = 0
-    let val_accuracy = 0
-    let originalData = await OriginalModelTrain(
-      user!.id!,
-      epochs,
-      input.learning_rate,
-      batchSize,
-      total_epochs,
-    )
-    insertData(originalData, data)
-    let crayfishData = await CrayfishModelTrain(
-      user!.id!,
-      epochs,
-      input.learning_rate,
-      batchSize,
-      total_epochs,
-    )
-    insertData(crayfishData, data)
-    let raiseClawData = await RaiseClawModelTrain(
-      user!.id!,
-      epochs,
-      input.learning_rate,
-      batchSize,
-      total_epochs,
-    )
-    insertData(raiseClawData, data)
-    let openTailData = await OpenTailModelTrain(
-      user!.id!,
-      epochs,
-      input.learning_rate,
-      batchSize,
-      total_epochs,
-    )
-    insertData(openTailData, data)
-    for (let i = 0; i < data.length; i++) {
-      console.log
-    }
-  */
-
-  //let code = /* javascript */ `
-  /*
-      const data = ${JSON.stringify(data)};
-      const model_labels = ${JSON.stringify(model_labels())};
-      train_loss_canvas.chart.data.labels.push('${epoch}');
-      val_loss_canvas.chart.data.labels.push('${epoch}');
-      train_accuracy_canvas.chart.data.labels.push('${epoch}');
-      val_accuracy_canvas.chart.data.labels.push('${epoch}');
-
-      // if training_stats is empty, set the chart data
-      if (${proxy.training_stats.length === MODEL_NO}) { 
-        train_loss_canvas.chart.data.labels = ['1']
-        val_loss_canvas.chart.data.labels = ['1']
-        train_accuracy_canvas.chart.data.labels = ['1']
-        val_accuracy_canvas.chart.data.labels = ['1']
-        for (let i = 1; i <= ${MODEL_NO}; i++) {
-          train_loss_canvas.chart.data.datasets[i] = {label: 'Model ' + model_labels[i], data: []}
-          val_loss_canvas.chart.data.datasets[i] = {label: 'Model ' + model_labels[i], data: []}
-          train_accuracy_canvas.chart.data.datasets[i] = {label: 'Model ' + model_labels[i], data: []}
-          val_accuracy_canvas.chart.data.datasets[i] = {label: 'Model ' + model_labels[i], data: []}
-        }
-      }
-      
-      for (let i = 0; i < data.length; i++) {
-        console.log(i, ": ", data[i])
-        //train_loss_canvas.chart.data.datasets[data[i].label].data.push(data[i].train_loss);
-        train_loss_canvas.chart.data.datasets[data[i].label].data.push(0);
-        val_loss_canvas.chart.data.datasets[data[i].label].data.push(data[i].val_loss);
-        //train_accuracy_canvas.chart.data.datasets[data[i].label].data.push(data[i].train_accuracy);
-        train_accuracy_canvas.chart.data.datasets[data[i].label].data.push(0);
-        val_accuracy_canvas.chart.data.datasets[data[i].label].data.push(data[i].val_accuracy);
-        train_loss_canvas.chart.update();
-        val_loss_canvas.chart.update();
-        train_accuracy_canvas.chart.update();
-        val_accuracy_canvas.chart.update();
-      } 
-        `
-        */
-  //broadcast(['eval', code])
-  //}
-
-  //train()
   throw EarlyTerminate
-}
-//input: the data of a single model, output: the combined data of all model
-function insertData(input: any, output: any) {
-  for (let i = 0; i < input.length; i++) {
-    output.push({
-      epoch: input[i].epoch,
-      label: input[i].label,
-      train_loss: input[i].train_loss,
-      val_loss: input[i].val_loss,
-      train_accuracy: input[i].train_accuracy,
-      val_accuracy: input[i].val_accuracy,
-    })
-  }
-  return output
-}
-
-async function OriginalModelTrain(
-  userID: number,
-  epochs: number,
-  learning_rate: number,
-  batchSize: number,
-  total_epochs: number,
-) {
-  let { classifierModel, metadata } = await modelsCache.get()
-  let { x, y, classCounts } = await datasetCache.get()
-  let loss = '',
-    accuracy = ''
-  let data: any = []
-  let total_batches = Math.ceil(x.shape[0] / batchSize)
-  console.log(`\nOriginal Model Training ${epochs} epochs...`)
-  await classifierModel.train({
-    x,
-    y,
-    classCounts,
-    epochs,
-    batchSize,
-    verbose: 0,
-    callbacks: [
-      {
-        onEpochBegin(epoch: number, logs: any) {
-          process.stdout.write(
-            `Epoch: ${epoch + 1}/${total_epochs}, Batch: 1/${total_batches}`,
-          )
-        },
-        onBatchEnd: (batch: number, logs: any) => {
-          accuracy = formatNumber(logs.categoricalAccuracy)
-          loss = formatNumber(logs.loss)
-          process.stdout.write(
-            `\rEpoch: ${proxy.training_stats.length + 1}/${total_epochs}, Batch: ${batch + 1}/${total_batches}, Accuracy: ${accuracy}, Loss: ${loss}`,
-          )
-        },
-        onEpochEnd: (epoch: number, logs: any) => {
-          process.stdout.write(`\n`)
-          const absoluteEpoch = proxy.training_stats.length + 1
-          proxy.training_stats.push({
-            user_id: userID,
-            learning_rate: learning_rate,
-            epoch: absoluteEpoch,
-            train_loss: Number(loss),
-            train_accuracy: Number(accuracy),
-            val_loss: 0,
-            val_accuracy: 0,
-            label_id: 1,
-          })
-          data.push({
-            epoch: epoch,
-            label: 1,
-            train_loss: loss,
-            val_loss: 0,
-            train_accuracy: accuracy,
-            val_accuracy: 0,
-          })
-        },
-      },
-    ],
-  })
-  await classifierModel.save()
-  await saveClassifierModelMetadata(config.classifierModelDir, metadata)
-  return data
 }
 
 let select_image_filename_by_label = db.prepare<
@@ -676,220 +508,6 @@ where label_id = :label_id
 `,
   )
   .pluck()
-
-async function CrayfishModelTrain(
-  userID: number,
-  epochs: number,
-  learning_rate: number,
-  batchSize: number,
-  total_epochs: number,
-) {
-  let { classifierModelCrayfish, metadata } = await modelsCache.get()
-  let { x, y, classCounts } = await CrayfishDatasetCache.get()
-  let loss = '',
-    accuracy = ''
-  let data: any = []
-  let total_batches = Math.ceil(x.shape[0] / batchSize)
-  console.log(`\nCrayfish Model Training ${epochs} epochs...`)
-  await classifierModelCrayfish.train({
-    x,
-    y,
-    classCounts,
-    epochs,
-    batchSize,
-    verbose: 0,
-    callbacks: [
-      {
-        onEpochBegin(epoch: number, logs: any) {
-          process.stdout.write(
-            `Epoch: ${epoch + 1}/${total_epochs}, Batch: 1/${total_batches}`,
-          )
-        },
-        onBatchEnd: (batch: number, logs: any) => {
-          accuracy = formatNumber(logs.categoricalAccuracy)
-          loss = formatNumber(logs.loss)
-          process.stdout.write(
-            `\rEpoch: ${proxy.training_stats.length + 1}/${total_epochs}, Batch: ${batch + 1}/${total_batches}, Accuracy: ${accuracy}, Loss: ${loss}`,
-          )
-        },
-        onEpochEnd: (epoch: number, logs: any) => {
-          process.stdout.write(`\n`)
-          const absoluteEpoch = proxy.training_stats.length + 1
-          proxy.training_stats.push({
-            user_id: userID,
-            learning_rate: learning_rate,
-            epoch: absoluteEpoch,
-            train_loss: Number(loss),
-            train_accuracy: Number(accuracy),
-            val_loss: 0,
-            val_accuracy: 0,
-            label_id: 2,
-          })
-          data.push({
-            epoch: epoch,
-            label: 2,
-            train_loss: loss,
-            val_loss: 0,
-            train_accuracy: accuracy,
-            val_accuracy: 0,
-          })
-        },
-      },
-    ],
-  })
-  await classifierModelCrayfish.save()
-  await saveClassifierModelMetadata(config.classifierModelCrayfishDir, metadata)
-  return data
-}
-
-async function RaiseClawModelTrain(
-  userID: number,
-  epochs: number,
-  learning_rate: number,
-  batchSize: number,
-  total_epochs: number,
-) {
-  let { classifierModelRaiseClaw, metadata } = await modelsCache.get()
-  let { x, y, classCounts } = await RaiseClawDatasetCache.get()
-  let loss = '',
-    accuracy = ''
-  let data: any = []
-  let total_batches = Math.ceil(x.shape[0] / batchSize)
-  console.log(`\nRaise Claw Model Training ${epochs} epochs...`)
-  await classifierModelRaiseClaw.train({
-    x,
-    y,
-    classCounts,
-    epochs,
-    batchSize,
-    verbose: 0,
-    callbacks: [
-      {
-        onEpochBegin(epoch: number, logs: any) {
-          process.stdout.write(
-            `Epoch: ${epoch + 1}/${total_epochs}, Batch: 1/${total_batches}`,
-          )
-        },
-        onBatchEnd: (batch: number, logs: any) => {
-          accuracy = formatNumber(logs.categoricalAccuracy)
-          loss = formatNumber(logs.loss)
-          process.stdout.write(
-            `\rEpoch: ${proxy.training_stats.length + 1}/${total_epochs}, Batch: ${batch + 1}/${total_batches}, Accuracy: ${accuracy}, Loss: ${loss}`,
-          )
-        },
-        onEpochEnd: (epoch: number, logs: any) => {
-          process.stdout.write(`\n`)
-          const absoluteEpoch = proxy.training_stats.length + 1
-          proxy.training_stats.push({
-            user_id: userID,
-            learning_rate: learning_rate,
-            epoch: absoluteEpoch,
-            train_loss: Number(loss),
-            train_accuracy: Number(accuracy),
-            val_loss: 0,
-            val_accuracy: 0,
-            label_id: 3,
-          })
-          data.push({
-            epoch: epoch,
-            label: 3,
-            train_loss: loss,
-            val_loss: 0,
-            train_accuracy: accuracy,
-            val_accuracy: 0,
-          })
-        },
-      },
-    ],
-  })
-  await classifierModelRaiseClaw.save()
-
-  await saveClassifierModelMetadata(
-    config.classifierModelRaiseClawDir,
-    metadata,
-  )
-  return data
-}
-
-async function OpenTailModelTrain(
-  userID: number,
-  epochs: number,
-  learning_rate: number,
-  batchSize: number,
-  total_epochs: number,
-) {
-  let { classifierModelOpenTail, metadata } = await modelsCache.get()
-  let { x, y, classCounts } = await OpenTailDatasetCache.get()
-  let loss = '',
-    accuracy = ''
-  let data: any = []
-  let total_batches = Math.ceil(x.shape[0] / batchSize)
-  console.log(`\nOpen Tail Model Training ${epochs} epochs...`)
-  await classifierModelOpenTail.train({
-    x,
-    y,
-    classCounts,
-    epochs,
-    batchSize,
-    verbose: 0,
-    callbacks: [
-      {
-        onEpochBegin(epoch: number, logs: any) {
-          process.stdout.write(
-            `Epoch: ${epoch + 1}/${total_epochs}, Batch: 1/${total_batches}`,
-          )
-        },
-        onBatchEnd: (batch: number, logs: any) => {
-          accuracy = formatNumber(logs.categoricalAccuracy)
-          loss = formatNumber(logs.loss)
-          process.stdout.write(
-            `\rEpoch: ${proxy.training_stats.length + 1}/${total_epochs}, Batch: ${batch + 1}/${total_batches}, Accuracy: ${accuracy}, Loss: ${loss}`,
-          )
-        },
-        onEpochEnd: (epoch: number, logs: any) => {
-          process.stdout.write(`\n`)
-          const absoluteEpoch = proxy.training_stats.length + 1
-          proxy.training_stats.push({
-            user_id: userID,
-            learning_rate: learning_rate,
-            epoch: absoluteEpoch,
-            train_loss: Number(loss),
-            train_accuracy: Number(accuracy),
-            val_loss: 0,
-            val_accuracy: 0,
-            label_id: 4,
-          })
-          data.push({
-            epoch: epoch,
-            label: 4,
-            train_loss: loss,
-            val_loss: 0,
-            train_accuracy: accuracy,
-            val_accuracy: 0,
-          })
-        },
-      },
-    ],
-  })
-  await classifierModelOpenTail.save()
-  await saveClassifierModelMetadata(config.classifierModelOpenTailDir, metadata)
-  return data
-}
-
-/*
-          },
-        },
-      ],
-    })
-    await classifierModel.save()
-    metadata.name = classifierModel.classNames[1]
-    await saveClassifierModelMetadata(config.classifierModelDir, metadata)
-  }
-
-  train()
-  throw EarlyTerminate
-}
-  */
 
 function broadcast(message: ServerMessage) {
   sessions.forEach(session => {
