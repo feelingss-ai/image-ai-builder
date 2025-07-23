@@ -67,90 +67,88 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
   if (!file) return;
   let reader = new FileReader();
 
-  for (let model_dir of models_dir) {
-    let model = await loadLabelModel(model_dir); // 'label-id'
+  reader.onload = function(e) {
+    let image = document.querySelector('img');
+    image.src = e.target.result;
+    image.file = file;
 
-    reader.onload = function(e) {
-      let image = document.querySelector('img');
-      image.src = e.target.result;
-      image.file = file;
+    let img = new Image();
+    img.src = e.target.result;
 
-      let img = new Image();
-      img.src = e.target.result;
+    img.onload = async function() {
+      // 1. Resize image to 40x32 (width=40, height=32) to match input size 1280 = 40*32
+      const width = 40;
+      const height = 32;
 
-      img.onload = async function() {
-        // 1. Resize image to 40x32 (width=40, height=32) to match input size 1280 = 40*32
-        const width = 40;
-        const height = 32;
+      // Create a hidden canvas to draw the resized image
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
 
-        // Create a hidden canvas to draw the resized image
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
+      // Draw resized image on canvas
+      ctx.drawImage(img, 0, 0, width, height);
 
-        // Draw resized image on canvas
-        ctx.drawImage(img, 0, 0, width, height);
+      // Get pixel data - returns an Uint8ClampedArray with RGBA (4 values per pixel)
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
 
-        // Get pixel data - returns an Uint8ClampedArray with RGBA (4 values per pixel)
-        const imageData = ctx.getImageData(0, 0, width, height);
-        const data = imageData.data;
+      // Convert to grayscale and normalize
+      const grayscaleData = new Float32Array(width * height);
+      for (let i = 0; i < width * height; i++) {
+        const r = data[i * 4];
+        const g = data[i * 4 + 1];
+        const b = data[i * 4 + 2];
+        // Simple grayscale: average of RGB
+        grayscaleData[i] = (r + g + b) / 3 / 255;
+      }
 
-        // Convert to grayscale and normalize
-        const grayscaleData = new Float32Array(width * height);
-        for (let i = 0; i < width * height; i++) {
-          const r = data[i * 4];
-          const g = data[i * 4 + 1];
-          const b = data[i * 4 + 2];
-          // Simple grayscale: average of RGB
-          grayscaleData[i] = (r + g + b) / 3 / 255;
-        }
+      // Create input tensor shaped [1, 1280]
+      const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
 
-        // Create input tensor shaped [1, 1280]
-        const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
-
+      for (let model_dir of models_dir) {
+        let model = await loadLabelModel(model_dir);
         // Predict
         const prediction = model.predict(inputTensor);
         const probabilities = prediction.arraySync()[0];
 
-        console.log('Class probabilities:', probabilities);
+      console.log('Class probabilities:', probabilities);
 
-        const classNames = ['no', 'yes'];
-        const maxIndex = probabilities.indexOf(Math.max(...probabilities));
-        const predictedClass = classNames[maxIndex];
+      const classNames = ['no', 'yes'];
+      const maxIndex = probabilities.indexOf(Math.max(...probabilities));
+      const predictedClass = classNames[maxIndex];
 
-        console.log(model_dir)
-        console.log("Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
+      console.log(model_dir)
+      console.log("Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
 
-        let label = ''
+      let label = ''
 
-        switch (model_dir) {
-          case 'classifier_model_crayfish':
-            label = '#label-1'
-            break;
-          case 'classifier_model_open_tail':
-            label = '#label-4'
-            break;
-          case 'classifier_model_raise_claw':
-            label = '#label-5'
-            break;
-          default:
-            break;
-        }
-        
-        //update label progress value
-        document.querySelector(label).value =  (probabilities[1] * 100).toFixed(2) //0: no 1: yes
+      switch (model_dir) {
+        case 'classifier_model_crayfish':
+          label = '#label-1'
+          break;
+        case 'classifier_model_open_tail':
+          label = '#label-4'
+          break;
+        case 'classifier_model_raise_claw':
+          label = '#label-5'
+          break;
+        default:
+          break;
+      }
+      
+      //update label progress value
+      document.querySelector(label).value =  (probabilities[1] * 100).toFixed(2) //0: no 1: yes
 
-        // Dispose tensors to avoid memory leaks
-      prediction.dispose && prediction.dispose();
-      };
+      // Dispose tensors to avoid memory leaks
+    prediction.dispose && prediction.dispose();
+      }
     }
-    reader.readAsDataURL(file);
   }
-
+  reader.readAsDataURL(file);
   // Reset input so user can select the same file again if needed
   event.target.value = '';
-};
+}
 
 realtimeDetectionInterval = null;
 
@@ -258,6 +256,7 @@ async function toggleWebcam() {
     document.querySelector('#webcamOutput').style.display = 'none';
     document.querySelector("#webcamBtnOff").style.display="none";
     document.querySelector("#webcamBtnOn").style.display="block";
+    document.querySelectorAll("progress").forEach(progress => progress.value= "0")
   } else {
     try {
     console.log('starting')
@@ -348,11 +347,7 @@ function Main(attrs: {}, context: Context) {
           {mapArray(proxy.label, label => (
             <div class="label-container">
               <div class="class-label">{label.title}</div>
-              <progress
-                id={'label-' + label.id}
-                value="10"
-                max="100"
-              ></progress>
+              <progress id={'label-' + label.id} value="0" max="100"></progress>
             </div>
           ))}
         </div>
