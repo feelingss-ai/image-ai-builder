@@ -118,8 +118,7 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
       const maxIndex = probabilities.indexOf(Math.max(...probabilities));
       const predictedClass = classNames[maxIndex];
 
-      console.log(model_dir)
-      console.log("Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
+      console.log(model_dir + ": " + "Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
 
       let label = ''
 
@@ -141,11 +140,13 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
       document.querySelector(label).value =  (probabilities[1] * 100).toFixed(2) //0: no 1: yes
 
       // Dispose tensors to avoid memory leaks
-    prediction.dispose && prediction.dispose();
+      prediction.dispose && prediction.dispose();
       }
+      inputTensor.dispose && inputTensor.dispose();
     }
   }
   reader.readAsDataURL(file);
+
   // Reset input so user can select the same file again if needed
   event.target.value = '';
 }
