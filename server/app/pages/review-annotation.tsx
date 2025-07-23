@@ -15,6 +15,8 @@ import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
 import { evalLocale, Locale } from '../components/locale.js'
+import { proxy } from '../../../db/proxy.js'
+import { db } from '../../../db/db.js'
 
 let pageTitle = (
   <Locale en="Review Annotation" zh_hk="審視標註" zh_cn="审阅标注" />
@@ -45,7 +47,6 @@ let page = (
       </ion-toolbar>
     </ion-header>
     <ion-content id="ReviewAnnotation" class="ion-padding">
-      Items
       <Main />
     </ion-content>
   </>
@@ -56,26 +57,49 @@ let items = [
   { title: 'iOS', slug: 'ios' },
 ]
 
-function Main(attrs: {}, context: Context) {
+let count_annotated_images = db
+  .prepare<{ label_id: number }, number>(
+    /* sql */ `
+select count(distinct image_id)
+from image_label
+where label_id = :label_id
+`,
+  )
+  .pluck()
+
+function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
+
+  let params = new URLSearchParams(context.routerMatch?.search)
+  let label_id = +params.get('label')! || 1
+  // let image = select_next_image.get({ label_id })
+  let total_images = proxy.image.length
+  // let count = has_previous_annotation.get({ label_id }) as number
+  // let has_undo = count > 0
+
   return (
     <>
-      <ion-list>
-        {mapArray(items, item => (
-          <ion-item>
-            {item.title} ({item.slug})
-          </ion-item>
-        ))}
-      </ion-list>
-      {user ? (
-        <Link href="/review-annotation/add" tagName="ion-button">
-          {addPageTitle}
-        </Link>
-      ) : (
-        <p>
-          You can add train ai after <Link href="/register">register</Link>.
-        </p>
-      )}
+      <ion-item>
+        <ion-select
+          value={label_id}
+          label={Locale(
+            { en: 'Class Label', zh_hk: '類別標籤', zh_cn: '类別标签' },
+            context,
+          )}
+          id="label_select"
+        >
+          {mapArray(proxy.label, label => {
+            let annotated_images = count_annotated_images.get({
+              label_id: label.id!,
+            })
+            return (
+              <ion-select-option value={label.id}>
+                {label.title} ({annotated_images}/{total_images})
+              </ion-select-option>
+            )
+          })}
+        </ion-select>
+      </ion-item>
     </>
   )
 }
