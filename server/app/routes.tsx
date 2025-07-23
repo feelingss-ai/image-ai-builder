@@ -2,6 +2,7 @@ import Stats from './pages/stats.js'
 import PreviewAI from './pages/preview-ai.js'
 import TrainAI from './pages/train-ai.js'
 import AnnotateImage from './pages/annotate-image.js'
+import ReviewAnnotation from './pages/review-annotation.js'
 import UploadImage from './pages/upload-image.js'
 import ReportContent from './pages/report-content.js'
 import AppNotice from './pages/app-notice.js'
@@ -90,6 +91,7 @@ let routeDict = {
   ...TrainAI.routes,
   ...AnnotateImage.routes,
   ...UploadImage.routes,
+  ...ReviewAnnotation.routes,
   ...ReportContent.routes,
   ...Home.routes,
   ...DemoPlugin.routes,
