@@ -53,7 +53,7 @@ window.modelCache ||= {}
 
 function loadLabelModel(label_dir) {
   let url = '/saved_models/' + label_dir + '/model.json'
-  window.modelCache[url] ||= tf.loadLayersModel(url)
+  window.modelCache[url] ||= loadTF().then(tf => tf.loadLayersModel(url))
   let p = window.modelCache[url]
   p.catch(err => {
     console.error('failed to load label model:', { url, err })
@@ -62,13 +62,34 @@ function loadLabelModel(label_dir) {
   return p
 }
 
+async function loadTF() {
+  if (window.tf) return window.tf;
+  return new Promise((resolve, reject) => {
+    function loop() {
+      if (window.tf) {
+        resolve(window.tf)
+      } else {
+        console.log('waiting for tfjs')
+        setTimeout(loop, 100)
+      }
+    }
+    loop()
+  })
+}
+
 document.querySelector('#webcamOutput').style.display = 'none';
 document.querySelector('#image').style.display='none';
 
 function pickPreviewPhoto() {
-document.querySelector('#previewPhotoInput').click();
-document.querySelector('#webcamOutput').style.display = 'none';
-document.querySelector('#image').style.display='block';
+  document.querySelector('#previewPhotoInput').click();
+  document.querySelector('#webcamOutput').style.display = 'none';
+  document.querySelector('#image').style.display='block';
+  stopRealtimeDetection();
+  stopWebcam();
+  document.querySelector('#webcamOutput').style.display = 'none';
+  document.querySelector("#webcamBtnOff").style.display="none";
+  document.querySelector("#webcamBtnOn").style.display="block";
+  document.querySelectorAll("progress").forEach(progress => progress.value= "0")
 }
 
 document.querySelector('#previewPhotoInput').onchange = async function(event) {
@@ -122,13 +143,13 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
         const prediction = model.predict(inputTensor);
         const probabilities = prediction.arraySync()[0];
 
-      console.log('Class probabilities:', probabilities);
+      //console.log('Class probabilities:', probabilities);
 
       const classNames = ['yes', 'no'];
       const maxIndex = probabilities.indexOf(Math.max(...probabilities));
       const predictedClass = classNames[maxIndex];
 
-      console.log(model_dir + ": " + "Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
+      // console.log(model_dir + ": " + "Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
 
       let label = "#" + model_dir
 
@@ -147,9 +168,13 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
   event.target.value = '';
 }
 
-realtimeDetectionInterval = null;
+var detectionLoopHandle = null;
+
+shouldUpdateProgress = false;
 
 async function startRealtimeDetection() {
+  shouldUpdateProgress = true
+
   // Make sure models are loaded
   const models = {};
   for (let model_dir of models_dir) {
@@ -163,11 +188,13 @@ async function startRealtimeDetection() {
   canvas.height = height;
   const ctx = canvas.getContext('2d');
 
-  // Clear any previous interval
-  if (realtimeDetectionInterval) clearInterval(realtimeDetectionInterval);
+  async function detectLoop() {
+    if (video.readyState < 2) {
+      detectionLoopHandle = requestAnimationFrame(detectLoop);
+      return; // wait for camera to be ready
+    }
 
-  realtimeDetectionInterval = setInterval(async () => {
-    if (video.readyState < 2) return; // Not enough data
+    if (!shouldUpdateProgress) return;
 
     // Draw current video frame to canvas
     ctx.drawImage(video, 0, 0, width, height);
@@ -198,27 +225,54 @@ async function startRealtimeDetection() {
       const maxIndex = probabilities.indexOf(Math.max(...probabilities));
       const predictedClass = classNames[maxIndex];
 
-      console.log(model_dir + ' Prediction: ' + predictedClass + ' confidence:' + (probabilities[maxIndex] * 100).toFixed(2));
+      // console.log(model_dir + ' Prediction: ' + predictedClass + ' confidence:' + (probabilities[maxIndex] * 100).toFixed(2));
 
-      let label = "#" + model_dir
-      document.querySelector(label).value = (probabilities[0] * 100).toFixed(2);
+      let label = document.querySelector('#' + model_dir)
+      if (!label) {
+        // user returned to previous page
+        stopWebcam();
+        return;
+      }
+      if (shouldUpdateProgress) {
+        label.value = (probabilities[0] * 100).toFixed(2);
+      }
 
       // Dispose tensors to avoid memory leaks
       prediction.dispose && prediction.dispose();
     }
     inputTensor.dispose && inputTensor.dispose();
-  }, 1000); // Run every 1s (adjust as needed)
+
+    // Run next frame
+    detectionLoopHandle = requestAnimationFrame(detectLoop);
+  }
+  detectionLoopHandle = requestAnimationFrame(detectLoop);
 }
 
 // To stop detection when webcam is off:
 function stopRealtimeDetection() {
-  if (realtimeDetectionInterval) {
-    clearInterval(realtimeDetectionInterval);
-    realtimeDetectionInterval = null;
+  if (detectionLoopHandle) {
+    cancelAnimationFrame(detectionLoopHandle);
+    detectionLoopHandle = null;
   }
 }
 
-currentStream = null;
+var currentStream = null;
+
+function stopWebcam() {
+    console.log('stopping webcam')
+    shouldUpdateProgress = false;
+    // Stop all tracks to turn off the webcam
+    if (currentStream) {  
+      currentStream.getTracks().forEach(track => track.stop());
+    }
+    // Optionally clear the video source
+    const video = document.querySelector('video');
+    if (video) {
+      video.srcObject = null;
+    }
+    // Hide video
+    currentStream = null;
+}
 
 async function toggleWebcam() {
   document.querySelector('#image').style.display='none';
@@ -227,19 +281,12 @@ async function toggleWebcam() {
   document.querySelector("#webcamBtnOff").style.display="block";
 
   if (currentStream) {
-    console.log('stopping')
-    // Stop all tracks to turn off the webcam
-    currentStream.getTracks().forEach(track => track.stop());
-    // Optionally clear the video source
-    const video = document.querySelector('video');
-    video.srcObject = null;
-    // Hide video
-    currentStream = null;
+    stopWebcam();
     stopRealtimeDetection();
     document.querySelector('#webcamOutput').style.display = 'none';
     document.querySelector("#webcamBtnOff").style.display="none";
     document.querySelector("#webcamBtnOn").style.display="block";
-    document.querySelectorAll("progress").forEach(progress => progress.value= "0")
+    document.querySelectorAll("progress").forEach(progress => progress.value = 0)
   } else {
     try {
     console.log('starting')
@@ -270,7 +317,6 @@ let page = (
     </ion-header>
     <ion-content id="PreviewAI" class="ion-no-padding">
       <Main />
-      <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     </ion-content>
     {/* pass models_dir to client */}
     <script>window.models_dir = {JSON.stringify(models_dir)}</script>

@@ -96,6 +96,11 @@ export function renderIonicTemplate(
     `)
   typeof options.app == 'function' ? options.app(stream) : stream.write(options.app)
   stream.write(/* html */ `
+    <script
+      defer
+      async
+      src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"
+    ></script>
   </body>
 </html>
 `)
