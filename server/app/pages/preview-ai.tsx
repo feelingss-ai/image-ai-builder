@@ -34,9 +34,19 @@ let style = Style(/* css */ `
 }
 `)
 
+const read_models_by_id = (): string[] => {
+  let models_dir = []
+  for (let row of proxy.label) {
+    models_dir.push('label-' + row.id)
+  }
+  return models_dir
+}
+
+const models_dir = read_models_by_id()
+
 let script = Script(/* js */ `
 
-models_dir = ['classifier_model_crayfish','classifier_model_open_tail', 'classifier_model_raise_claw']
+models_dir = window.models_dir
 
 //avoid load model multiple times
 window.modelCache ||= {}
@@ -114,30 +124,16 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
 
       console.log('Class probabilities:', probabilities);
 
-      const classNames = ['no', 'yes'];
+      const classNames = ['yes', 'no'];
       const maxIndex = probabilities.indexOf(Math.max(...probabilities));
       const predictedClass = classNames[maxIndex];
 
       console.log(model_dir + ": " + "Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
 
-      let label = ''
+      let label = "#" + model_dir
 
-      switch (model_dir) {
-        case 'classifier_model_crayfish':
-          label = '#label-1'
-          break;
-        case 'classifier_model_open_tail':
-          label = '#label-4'
-          break;
-        case 'classifier_model_raise_claw':
-          label = '#label-5'
-          break;
-        default:
-          break;
-      }
-      
       //update label progress value
-      document.querySelector(label).value =  (probabilities[1] * 100).toFixed(2) //0: no 1: yes
+      document.querySelector(label).value =  (probabilities[0] * 100).toFixed(2) //0: yes 1: no
 
       // Dispose tensors to avoid memory leaks
       prediction.dispose && prediction.dispose();
@@ -198,28 +194,14 @@ async function startRealtimeDetection() {
       const prediction = model.predict(inputTensor);
       const probabilities = (await prediction.array())[0];
 
-      const classNames = ['no', 'yes'];
+      const classNames = ['yes', 'no'];
       const maxIndex = probabilities.indexOf(Math.max(...probabilities));
       const predictedClass = classNames[maxIndex];
 
-      console.log(model_dir);
-      console.log("Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
+      console.log(model_dir + ' Prediction: ' + predictedClass + ' confidence:' + (probabilities[maxIndex] * 100).toFixed(2));
 
-      let label = '';
-      switch (model_dir) {
-        case 'classifier_model_crayfish':
-          label = '#label-1';
-          break;
-        case 'classifier_model_open_tail':
-          label = '#label-4';
-          break;
-        case 'classifier_model_raise_claw':
-          label = '#label-5';
-          break;
-        default:
-          break;
-      }
-      document.querySelector(label).value = (probabilities[1] * 100).toFixed(2);
+      let label = "#" + model_dir
+      document.querySelector(label).value = (probabilities[0] * 100).toFixed(2);
 
       // Dispose tensors to avoid memory leaks
       prediction.dispose && prediction.dispose();
@@ -261,7 +243,7 @@ async function toggleWebcam() {
   } else {
     try {
     console.log('starting')
-    currentStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } } });
     // Attach the stream to a video element:
     const video = document.querySelector('video'); 
     video.srcObject = currentStream;
@@ -290,6 +272,8 @@ let page = (
       <Main />
       <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     </ion-content>
+    {/* pass models_dir to client */}
+    <script>window.models_dir = {JSON.stringify(models_dir)}</script>
     {script}
   </>
 )
