@@ -3,7 +3,15 @@ console.log('Hello World bye bye')
 let image = document.getElementById('image') as HTMLImageElement
 
 let mapCanvas = document.getElementById('map') as HTMLCanvasElement
-let cameraCanvas = document.getElementById('camera') as HTMLCanvasElement
+export let cameraCanvas = document.getElementById('camera') as HTMLCanvasElement
+
+let rotateButton = document.getElementById('rotateButton') as HTMLButtonElement
+if (rotateButton) {
+  rotateButton.onclick = () => {
+    camera.rotate += 1 / 8
+    render()
+  }
+}
 
 let debugMessage = document.getElementById('debugMessage') as HTMLElement
 let debugStartMessage = document.getElementById(
@@ -32,6 +40,8 @@ image.onload = () => {
     camera.y = 0.2
     camera.width = 0.3
     camera.height = 0.2
+    camera.rotate = 0
+    camera.rotate_angle = 0
     render()
   }, 1000)
 }
@@ -41,6 +51,8 @@ let camera = {
   y: 0.5,
   width: 1,
   height: 1,
+  rotate: 0,
+  rotate_angle: 0,
 }
 
 let lastTouches: Record<number, Touch> = {}
@@ -57,6 +69,7 @@ function formatTouches(touches: TouchList) {
 
 cameraCanvas.addEventListener('touchstart', event => {
   event.preventDefault()
+  let touchCount = event.touches.length
   // debugStartMessage.textContent =
   //   'touchstart: ' + JSON.stringify(formatTouches(event.touches), null, 2)
   for (let touch of event.touches) {
@@ -76,8 +89,16 @@ cameraCanvas.addEventListener('touchmove', event => {
     let currentY = touch.clientY
     let deltaX = currentX - lastTouches[touch.identifier].clientX
     let deltaY = currentY - lastTouches[touch.identifier].clientY
-    camera.x -= ((deltaX / rect.width) * camera.width) / touchCount
-    camera.y -= ((deltaY / rect.height) * camera.height) / touchCount
+
+    let rotatedDeltaX =
+      deltaX * Math.cos(camera.rotate * 2 * Math.PI) +
+      deltaY * Math.sin(camera.rotate * 2 * Math.PI)
+    let rotatedDeltaY =
+      -deltaX * Math.sin(camera.rotate * 2 * Math.PI) +
+      deltaY * Math.cos(camera.rotate * 2 * Math.PI)
+
+    camera.x -= ((rotatedDeltaX / rect.width) * camera.width) / touchCount
+    camera.y -= ((rotatedDeltaY / rect.height) * camera.height) / touchCount
 
     // check if overflow
     {
@@ -134,8 +155,20 @@ cameraCanvas.addEventListener('touchmove', event => {
     let newHeight = camera.height / scaleY
     let width = newWidth * image.naturalWidth
     let height = newHeight * image.naturalHeight
-    let left = camera.x * image.naturalWidth - width / 2
-    let top = camera.y * image.naturalHeight - height / 2
+    if (width < 1) {
+      width = 1
+      newWidth = 1 / image.naturalWidth
+    }
+    if (height < 1) {
+      height = 1
+      newHeight = 1 / image.naturalHeight
+    }
+
+    let centerX = camera.x * image.naturalWidth
+    let centerY = camera.y * image.naturalHeight
+
+    let left = centerX - width / 2
+    let top = centerY - height / 2
     let right = left + width
     let bottom = top + height
 
@@ -153,38 +186,49 @@ cameraCanvas.addEventListener('touchmove', event => {
       camera.y -= (newHeight - camera.height) / 2
     }
 
-    // check if overflow
-    // {
-    //   let width = camera.width * image.naturalWidth
-    //   let height = camera.height * image.naturalHeight
-    //   let left = camera.x * image.naturalWidth - width / 2
-    //   let top = camera.y * image.naturalHeight - height / 2
-    //   let right = left + width
-    //   let bottom = top + height
+    // Detect the rotation
+    let currentCenterX = (currentTouch1.clientX + currentTouch2.clientX) / 2
+    let currentCenterY = (currentTouch1.clientY + currentTouch2.clientY) / 2
+    // let lastCenterX = (lastTouch1.clientX + lastTouch2.clientX) / 2
+    // let lastCenterY = (lastTouch1.clientY + lastTouch2.clientY) / 2
 
-    //   if (left < 0) {
-    //     camera.x = camera.width / 2
-    //   }
-    //   if (top < 0) {
-    //     camera.y = camera.height / 2
-    //   }
+    let current_rotate_angle = Math.atan2(
+      currentTouch2.clientY - currentTouch1.clientY,
+      currentTouch2.clientX - currentTouch1.clientX,
+    )
+    let last_rotate_angle = Math.atan2(
+      lastTouch2.clientY - lastTouch1.clientY,
+      lastTouch2.clientX - lastTouch1.clientX,
+    )
 
-    //   if (right >= image.naturalWidth) {
-    //     camera.x = 1 - camera.width / 2
-    //   }
-    //   if (bottom >= image.naturalHeight) {
-    //     camera.y = 1 - camera.height / 2
-    //   }
-    // }
+    let rotate_angle = current_rotate_angle - last_rotate_angle
+    // Normalize angle to [-π, π] range
+    while (rotate_angle > Math.PI) {
+      rotate_angle -= 2 * Math.PI
+    }
+    while (rotate_angle < -Math.PI) {
+      rotate_angle += 2 * Math.PI
+    }
+    camera.rotate_angle += rotate_angle
+    camera.rotate += rotate_angle / (2 * Math.PI)
+
+    // cameraContext.scale(rotate_scaleX, rotate_scaleY)
+    // cameraContext.translate(-rotate_left, -rotate_top)
+
+    // cameraContext.translate(+rotate_left + width / 2, +rotate_top + height / 2)
+    // cameraContext.rotate(rotate)
+    // cameraContext.translate(-rotate_left - width / 2, -rotate_top - height / 2)
 
     debugMessage.textContent =
       'scale: ' +
       JSON.stringify(
         {
+          rotate: camera.rotate,
+          rotate_angle: camera.rotate_angle,
           scaleX,
           scaleY,
-          lastDx,
-          lastDy,
+          x: camera.x,
+          y: camera.y,
           currentDx,
           currentDy,
           width: camera.width,
@@ -214,6 +258,7 @@ cameraCanvas.addEventListener('touchend', event => {
   }
 })
 
+cameraContext.setTransform()
 function pan() {}
 
 function pinch() {}
@@ -236,19 +281,32 @@ function renderCamera() {
   let left = camera.x * image.naturalWidth - width / 2
   let top = camera.y * image.naturalHeight - height / 2
   cameraContext.clearRect(0, 0, cameraCanvas.width, cameraCanvas.height)
+  cameraContext.save()
+
+  // console.log(cameraCanvas.width, width)
+
+  cameraContext.scale(cameraCanvas.width / width, cameraCanvas.height / height)
+  cameraContext.translate(-left, -top)
+
+  cameraContext.translate(+left + width / 2, +top + height / 2)
+  cameraContext.rotate(camera.rotate * 2 * Math.PI)
+  cameraContext.translate(-left - width / 2, -top - height / 2)
+
   cameraContext.drawImage(
     image,
     /* source */
-    left,
-    top,
-    width,
-    height,
+    // left,
+    // top,
+    // width,
+    // height,
+
     /* destination */
     0,
     0,
     cameraCanvas.width,
     cameraCanvas.height,
   )
+  cameraContext.restore()
 }
 
 function drawCameraBorder() {
@@ -259,5 +317,12 @@ function drawCameraBorder() {
   let height = camera.height * mapCanvas.height
   let left = camera.x * mapCanvas.width - width / 2
   let top = camera.y * mapCanvas.height - height / 2
-  mapContext.strokeRect(left, top, width, height)
+
+  mapContext.save()
+  mapContext.translate(left + width / 2, top + height / 2)
+  mapContext.rotate(-camera.rotate * 2 * Math.PI)
+  mapContext.strokeRect(-width / 2, -height / 2, width, height)
+  // mapContext.strokeRect(left, top, width, height)
+
+  mapContext.restore()
 }
