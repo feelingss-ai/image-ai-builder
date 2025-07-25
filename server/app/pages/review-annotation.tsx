@@ -33,6 +33,24 @@ let style = Style(/* css */ `
 #ReviewAnnotation {
 
 }
+.segment-yes {
+  --background: var(--ion-color-success, #28a745);
+  --color: #fff;
+}
+.segment-no {
+  --background: var(--ion-color-danger, #dc3545);
+  --color: #fff;
+}
+.segment-unknown {
+  --background: var(--ion-color-warning, #ffc107);
+  --color: #212529;
+}
+.segment-yes, .segment-no, .segment-unknown {
+  border-radius: 1rem;
+  margin: 0 0.5rem;
+  padding: 0.5rem 0;
+  font-size: 1.2rem;
+}
 `)
 
 let page = (
@@ -52,11 +70,6 @@ let page = (
   </>
 )
 
-let items = [
-  { title: 'Android', slug: 'md' },
-  { title: 'iOS', slug: 'ios' },
-]
-
 let count_annotated_images = db
   .prepare<{ label_id: number }, number>(
     /* sql */ `
@@ -69,6 +82,24 @@ where label_id = :label_id
 
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
+  if (!user) {
+    return (
+      <>
+        <div style="margin: auto; width: fit-content; text-align: center;">
+          <p class="ion-padding ion-margin error">
+            <Locale
+              en="You must be logged in to review annotations"
+              zh_hk="您必須登入才能審視標註"
+              zh_cn="您必须登录才能审阅标注"
+            />
+          </p>
+          <ion-button color="primary" onclick='goto("/login")'>
+            <Locale en="Login" zh_hk="登入" zh_cn="登录" />
+          </ion-button>
+        </div>
+      </>
+    )
+  }
 
   let params = new URLSearchParams(context.routerMatch?.search)
   let label_id = +params.get('label')! || 1
@@ -100,132 +131,28 @@ function Main(attrs: {}, context: DynamicContext) {
           })}
         </ion-select>
       </ion-item>
-    </>
-  )
-}
-
-let addPage = (
-  <>
-    {Style(/* css */ `
-#AddTrainAI .hint {
-  margin-inline-start: 1rem;
-  margin-block: 0.25rem;
-}
-`)}
-    <ion-header>
-      <ion-toolbar>
-        <IonBackButton href="/review-annotation" backText={pageTitle} />
-        <ion-title role="heading" aria-level="1">
-          {addPageTitle}
-        </ion-title>
-      </ion-toolbar>
-    </ion-header>
-    <ion-content id="AddReviewAnnotation" class="ion-padding">
-      <form
-        method="POST"
-        action="/review-annotation/add/submit"
-        onsubmit="emitForm(event)"
-      >
-        <ion-list>
-          <ion-item>
-            <ion-input
-              name="title"
-              label="Title*:"
-              label-placement="floating"
-              required
-              minlength="3"
-              maxlength="50"
-            />
-          </ion-item>
-          <p class="hint">(3-50 characters)</p>
-          <ion-item>
-            <ion-input
-              name="slug"
-              label="Slug*: (unique url)"
-              label-placement="floating"
-              required
-              pattern="(\w|-|\.){1,32}"
-            />
-          </ion-item>
-          <p class="hint">
-            (1-32 characters of: <code>a-z A-Z 0-9 - _ .</code>)
-          </p>
-        </ion-list>
-        <div style="margin-inline-start: 1rem">
-          <ion-button type="submit">Submit</ion-button>
-        </div>
-        <p>
-          Remark:
-          <br />
-          *: mandatory fields
-        </p>
-        <p id="add-message"></p>
-      </form>
-    </ion-content>
-  </>
-)
-
-function AddPage(attrs: {}, context: DynamicContext) {
-  let user = getAuthUser(context)
-  if (!user) return <Redirect href="/login" />
-  return addPage
-}
-
-let submitParser = object({
-  title: string({ minLength: 3, maxLength: 50 }),
-  slug: string({ match: /^[\w-]{1,32}$/ }),
-})
-
-function Submit(attrs: {}, context: DynamicContext) {
-  try {
-    let user = getAuthUser(context)
-    if (!user) throw 'You must be logged in to submit ' + pageTitle
-    let body = getContextFormBody(context)
-    let input = submitParser.parse(body)
-    let id = items.push({
-      title: input.title,
-      slug: input.slug,
-    })
-    return <Redirect href={`/review-annotation/result?id=${id}`} />
-  } catch (error) {
-    throwIfInAPI(error, '#add-message', context)
-    return (
-      <Redirect
-        href={
-          '/review-annotation/result?' +
-          new URLSearchParams({ error: String(error) })
-        }
-      />
-    )
-  }
-}
-
-function SubmitResult(attrs: {}, context: DynamicContext) {
-  let params = new URLSearchParams(context.routerMatch?.search)
-  let error = params.get('error')
-  let id = params.get('id')
-  return (
-    <>
-      <ion-header>
-        <ion-toolbar>
-          <IonBackButton href="/review-annotation/add" backText="Form" />
-          <ion-title role="heading" aria-level="1">
-            Submitted {pageTitle}
-          </ion-title>
-        </ion-toolbar>
-      </ion-header>
-      <ion-content id="AddReviewAnnotation" class="ion-padding">
-        {error ? (
-          renderError(error, context)
-        ) : (
-          <>
-            <p>Your submission is received (#{id}).</p>
-            <Link href="/review-annotation" tagName="ion-button">
-              Back to {pageTitle}
-            </Link>
-          </>
-        )}
-      </ion-content>
+      <br />
+      <ion-segment>
+        <ion-segment-button value="yes" content-id="yes" class="segment-yes">
+          <ion-icon name="checkmark"></ion-icon>
+        </ion-segment-button>
+        <ion-segment-button value="no" content-id="no" class="segment-no">
+          <ion-icon name="close"></ion-icon>
+        </ion-segment-button>
+        <ion-segment-button
+          value="unknown"
+          content-id="unknown"
+          className="segment-unknown"
+        >
+          <ion-icon name="help"></ion-icon>
+        </ion-segment-button>
+      </ion-segment>
+      <br />
+      <ion-segment-view>
+        <ion-segment-content id="yes">Yes</ion-segment-content>
+        <ion-segment-content id="no">No</ion-segment-content>
+        <ion-segment-content id="unknown">Unknown</ion-segment-content>
+      </ion-segment-view>
     </>
   )
 }
@@ -240,24 +167,6 @@ let routes = {
         node: page,
       }
     },
-  },
-  '/review-annotation/add': {
-    title: title(addPageTitle),
-    description: 'TODO',
-    node: <AddPage />,
-    streaming: false,
-  },
-  '/review-annotation/add/submit': {
-    title: apiEndpointTitle,
-    description: 'TODO',
-    node: <Submit />,
-    streaming: false,
-  },
-  '/review-annotation/result': {
-    title: apiEndpointTitle,
-    description: 'TODO',
-    node: <SubmitResult />,
-    streaming: false,
   },
 } satisfies Routes
 
