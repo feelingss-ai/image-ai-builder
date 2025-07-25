@@ -55,6 +55,23 @@ let script = Script(/* js */ `
 
 label_select = document.querySelector('#label_select');
 answer_segment = document.querySelector('#answer');
+window.default_labelId = label_select.value;
+window.default_answer = answer_segment.value;
+
+//try to submit the form when the page is loaded
+window.onload = function() {
+  const url = new URL(window.location);
+    url.searchParams.set('label', window.default_labelId);
+    window.history.pushState({}, '', url);
+    url.searchParams.set('answer', window.default_answer);
+    window.history.pushState({}, '', url);
+    console.log('url', url)
+    window.dispatchEvent(new Event('DOMContentLoaded'));
+    document.getElementById('submit').click();
+    console.log('submit clicked')
+  
+};  
+
 
 // submit form when label_select or answer_segment is changed
 label_select.addEventListener('ionChange', (event) => {
@@ -109,6 +126,44 @@ where label_id = :label_id
 `,
   )
   .pluck()
+
+let get_image_by_label_id_answer = db
+  .prepare<{ label_id: number; answer: number | undefined }, number[]>(
+    /* sql */ `
+select image_id
+from image_label 
+where label_id = :label_id and answer = :answer
+`,
+  )
+  .pluck()
+
+let get_total_images = db
+  .prepare<{}, number[]>(
+    /* sql */ `
+select distinct id
+from image
+`,
+  )
+  .pluck()
+
+let get_image_filename_by_id = db
+  .prepare<{ id: number }, number[]>(
+    /* sql */ `
+select filename
+from image
+where id = :id
+`,
+  )
+  .pluck()
+
+const mapping: { [key: string]: number } = {
+  yes: 1,
+  no: 0,
+}
+
+function stringToNumber(s: string): number | undefined {
+  return mapping[s]
+}
 
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
@@ -175,15 +230,23 @@ function Main(attrs: {}, context: DynamicContext) {
       />
       <br />
       <ion-segment value={answer} id="answer">
-        <ion-segment-button value="yes" content-id="yes" class="segment-yes">
+        <ion-segment-button
+          value="yes"
+          content-id="content-yes"
+          class="segment-yes"
+        >
           <ion-icon name="checkmark"></ion-icon>
         </ion-segment-button>
-        <ion-segment-button value="no" content-id="no" class="segment-no">
+        <ion-segment-button
+          value="no"
+          content-id="content-no"
+          class="segment-no"
+        >
           <ion-icon name="close"></ion-icon>
         </ion-segment-button>
         <ion-segment-button
           value="unknown"
-          content-id="unknown"
+          content-id="content-unknown"
           className="segment-unknown"
         >
           <ion-icon name="help"></ion-icon>
@@ -191,9 +254,9 @@ function Main(attrs: {}, context: DynamicContext) {
       </ion-segment>
       <br />
       <ion-segment-view>
-        <ion-segment-content id="yes">Yes</ion-segment-content>
-        <ion-segment-content id="no">No</ion-segment-content>
-        <ion-segment-content id="unknown">Unknown</ion-segment-content>
+        <ion-segment-content id="content-yes">Yes</ion-segment-content>
+        <ion-segment-content id="content-no">No</ion-segment-content>
+        <ion-segment-content id="content-unknown">Unknown</ion-segment-content>
       </ion-segment-view>
       <ion-input
         name="answer"
@@ -221,8 +284,46 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
     let answer = input.answer
     console.log('label_id', label_id)
     console.log('answer', answer)
-    // let code = ''
-    // broadcast(['eval', code])
+    let image_ids = get_image_by_label_id_answer.all({
+      label_id,
+      answer: stringToNumber(answer),
+    })
+    console.log('image_ids', image_ids)
+
+    let code = /* javascript  */ `
+      let image_ids = ${JSON.stringify(image_ids)}
+      let answer = ${JSON.stringify(answer)}
+      let content_yes = document.getElementById('content-yes')
+      let content_no = document.getElementById('content-no')
+      let content_unknown = document.getElementById('content-unknown')
+      try {
+          if (answer == 'yes') {
+              content_yes.textContent = image_ids
+          } else if (answer == 'no') {
+              content_no.textContent = image_ids
+          } else if (answer == 'unknown') {
+              let yes = ${JSON.stringify(
+                get_image_by_label_id_answer.all({
+                  label_id,
+                  answer: stringToNumber('yes'),
+                }),
+              )}
+              let no = ${JSON.stringify(
+                get_image_by_label_id_answer.all({
+                  label_id,
+                  answer: stringToNumber('no'),
+                }),
+              )}
+              let total = ${JSON.stringify(get_total_images.all({}))}
+              const unknown = total.filter(id => !yes.includes(id) && !no.includes(id));
+              content_unknown.textContent = unknown
+          }
+      } catch (e) {
+          console.error('SubmitReview error', e)
+      }
+    `
+
+    broadcast(['eval', code])
   } catch (e) {
     console.error('SubmitReview error', e)
   }
