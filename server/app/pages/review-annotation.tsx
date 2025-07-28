@@ -362,6 +362,9 @@ function Main(attrs: {}, context: DynamicContext) {
       />
       {/* this is a hidden input that is used to submit the form */}
       <ion-button type="submit" id="submit" style="display: none;" />
+      <ion-button onclick="reclassify()">
+        <Locale en="Reclassify" zh_hk="重新分類" zh_cn="重新分类" />
+      </ion-button>
     </form>
   )
 }
@@ -396,6 +399,13 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
       label_id,
       answer: stringToNumber('no'),
     })
+
+    let clash = get_total_images
+      .all({})
+      .filter(id => yes.includes(id) && no.includes(id))
+
+    let clash_filenames = get_image_filename_by_id_array(clash.flat())
+
     let unknown = get_total_images
       .all({})
       .filter(id => !yes.includes(id) && !no.includes(id))
@@ -403,9 +413,9 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
     let unknown_filenames = get_image_filename_by_id_array(unknown.flat())
 
     let code = /* javascript */ `
-      let image_ids = ${JSON.stringify(image_ids)}
       let answer = ${JSON.stringify(answer)}
       let image_filenames = ${JSON.stringify(image_filenames)}
+      let clash_filenames = ${JSON.stringify(clash_filenames)}
 
       try {
 
@@ -422,6 +432,8 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
         
         // it receives an array of filenames and returns a div with the image and the filename (written in javascript)
         image_filenames.forEach(image => {
+
+          
 
         const col = document.createElement('ion-col');
         col.size = '4';
@@ -441,6 +453,11 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
         filenameDiv.className = 'image-item--filename';
         filenameDiv.textContent = image.original_filename;
         filenameDiv.style.textAlign = 'center';
+
+        // if the image is in the clash, set the background color to red
+        if (clash_filenames.map(f => f.filename).includes(image.filename)) {
+          item.style.setProperty('--background', 'var(--ion-color-danger)');
+        }
         
         div.appendChild(img);
         div.appendChild(filenameDiv);
