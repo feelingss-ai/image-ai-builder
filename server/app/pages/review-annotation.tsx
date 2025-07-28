@@ -10,12 +10,12 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
-import { int, object, string, values } from 'cast.ts'
+import { int, object, string, url, values } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
 import { evalLocale, Locale } from '../components/locale.js'
-import { proxy } from '../../../db/proxy.js'
+import { proxy, User } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
 import { toRouteUrl } from '../../url.js'
@@ -55,23 +55,6 @@ let script = Script(/* js */ `
 
 label_select = document.querySelector('#label_select');
 answer_segment = document.querySelector('#answer');
-window.default_labelId = label_select.value;
-window.default_answer = answer_segment.value;
-
-//try to submit the form when the page is loaded
-window.onload = function() {
-  const url = new URL(window.location);
-    url.searchParams.set('label', window.default_labelId);
-    window.history.pushState({}, '', url);
-    url.searchParams.set('answer', window.default_answer);
-    window.history.pushState({}, '', url);
-    console.log('url', url)
-    window.dispatchEvent(new Event('DOMContentLoaded'));
-    document.getElementById('submit').click();
-    console.log('submit clicked')
-  
-};  
-
 
 // submit form when label_select or answer_segment is changed
 label_select.addEventListener('ionChange', (event) => {
@@ -127,6 +110,7 @@ where label_id = :label_id
   )
   .pluck()
 
+// get image ids by label id and answer it returns an array of image ids like [1,2,3]
 let get_image_by_label_id_answer = db
   .prepare<{ label_id: number; answer: number | undefined }, number[]>(
     /* sql */ `
@@ -146,21 +130,53 @@ from image
   )
   .pluck()
 
-let get_image_filename_by_id = db
-  .prepare<{ id: number }, number[]>(
-    /* sql */ `
-select filename
+let get_image_filename_by_id = db.prepare<
+  { id: number },
+  { filename: string; original_filename: string }
+>(/* sql */ `
+select filename, original_filename
 from image
 where id = :id
-`,
+`)
+
+// it receives an array of image ids and returns an array of filenames like
+// [{filename: '/uploads/834ee161-74e2-4919-b716-43c1361f6b09.jpeg', original_filename: '1.jpeg'}]
+function get_image_filename_by_id_array(
+  ids: number[],
+): { filename: string; original_filename: string }[] {
+  let filenames = []
+  for (let id of ids) {
+    let filename = get_image_filename_by_id.get({ id })
+    if (filename) {
+      filenames.push({
+        filename: '/uploads/' + filename.filename,
+        original_filename: filename.original_filename,
+      })
+    }
+  }
+  return filenames
+}
+
+// it receives an image url and filename and returns a div with the image and the filename
+function ImageItem(attrs: {
+  image_url: string
+  filename: string
+  user: User | null
+}) {
+  return (
+    <div class="image-item">
+      <img src={attrs.image_url} />
+      <div class="image-item--filename">{attrs.filename}</div>
+    </div>
   )
-  .pluck()
+}
 
 const mapping: { [key: string]: number } = {
   yes: 1,
   no: 0,
 }
 
+// it receives a answer string and returns a number like 1 for yes, 0 for no, undefined for unknown
 function stringToNumber(s: string): number | undefined {
   return mapping[s]
 }
@@ -189,11 +205,21 @@ function Main(attrs: {}, context: DynamicContext) {
   let params = new URLSearchParams(context.routerMatch?.search)
   let label_id = +params.get('label')! || 1
   let answer = params.get('answer')! || 'yes'
-
-  // let image = select_next_image.get({ label_id })
   let total_images = proxy.image.length
-  // let count = has_previous_annotation.get({ label_id }) as number
-  // let has_undo = count > 0
+
+  let yes = get_image_by_label_id_answer.all({
+    label_id,
+    answer: stringToNumber('yes'),
+  })
+
+  let no = get_image_by_label_id_answer.all({
+    label_id,
+    answer: stringToNumber('no'),
+  })
+
+  //unknown images are the images that are not in yes or no
+  let total = get_total_images.all({})
+  let unknown = total.filter(id => !yes.includes(id) && !no.includes(id))
 
   return (
     <form
@@ -222,6 +248,7 @@ function Main(attrs: {}, context: DynamicContext) {
           })}
         </ion-select>
       </ion-item>
+      {/* this is a hidden input that is used to store the label id */}
       <ion-input
         name="label_id"
         value={+params.get('label')! || 1}
@@ -254,16 +281,71 @@ function Main(attrs: {}, context: DynamicContext) {
       </ion-segment>
       <br />
       <ion-segment-view>
-        <ion-segment-content id="content-yes">Yes</ion-segment-content>
-        <ion-segment-content id="content-no">No</ion-segment-content>
-        <ion-segment-content id="content-unknown">Unknown</ion-segment-content>
+        <ion-segment-content id="content-yes">
+          {mapArray(
+            get_image_filename_by_id_array(
+              get_image_by_label_id_answer
+                .all({
+                  label_id,
+                  answer: stringToNumber('yes'),
+                })
+                .flat(),
+            ),
+            filename => {
+              return (
+                <ImageItem
+                  image_url={filename.filename}
+                  filename={filename.original_filename}
+                  user={user}
+                />
+              )
+            },
+          )}
+        </ion-segment-content>
+        <ion-segment-content id="content-no">
+          {mapArray(
+            get_image_filename_by_id_array(
+              get_image_by_label_id_answer
+                .all({
+                  label_id,
+                  answer: stringToNumber('no'),
+                })
+                .flat(),
+            ),
+            filename => {
+              return (
+                <ImageItem
+                  image_url={filename.filename}
+                  filename={filename.original_filename}
+                  user={user}
+                />
+              )
+            },
+          )}
+        </ion-segment-content>
+        <ion-segment-content id="content-unknown">
+          {mapArray(
+            get_image_filename_by_id_array(unknown.flat()),
+            filename => {
+              return (
+                <ImageItem
+                  image_url={filename.filename}
+                  filename={filename.original_filename}
+                  user={user}
+                />
+              )
+            },
+          )}
+        </ion-segment-content>
       </ion-segment-view>
+      {/* this is a hidden input that is used to store the answer */}
       <ion-input
         name="answer"
         value={params.get('answer')! || 'yes'}
         style="display: none;"
         id="answer_input"
       />
+      {/* this is a hidden input that is used to submit the form */}
       <ion-button type="submit" id="submit" style="display: none;" />
     </form>
   )
@@ -288,36 +370,53 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
       label_id,
       answer: stringToNumber(answer),
     })
-    console.log('image_ids', image_ids)
+
+    let image_filenames = get_image_filename_by_id_array(image_ids.flat())
+
+    let yes = get_image_by_label_id_answer.all({
+      label_id,
+      answer: stringToNumber('yes'),
+    })
+    let no = get_image_by_label_id_answer.all({
+      label_id,
+      answer: stringToNumber('no'),
+    })
+    let unknown = get_total_images
+      .all({})
+      .filter(id => !yes.includes(id) && !no.includes(id))
+
+    let unknown_filenames = get_image_filename_by_id_array(unknown.flat())
 
     let code = /* javascript  */ `
       let image_ids = ${JSON.stringify(image_ids)}
       let answer = ${JSON.stringify(answer)}
-      let content_yes = document.getElementById('content-yes')
-      let content_no = document.getElementById('content-no')
-      let content_unknown = document.getElementById('content-unknown')
+      let image_filenames = ${JSON.stringify(image_filenames)}
+
       try {
-          if (answer == 'yes') {
-              content_yes.textContent = image_ids
-          } else if (answer == 'no') {
-              content_no.textContent = image_ids
-          } else if (answer == 'unknown') {
-              let yes = ${JSON.stringify(
-                get_image_by_label_id_answer.all({
-                  label_id,
-                  answer: stringToNumber('yes'),
-                }),
-              )}
-              let no = ${JSON.stringify(
-                get_image_by_label_id_answer.all({
-                  label_id,
-                  answer: stringToNumber('no'),
-                }),
-              )}
-              let total = ${JSON.stringify(get_total_images.all({}))}
-              const unknown = total.filter(id => !yes.includes(id) && !no.includes(id));
-              content_unknown.textContent = unknown
-          }
+        const content = document.getElementById('content-${answer}');
+        content.innerHTML = '';
+
+        if (content.id == 'content-unknown') { 
+          image_filenames = ${JSON.stringify(unknown_filenames)}
+        }
+        
+        // it receives an array of filenames and returns a div with the image and the filename (written in javascript)
+        image_filenames.forEach(image => {
+         
+          const div = document.createElement('div');
+          div.className = 'image-item';
+          
+          const img = document.createElement('img');
+          img.src = image.filename;
+          
+          const filenameDiv = document.createElement('div');
+          filenameDiv.className = 'image-item--filename';
+          filenameDiv.textContent = image.original_filename;
+          
+          div.appendChild(img);
+          div.appendChild(filenameDiv);
+          content.appendChild(div);
+        });
       } catch (e) {
           console.error('SubmitReview error', e)
       }
