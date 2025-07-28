@@ -63,9 +63,16 @@ let script = Script(/* js */ `
 
 label_select = document.querySelector('#label_select');
 answer_segment = document.querySelector('#answer');
+checkboxes = document.querySelectorAll('ion-checkbox');
+selectedImages = [];
+
+for (let checkbox of checkboxes) {
+  checkbox.addEventListener('ionChange', onCheckboxChange);
+}
 
 // submit form when label_select or answer_segment is changed
 label_select.addEventListener('ionChange', (event) => {
+  selectedImages = [];
   const labelId = event.detail.value;
   document.getElementById('label_id_input').value = labelId;
 
@@ -78,6 +85,7 @@ label_select.addEventListener('ionChange', (event) => {
 })
 
 answer_segment.addEventListener('ionChange', (event) => {
+  selectedImages = [];
   const answer = event.detail.value;
   document.getElementById('answer_input').value = answer;
 
@@ -87,6 +95,41 @@ answer_segment.addEventListener('ionChange', (event) => {
 
   document.getElementById('submit').click();
 })
+
+// Function to sync selectedImages when a checkbox toggled
+function onCheckboxChange(event) {
+  console.log('onCheckboxChange', event)
+  const checkbox = event.target;
+  const imageId = checkbox.dataset.imageId;
+  const answer = checkbox.dataset.answer;
+
+  if (checkbox.checked) {
+    // Add to selection if not already in
+    if (!selectedImages.find(item => item.image_id == imageId)) {
+      selectedImages.push({ image_id: Number(imageId), answer });
+    }
+  } else {
+    // Remove from selection if unchecked
+    const index = selectedImages.findIndex(item => item.image_id == imageId);
+    if (index > -1) {
+      selectedImages.splice(index, 1);
+    }
+  }
+
+  console.log('Selected images:', selectedImages);
+}
+
+function reclassify() {
+  console.log('reclassify')
+  console.log('selectedImages', selectedImages)
+  let selectedImageIds = document.createElement('input');
+  selectedImageIds.name = 'selected_image_answers';
+  selectedImageIds.value = JSON.stringify(selectedImages);
+  console.log('selectedImageIds', selectedImageIds)
+  document.getElementById('submit').appendChild(selectedImageIds);
+  document.getElementById('submit').click();
+  selectedImages = [];
+}
 
 `)
 
@@ -122,7 +165,7 @@ where label_id = :label_id
 let get_image_by_label_id_answer = db
   .prepare<{ label_id: number; answer: number | undefined }, number[]>(
     /* sql */ `
-select image_id
+select distinct image_id
 from image_label 
 where label_id = :label_id and answer = :answer
 `,
@@ -151,7 +194,7 @@ where id = :id
 // [{filename: '/uploads/834ee161-74e2-4919-b716-43c1361f6b09.jpeg', original_filename: '1.jpeg'}]
 function get_image_filename_by_id_array(
   ids: number[],
-): { filename: string; original_filename: string }[] {
+): { filename: string; original_filename: string; id: number }[] {
   let filenames = []
   for (let id of ids) {
     let filename = get_image_filename_by_id.get({ id })
@@ -159,6 +202,7 @@ function get_image_filename_by_id_array(
       filenames.push({
         filename: '/uploads/' + filename.filename,
         original_filename: filename.original_filename,
+        id: id,
       })
     }
   }
@@ -170,10 +214,15 @@ function ImageItem(attrs: {
   image_url: string
   filename: string
   user: User | null
+  image_id: number
+  answer: string
 }) {
   return (
     <ion-item class="image-item-container">
-      <ion-checkbox></ion-checkbox>
+      <ion-checkbox
+        data-image-id={attrs.image_id}
+        data-answer={attrs.answer}
+      ></ion-checkbox>
       <div class="image-item">
         <img src={attrs.image_url} />
         <div class="image-item--filename" style="text-align: center;">
@@ -307,6 +356,8 @@ function Main(attrs: {}, context: DynamicContext) {
                         image_url={filename.filename}
                         filename={filename.original_filename}
                         user={user}
+                        image_id={filename.id}
+                        answer="yes"
                       />
                     </ion-col>
                   )
@@ -325,6 +376,8 @@ function Main(attrs: {}, context: DynamicContext) {
                       image_url={filename.filename}
                       filename={filename.original_filename}
                       user={user}
+                      image_id={filename.id}
+                      answer="no"
                     />
                   </ion-col>
                 )
@@ -344,6 +397,8 @@ function Main(attrs: {}, context: DynamicContext) {
                         image_url={filename.filename}
                         filename={filename.original_filename}
                         user={user}
+                        image_id={filename.id}
+                        answer="unknown"
                       />
                     </ion-col>
                   )
@@ -362,9 +417,11 @@ function Main(attrs: {}, context: DynamicContext) {
       />
       {/* this is a hidden input that is used to submit the form */}
       <ion-button type="submit" id="submit" style="display: none;" />
-      <ion-button onclick="reclassify()">
-        <Locale en="Reclassify" zh_hk="重新分類" zh_cn="重新分类" />
-      </ion-button>
+      <div style="display: flex; justify-content: center; margin-top: 1rem;">
+        <ion-button onclick="reclassify()">
+          <Locale en="Reclassify" zh_hk="重新分類" zh_cn="重新分类" />
+        </ion-button>
+      </div>
     </form>
   )
 }
@@ -372,6 +429,7 @@ function Main(attrs: {}, context: DynamicContext) {
 let submitReviewParser = object({
   label_id: int(),
   answer: values(['yes' as const, 'no' as const, 'unknown' as const]),
+  selected_image_answers: string(),
 })
 
 function SubmitReview(attrs: {}, context: DynamicContext) {
@@ -384,12 +442,18 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
     let answer = input.answer
     console.log('label_id', label_id)
     console.log('answer', answer)
+    console.log('selected_image_answers json', input.selected_image_answers)
+    let selected_image_answers = JSON.parse(input.selected_image_answers)
+    console.log('selected_image_answers array', selected_image_answers)
+
     let image_ids = get_image_by_label_id_answer.all({
       label_id,
       answer: stringToNumber(answer),
     })
 
     let image_filenames = get_image_filename_by_id_array(image_ids.flat())
+
+    console.log('image_ids', image_ids)
 
     let yes = get_image_by_label_id_answer.all({
       label_id,
@@ -442,7 +506,10 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
         item.className = 'image-item-container';
 
         const checkbox = document.createElement('ion-checkbox');
-         
+        checkbox.dataset.imageId = image.id;
+        checkbox.dataset.answer = answer;
+        checkbox.addEventListener('ionChange', onCheckboxChange);
+
         const div = document.createElement('div');
         div.className = 'image-item';
         
@@ -455,7 +522,7 @@ function SubmitReview(attrs: {}, context: DynamicContext) {
         filenameDiv.style.textAlign = 'center';
 
         // if the image is in the clash, set the background color to red
-        if (clash_filenames.map(f => f.filename).includes(image.filename)) {
+        if (clash_filenames.map(f => f.id).includes(image.id)) {
           item.style.setProperty('--background', 'var(--ion-color-danger)');
         }
         
