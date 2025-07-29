@@ -37,8 +37,10 @@ import { db } from '../../../db/db.js'
 import { baseModel, getClassifierModel } from '../model.js'
 import { env } from '../../env.js'
 import { join } from 'path'
-import { tf } from 'tensorflow-helpers'
+import { loadImageClassifierModel, tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
+import { mkdirSync, rmSync } from 'fs'
+import { scales } from 'chart.js'
 
 let pageTitle = (
   <Locale en="Train AI Model" zh_hk="訓練 AI 模型" zh_cn="训练 AI 模型" />
@@ -198,7 +200,7 @@ function Main(attrs: {}, context: Context) {
   */
   function getDatasets(key: string) {
     return Object.values(statsByModel).map(model => ({
-      label: `Model ${model.label_title} ${key}`,
+      label: `Model ${model.label_title}`,
       data: model[key as keyof typeof model] as number[],
     }))
   }
@@ -312,7 +314,7 @@ function Main(attrs: {}, context: Context) {
       </h2>
       <div id="demoMessage"></div>
       {ChartScript}
-      <div style="width: 100%; max-height: 400px;">
+      <div style="width: 100%; max-height: 400px; margin-bottom: 40px;">
         <p>
           <Locale en="Train Loss" zh_hk="訓練損失" zh_cn="训练损失" />
         </p>
@@ -324,7 +326,7 @@ function Main(attrs: {}, context: Context) {
           min={0}
         />
       </div>
-      <div style="width: 100%; max-height: 400px;">
+      <div style="width: 100%; max-height: 400px; margin-bottom: 40px;">
         <p>
           <Locale en="Validation Loss" zh_hk="驗證損失" zh_cn="验证损失" />
         </p>
@@ -336,7 +338,7 @@ function Main(attrs: {}, context: Context) {
           min={0}
         />
       </div>
-      <div style="width: 100%; max-height: 400px;">
+      <div style="width: 100%; max-height: 400px; margin-bottom: 40px;">
         <p>
           <Locale en="Train Accuracy" zh_hk="訓練準確率" zh_cn="训练准确率" />
         </p>
@@ -349,7 +351,7 @@ function Main(attrs: {}, context: Context) {
           max={1}
         />
       </div>
-      <div style="width: 100%; max-height: 400px;">
+      <div style="width: 100%; max-height: 400px; margin-bottom: 40px;">
         <p>
           <Locale
             en="Validation Accuracy"
@@ -381,8 +383,12 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
   if (!user) throw 'You must be logged in to train AI'
   let body = getContextFormBody(context)
   let input = submitTrainParser.parse(body)
+  let labels = pick(proxy.label, ['id', 'title', 'dependency_id'])
   if (input.training_mode === 'scratch') {
     del(proxy.training_stats, { id: notNull })
+    for (let i = 0; i < labels.length; i++) {
+      retrainModel(labels[i]['id']!)
+    }
     let code = /* javascript */ `
     train_loss_canvas.chart.data.labels = []
     val_loss_canvas.chart.data.labels = []
@@ -400,6 +406,19 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
      val_accuracy_canvas.chart.update();           
       `
     broadcast(['eval', code])
+  }
+  for (let i = 0; i < labels.length; i++) {
+    trainModel({
+      label_index: labels[i]['id']!,
+      label: labels[i],
+      userID: user!.id!,
+      epochs: input.epoch_no,
+      learning_rate: input.learning_rate,
+      batchSize: 32,
+    })
+  }
+  async function retrainModel(label_index: number) {
+    rmSync(`saved_models/label-${label_index}`, { recursive: true })
   }
   async function trainModel(options: {
     label_index: number
@@ -427,7 +446,6 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
     let x = tf.concat(embeddings)
     let y = tf.oneHot(answers, 2)
     let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
-    console.log(label_id, initialEpoch)
     await classifierModel.train({
       x,
       y,
@@ -442,20 +460,20 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
               user_id: options.userID,
               learning_rate: options.learning_rate,
               epoch: initialEpoch + epoch + 1,
-              train_loss: Number(loss),
-              train_accuracy: Number(accuracy),
+              train_loss: +loss,
+              train_accuracy: +accuracy,
               val_loss: 0,
               val_accuracy: 0,
               label_id: label_id,
             })
             broadcast([
               'eval',
-              /* javascript */ `          
+              /* javascript */ `    
 train_loss_canvas.chart.data.labels[${epoch} + ${initialEpoch}] = ${epoch} + ${initialEpoch} + 1
 train_loss_canvas.chart.data.datasets[${label_index}].data[${epoch} + ${initialEpoch}] = ${loss};
 
 train_accuracy_canvas.chart.data.labels[${epoch} + ${initialEpoch}] = ${epoch} + ${initialEpoch} + 1
-train_accuracy_canvas.chart.data.datasets[${label_index}].data[${epoch} + ${initialEpoch}] = ${accuracy};
+train_accuracy_canvas.chart.data.datasets[${label_index}].data[${epoch} + ${initialEpoch}] = +${accuracy};
 
 train_loss_canvas.chart.update();
 train_accuracy_canvas.chart.update();
@@ -468,18 +486,6 @@ train_accuracy_canvas.chart.update();
     x.dispose()
     y.dispose()
     await classifierModel.save()
-  }
-
-  let labels = pick(proxy.label, ['id', 'title', 'dependency_id'])
-  for (let i = 0; i < labels.length; i++) {
-    trainModel({
-      label_index: labels[i]['id']!,
-      label: labels[i],
-      userID: user!.id!,
-      epochs: input.epoch_no,
-      learning_rate: input.learning_rate,
-      batchSize: 32,
-    })
   }
   throw EarlyTerminate
 }
@@ -527,7 +533,7 @@ function formatNumber(x: number) {
   if (x >= 0.01) {
     return x.toFixed(4)
   }
-  return x.toExponential(2)
+  return x.toExponential(3)
 }
 
 let routes = {
