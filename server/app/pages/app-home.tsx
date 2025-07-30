@@ -81,14 +81,22 @@ let homePage = (
           <Link tagName="ion-item" href={'/annotate-image'}>
             2. <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />
           </Link>
+          <Link tagName="ion-item" href={'/review-bounding-box'}>
+            3.{' '}
+            <Locale
+              en="Review Bounding Box"
+              zh_hk="審視邊界框"
+              zh_cn="审阅边界框"
+            />
+          </Link>
           <Link tagName="ion-item" href={'/train-ai'}>
-            3. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
+            4. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
           </Link>
           <Link tagName="ion-item" href={'/preview-ai'}>
-            4. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
+            5. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
           </Link>
           <Link tagName="ion-item" href={'/stats'}>
-            5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
+            6. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
           </Link>
         </ion-list>
         {wsStatus.safeArea}

@@ -3,6 +3,7 @@ import PreviewAI from './pages/preview-ai.js'
 import TrainAI from './pages/train-ai.js'
 import AnnotateImage from './pages/annotate-image.js'
 import UploadImage from './pages/upload-image.js'
+import ReviewBoundingBox from './pages/review-bounding-box.js'
 import ReportContent from './pages/report-content.js'
 import AppNotice from './pages/app-notice.js'
 import AppChat from './pages/app-chat.js'
@@ -90,6 +91,7 @@ let routeDict = {
   ...TrainAI.routes,
   ...AnnotateImage.routes,
   ...UploadImage.routes,
+  ...ReviewBoundingBox.routes,
   ...ReportContent.routes,
   ...Home.routes,
   ...DemoPlugin.routes,
