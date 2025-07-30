@@ -39,14 +39,7 @@ function setupDragUI(options: {
   let mapContext = mapCanvas.getContext('2d')!
   let cameraContext = cameraCanvas.getContext('2d')!
 
-  image.onload = () => {
-    mapCanvas.width = image.naturalWidth
-    mapCanvas.height = image.naturalHeight
-    cameraCanvas.width = image.naturalWidth
-    cameraCanvas.height = image.naturalHeight
-
-    render()
-  }
+  render()
 
   let lastTouches: Record<number, Touch> = {}
 

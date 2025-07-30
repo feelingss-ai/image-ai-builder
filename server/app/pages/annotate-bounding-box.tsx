@@ -18,6 +18,11 @@ import { EarlyTerminate } from '../../exception.js'
 import { showError } from '../components/error.js'
 import { id, number, object, values } from 'cast.ts'
 import { Script } from '../components/script.js'
+import { loadClientPlugin } from '../../client-plugin.js'
+
+let dragUIPlugin = loadClientPlugin({
+  entryFile: 'dist/client/drag-ui.js',
+})
 
 let pageTitle = (
   <Locale en="Annotate Bounding Box" zh_hk="標註邊界框" zh_cn="标注边界框" />
@@ -38,6 +43,18 @@ let style = Style(/* css */ `
 #gesture_info {
   white-space: pre-wrap;
   font-family: monospace;
+}
+
+#editorContainer canvas {
+  width: 100%;
+}
+#minimapCanvas {
+  height: calc(30dvh - 6rem);
+  object-fit: contain;
+}
+#previewCanvas {
+  height: calc(70dvh - 6rem);
+  object-fit: fill;
 }
 `)
 
@@ -62,16 +79,6 @@ function rotateAnnotationImage(image) {
   rotateImageInline(image)
 }
 
-var canvas = bounding_box_canvas
-var context = canvas.getContext('2d')
-
-var viewport = {
-  x: 0.5,
-  y: 0.5,
-  width: 1,
-  height: 1,
-}
-
 function draw_image() {
   let width = viewport.width * label_image.naturalWidth
   let height = viewport.height * label_image.naturalHeight
@@ -90,51 +97,25 @@ function draw_image() {
     0, 0, canvas.width, canvas.height,
   )
 }
-
-var hammertime = new Hammer(bounding_box_canvas, {
-
-});
 var last_time = 0
-label_image.onload = gesture_info_update
-function gesture_info_update(ev) {
-  let now = Date.now()
-  if (now - last_time > 1000) {
-    gesture_info.textContent = JSON.stringify(ev, null, 2);
-    last_time = now
-  }
-  switch (ev.additionalEvent) {
-    case 'pinchin':
-      viewport.width *= 1 + ev.velocityX
-      viewport.height *= 1 + ev.velocityY
-      break
-    case 'pinchout':
-      viewport.width *= 1 - ev.velocityX 
-      viewport.height *= 1 - ev.velocityY
-      break
-    case 'rotate':
-      break
-    case 'pan':
-      // break
-  }
-  console.log(ev)
-  // viewport.width *= 0.99
-  // viewport.height *= 0.99
-  draw_image()
+function setupEditorUI() {
+  // TODO: get bounding boxes from database
+  let bounding_boxes = []
+  // debugger;
+  setupDragUI({
+    image: label_image,
+    minimap_canvas: minimapCanvas,
+    preview_canvas: previewCanvas,
+
+    debugMessage: debugMessage,
+    debugStartMessage: debugStartMessage,
+    debugMoveMessage: debugMoveMessage,
+    debugEndMessage: debugEndMessage,
+
+    bounding_boxes: bounding_boxes,
+  })
 }
-hammertime.on('pan', function(ev) {
-	gesture_info_update(ev);
-});
-hammertime.on('pinch', function(ev) {
-	gesture_info_update(ev);
-});
-// hammertime.on('rotate', function(ev) {
-// 	gesture_info_update(ev);
-// });
-hammertime.get('pinch').set({ enable: true });
-// hammertime.get('rotate').set({ enable: true });
-
-hammertime.get('pan').set({ direction: Hammer.DIRECTION_ALL });
-
+window.setupEditorUI = setupEditorUI
 
 `)
 
@@ -152,9 +133,10 @@ let page = (
       </ion-toolbar>
     </ion-header>
     <ion-content id="AnnotateBoundingBox" class="ion-no-padding">
+      {dragUIPlugin.node}
+      {script}
       <Main />
     </ion-content>
-    {script}
   </>
 )
 
@@ -209,16 +191,21 @@ function Main(attrs: {}, context: any) {
         </ion-select>
       </ion-item>
       <div style="flex-grow: 1; overflow: hidden">
-        <div id="bounding_box_area">
-          <canvas id="bounding_box_canvas"></canvas>
-          <div id="gesture_info"></div>
+        <div id="editorContainer">
+          <canvas id="minimapCanvas"></canvas>
+          <canvas id="previewCanvas"></canvas>
+        </div>
+        <div id="debugMessage">
+          <div id="debugStartMessage"></div>
+          <div id="debugMoveMessage"></div>
+          <div id="debugEndMessage"></div>
         </div>
         <img
-          // hidden
+          hidden
           data-image-id={image?.id}
           data-rotation={image?.rotation || 0}
           id="label_image"
-          src={`/Uploads/${image?.filename}`}
+          src={`/uploads/${image?.filename}`}
           alt={
             <Locale
               en="Loading image..."
@@ -226,8 +213,9 @@ function Main(attrs: {}, context: any) {
               zh_cn="加载图像中..."
             />
           }
-          style="height: 100%; object-fit: contain"
-          hidden={!image}
+          style="width: 100vw; max-width: 100vw; height: auto; max-height: 60vh; object-fit: contain;"
+          // hidden={!image}
+          onLoad="setupEditorUI()"
         />
         <div
           id="no-image-message"
