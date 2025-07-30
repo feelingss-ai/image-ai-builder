@@ -31,6 +31,7 @@ import DemoPlugin from './pages/demo-plugin.js'
 import AppHome from './pages/app-home.js'
 import AppAbout from './pages/app-about.js'
 import AppCharacter from './pages/app-character.js'
+import EditLabel from './pages/edit-label.js'
 import type { renderWebTemplate } from '../../template/web.js'
 import type { renderIonicTemplate } from '../../template/ionic.js'
 import { VNode } from '../../client/jsx/types.js'
@@ -108,6 +109,7 @@ let routeDict = {
   ...AppNotice.routes,
   ...AppMore.routes,
   ...AppSettings.routes,
+  ...EditLabel.routes,
 } satisfies Routes
 
 export let redirectDict: Record<string, string> = {

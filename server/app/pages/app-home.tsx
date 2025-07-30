@@ -75,14 +75,22 @@ let homePage = (
       </ion-header>
       <ion-content class="ion-padding">
         <ion-list>
+          <Link tagName="ion-item" href={'/edit-label'}>
+            1.{' '}
+            <Locale
+              en="Edit Class Label"
+              zh_hk="編輯類別標籤"
+              zh_cn="编辑類別標籤"
+            />
+          </Link>
           <Link tagName="ion-item" href={'/upload-image'}>
-            1. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
+            2. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
           </Link>
           <Link tagName="ion-item" href={'/annotate-image'}>
-            2. <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />
+            3. <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />
           </Link>
           <Link tagName="ion-item" href={'/annotate-bounding-box'}>
-            3.{' '}
+            4.{' '}
             <Locale
               en="Annotate bounding box"
               zh_hk="標註邊界框"
@@ -90,13 +98,13 @@ let homePage = (
             />
           </Link>
           <Link tagName="ion-item" href={'/train-ai'}>
-            4. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
+            5. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
           </Link>
           <Link tagName="ion-item" href={'/preview-ai'}>
-            5. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
+            6. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
           </Link>
           <Link tagName="ion-item" href={'/stats'}>
-            6. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
+            7. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
           </Link>
         </ion-list>
         {wsStatus.safeArea}
