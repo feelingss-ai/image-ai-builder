@@ -7,10 +7,11 @@ import {
   DynamicContext,
   getContextFormBody,
   throwIfInAPI,
+  WsContext,
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
-import { int, object, string, url, values } from 'cast.ts'
+import { array, id, int, object, string, url, values } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
@@ -22,6 +23,8 @@ import { toRouteUrl } from '../../url.js'
 import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { EarlyTerminate } from '../../exception.js'
+import { pick } from 'better-sqlite3-proxy'
+import { nodeToVNode } from '../jsx/vnode.js'
 
 let pageTitle = (
   <Locale en="Review Annotation" zh_hk="審視標註" zh_cn="审阅标注" />
@@ -57,78 +60,52 @@ let style = Style(/* css */ `
   padding: 0.5rem;
 }
 
+/*change background color to red when clash*/
+.image-item-container[data-clash='true'] {
+  --background: var(--ion-color-danger);
+}
+
+.submit-buttons {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+
 `)
 
 let script = Script(/* js */ `
 
 label_select = document.querySelector('#label_select');
-answer_segment = document.querySelector('#answer');
-checkboxes = document.querySelectorAll('ion-checkbox');
-selectedImages = [];
 
-for (let checkbox of checkboxes) {
-  checkbox.addEventListener('ionChange', onCheckboxChange);
-}
-
-// submit form when label_select or answer_segment is changed
+// submit form when label_select is changed
 label_select.addEventListener('ionChange', (event) => {
-  selectedImages = [];
   const labelId = event.detail.value;
-  document.getElementById('label_id_input').value = labelId;
 
   // Update URL with new label parameter
   const url = new URL(window.location);
   url.searchParams.set('label', labelId);
   window.history.pushState({}, '', url);
 
-  document.getElementById('submit').click();
+  submitAnswer('change_label');
 })
 
-answer_segment.addEventListener('ionChange', (event) => {
-  selectedImages = [];
-  const answer = event.detail.value;
-  document.getElementById('answer_input').value = answer;
-
-  const url = new URL(window.location);
-  url.searchParams.set('answer', answer);
-  window.history.pushState({}, '', url);
-
-  document.getElementById('submit').click();
-})
-
-// Function to sync selectedImages when a checkbox toggled
-function onCheckboxChange(event) {
-  console.log('onCheckboxChange', event)
-  const checkbox = event.target;
-  const imageId = checkbox.dataset.imageId;
-  const answer = checkbox.dataset.answer;
-
-  if (checkbox.checked) {
-    // Add to selection if not already in
-    if (!selectedImages.find(item => item.image_id == imageId)) {
-      selectedImages.push({ image_id: Number(imageId), answer });
+//send selected image ids to server
+function submitAnswer(mark_answer) {
+  let label_id = +label_select.value
+  let view_answer = answerSegment.value;
+  let selected_image_ids = [];
+  document.querySelectorAll('#content-'+view_answer+' ion-checkbox').forEach(checkbox => {
+    if (checkbox.checked) {
+      selected_image_ids.push(+checkbox.dataset.imageId);
     }
-  } else {
-    // Remove from selection if unchecked
-    const index = selectedImages.findIndex(item => item.image_id == imageId);
-    if (index > -1) {
-      selectedImages.splice(index, 1);
-    }
-  }
-
-  console.log('Selected images:', selectedImages);
-}
-
-function reclassify() {
-  console.log('reclassify')
-  console.log('selectedImages', selectedImages)
-  let selectedImageIds = document.createElement('input');
-  selectedImageIds.name = 'selected_image_answers';
-  selectedImageIds.value = JSON.stringify(selectedImages);
-  console.log('selectedImageIds', selectedImageIds)
-  document.getElementById('submit').appendChild(selectedImageIds);
-  document.getElementById('submit').click();
-  selectedImages = [];
+  })
+  emit('/review-annotation/submit-review', {
+    label_id,
+    mark_answer,
+    selected_image_ids,
+  })
 }
 
 `)
@@ -161,9 +138,9 @@ where label_id = :label_id
   )
   .pluck()
 
-// get image ids by label id and answer it returns an array of image ids like [1,2,3]
+// get image ids by label id and answer it returns an image id like 1,2,3
 let get_image_by_label_id_answer = db
-  .prepare<{ label_id: number; answer: number | undefined }, number[]>(
+  .prepare<{ label_id: number; answer: number | undefined }, number>(
     /* sql */ `
 select distinct image_id
 from image_label 
@@ -172,61 +149,23 @@ where label_id = :label_id and answer = :answer
   )
   .pluck()
 
-let get_total_images = db
-  .prepare<{}, number[]>(
-    /* sql */ `
-select distinct id
-from image
-`,
-  )
-  .pluck()
-
-let get_image_filename_by_id = db.prepare<
-  { id: number },
-  { filename: string; original_filename: string }
->(/* sql */ `
-select filename, original_filename
-from image
-where id = :id
-`)
-
-// it receives an array of image ids and returns an array of filenames like
-// [{filename: '/uploads/834ee161-74e2-4919-b716-43c1361f6b09.jpeg', original_filename: '1.jpeg'}]
-function get_image_filename_by_id_array(
-  ids: number[],
-): { filename: string; original_filename: string; id: number }[] {
-  let filenames = []
-  for (let id of ids) {
-    let filename = get_image_filename_by_id.get({ id })
-    if (filename) {
-      filenames.push({
-        filename: '/uploads/' + filename.filename,
-        original_filename: filename.original_filename,
-        id: id,
-      })
-    }
-  }
-  return filenames
-}
-
 // it receives an image url and filename and returns a div with the image and the filename
 function ImageItem(attrs: {
-  image_url: string
   filename: string
-  user: User | null
+  original_filename: string | null
   image_id: number
-  answer: string
+  is_clash: boolean
 }) {
   return (
-    <ion-item class="image-item-container">
-      <ion-checkbox
-        data-image-id={attrs.image_id}
-        data-answer={attrs.answer}
-      ></ion-checkbox>
+    <ion-item
+      class="image-item-container"
+      data-clash={attrs.is_clash ? 'true' : 'false'}
+    >
+      <ion-checkbox data-image-id={attrs.image_id}></ion-checkbox>
       <div class="image-item">
-        <img src={attrs.image_url} />
+        <img src={'/uploads/' + attrs.filename} />
         <div class="image-item--filename" style="text-align: center;">
-          {attrs.filename}
+          {attrs.original_filename}
         </div>
       </div>
     </ion-item>
@@ -241,6 +180,71 @@ const mapping: { [key: string]: number } = {
 // it receives a answer string and returns a number like 1 for yes, 0 for no, undefined for unknown
 function stringToNumber(s: string): number | undefined {
   return mapping[s]
+}
+
+// get all images by label id and classify them into yes, no, unknown and clash
+function getImages(args: { label_id: number }) {
+  let { label_id } = args
+
+  let yes = get_image_by_label_id_answer.all({
+    label_id,
+    answer: stringToNumber('yes'),
+  })
+
+  let no = get_image_by_label_id_answer.all({
+    label_id,
+    answer: stringToNumber('no'),
+  })
+
+  type Image = (typeof images)[number]
+  let images = pick(proxy.image, ['id', 'filename', 'original_filename'])
+
+  let ids = images.map(image => image.id!)
+
+  // unknown images are the images that are not in yes or no
+  let unknown = ids.filter(id => !yes.includes(id) && !no.includes(id))
+
+  // clash (conflict) images are the images that are in both yes and no
+  let clash = ids.filter(id => yes.includes(id) && no.includes(id))
+
+  let total_images = ids.length
+  let annotated_images = ids.length - unknown.length
+
+  function renderImage(image: Image) {
+    return (
+      <ion-col size="4">
+        <ImageItem
+          filename={image.filename}
+          original_filename={image.original_filename}
+          image_id={image.id!}
+          is_clash={clash.includes(image.id!)}
+        />
+      </ion-col>
+    )
+  }
+
+  let yes_images = mapArray(
+    images.filter(image => yes.includes(image.id!)),
+    renderImage,
+  )
+
+  let no_images = mapArray(
+    images.filter(image => no.includes(image.id!)),
+    renderImage,
+  )
+
+  let unknown_images = mapArray(
+    images.filter(image => unknown.includes(image.id!)),
+    renderImage,
+  )
+
+  return {
+    yes_images,
+    no_images,
+    unknown_images,
+    annotated_images,
+    total_images,
+  }
 }
 
 function Main(attrs: {}, context: DynamicContext) {
@@ -269,26 +273,10 @@ function Main(attrs: {}, context: DynamicContext) {
   let answer = params.get('answer')! || 'yes'
   let total_images = proxy.image.length
 
-  let yes = get_image_by_label_id_answer.all({
-    label_id,
-    answer: stringToNumber('yes'),
-  })
-
-  let no = get_image_by_label_id_answer.all({
-    label_id,
-    answer: stringToNumber('no'),
-  })
-
-  //unknown images are the images that are not in yes or no
-  let total = get_total_images.all({})
-  let unknown = total.filter(id => !yes.includes(id) && !no.includes(id))
+  let { yes_images, no_images, unknown_images } = getImages({ label_id })
 
   return (
-    <form
-      method="POST"
-      action={toRouteUrl(routes, '/review-annotation/submit-review')}
-      onsubmit="emitForm(event)"
-    >
+    <div>
       <ion-item>
         <ion-select
           value={label_id}
@@ -310,15 +298,9 @@ function Main(attrs: {}, context: DynamicContext) {
           })}
         </ion-select>
       </ion-item>
-      {/* this is a hidden input that is used to store the label id */}
-      <ion-input
-        name="label_id"
-        value={+params.get('label')! || 1}
-        style="display: none;"
-        id="label_id_input"
-      />
+
       <br />
-      <ion-segment value={answer} id="answer">
+      <ion-segment value={answer} id="answerSegment">
         <ion-segment-button
           value="yes"
           content-id="content-yes"
@@ -346,211 +328,92 @@ function Main(attrs: {}, context: DynamicContext) {
         <ion-segment-content id="content-yes">
           {/* this is a grid that contains 3 images per row */}
           <ion-grid fixed>
-            <ion-row>
-              {mapArray(
-                get_image_filename_by_id_array(yes.flat()),
-                filename => {
-                  return (
-                    <ion-col size="4">
-                      <ImageItem
-                        image_url={filename.filename}
-                        filename={filename.original_filename}
-                        user={user}
-                        image_id={filename.id}
-                        answer="yes"
-                      />
-                    </ion-col>
-                  )
-                },
-              )}
-            </ion-row>
+            <ion-row>{yes_images}</ion-row>
           </ion-grid>
         </ion-segment-content>
         <ion-segment-content id="content-no">
           <ion-grid fixed>
-            <ion-row>
-              {mapArray(get_image_filename_by_id_array(no.flat()), filename => {
-                return (
-                  <ion-col size="4">
-                    <ImageItem
-                      image_url={filename.filename}
-                      filename={filename.original_filename}
-                      user={user}
-                      image_id={filename.id}
-                      answer="no"
-                    />
-                  </ion-col>
-                )
-              })}
-            </ion-row>
+            <ion-row>{no_images}</ion-row>
           </ion-grid>
         </ion-segment-content>
         <ion-segment-content id="content-unknown">
           <ion-grid fixed>
-            <ion-row>
-              {mapArray(
-                get_image_filename_by_id_array(unknown.flat()),
-                filename => {
-                  return (
-                    <ion-col size="4">
-                      <ImageItem
-                        image_url={filename.filename}
-                        filename={filename.original_filename}
-                        user={user}
-                        image_id={filename.id}
-                        answer="unknown"
-                      />
-                    </ion-col>
-                  )
-                },
-              )}
-            </ion-row>
+            <ion-row>{unknown_images}</ion-row>
           </ion-grid>
         </ion-segment-content>
       </ion-segment-view>
-      {/* this is a hidden input that is used to store the answer */}
-      <ion-input
-        name="answer"
-        value={params.get('answer')! || 'yes'}
-        style="display: none;"
-        id="answer_input"
-      />
-      {/* this is a hidden input that is used to submit the form */}
-      <ion-button type="submit" id="submit" style="display: none;" />
-      <div style="display: flex; justify-content: center; margin-top: 1rem;">
-        <ion-button onclick="reclassify()">
-          <Locale en="Reclassify" zh_hk="重新分類" zh_cn="重新分类" />
+
+      <div
+        class="submit-buttons"
+        style="display: flex; justify-content: center; margin-top: 1rem;"
+      >
+        <ion-button type="button" onclick="submitAnswer('yes')" color="success">
+          <ion-icon name="checkmark"></ion-icon>
+        </ion-button>
+        <ion-button type="button" onclick="submitAnswer('no')" color="danger">
+          <ion-icon name="close"></ion-icon>
         </ion-button>
       </div>
-    </form>
+    </div>
   )
 }
 
 let submitReviewParser = object({
-  label_id: int(),
-  answer: values(['yes' as const, 'no' as const, 'unknown' as const]),
-  selected_image_answers: string(),
+  label_id: id(),
+  mark_answer: values(['yes' as const, 'no' as const, 'change_label' as const]),
+  selected_image_ids: array(id()),
 })
 
-function SubmitReview(attrs: {}, context: DynamicContext) {
+function SubmitReview(attrs: {}, context: WsContext) {
   try {
     console.log('SubmitReview')
     let user = getAuthUser(context)
     let body = getContextFormBody(context)
     let input = submitReviewParser.parse(body)
-    let label_id = input.label_id
-    let answer = input.answer
-    console.log('label_id', label_id)
-    console.log('answer', answer)
-    console.log('selected_image_answers json', input.selected_image_answers)
-    let selected_image_answers = JSON.parse(input.selected_image_answers)
-    console.log('selected_image_answers array', selected_image_answers)
+    let { label_id, mark_answer, selected_image_ids } = input
 
-    let image_ids = get_image_by_label_id_answer.all({
-      label_id,
-      answer: stringToNumber(answer),
-    })
+    // TODO update the annotation
 
-    let image_filenames = get_image_filename_by_id_array(image_ids.flat())
+    let {
+      yes_images,
+      no_images,
+      unknown_images,
+      annotated_images,
+      total_images,
+    } = getImages({ label_id })
+    let label = proxy.label[label_id]
+    let label_text = `${label.title} (${annotated_images}/${total_images})`
 
-    console.log('image_ids', image_ids)
-
-    let yes = get_image_by_label_id_answer.all({
-      label_id,
-      answer: stringToNumber('yes'),
-    })
-    let no = get_image_by_label_id_answer.all({
-      label_id,
-      answer: stringToNumber('no'),
-    })
-
-    let clash = get_total_images
-      .all({})
-      .filter(id => yes.includes(id) && no.includes(id))
-
-    let clash_filenames = get_image_filename_by_id_array(clash.flat())
-
-    let unknown = get_total_images
-      .all({})
-      .filter(id => !yes.includes(id) && !no.includes(id))
-
-    let unknown_filenames = get_image_filename_by_id_array(unknown.flat())
-
-    let code = /* javascript */ `
-      let answer = ${JSON.stringify(answer)}
-      let image_filenames = ${JSON.stringify(image_filenames)}
-      let clash_filenames = ${JSON.stringify(clash_filenames)}
-
-      try {
-
-        // get the content of the answer segment
-        const content = document.getElementById('content-${answer}');
-        const grid = content.querySelector('ion-grid');
-        const row = grid.querySelector('ion-row');
-        // clear the row
-        row.innerHTML = '';
-
-        if (content.id == 'content-unknown') { 
-          image_filenames = ${JSON.stringify(unknown_filenames)}
-        }
-        
-        // it receives an array of filenames and returns a div with the image and the filename (written in javascript)
-        image_filenames.forEach(image => {
-
-          
-
-        const col = document.createElement('ion-col');
-        col.size = '4';
-
-        const item = document.createElement('ion-item');
-        item.className = 'image-item-container';
-
-        const checkbox = document.createElement('ion-checkbox');
-        checkbox.dataset.imageId = image.id;
-        checkbox.dataset.answer = answer;
-        checkbox.addEventListener('ionChange', onCheckboxChange);
-
-        const div = document.createElement('div');
-        div.className = 'image-item';
-        
-        const img = document.createElement('img');
-        img.src = image.filename;
-        
-        const filenameDiv = document.createElement('div');
-        filenameDiv.className = 'image-item--filename';
-        filenameDiv.textContent = image.original_filename;
-        filenameDiv.style.textAlign = 'center';
-
-        // if the image is in the clash, set the background color to red
-        if (clash_filenames.map(f => f.id).includes(image.id)) {
-          item.style.setProperty('--background', 'var(--ion-color-danger)');
-        }
-        
-        div.appendChild(img);
-        div.appendChild(filenameDiv);
-        item.appendChild(checkbox);
-        item.appendChild(div);
-        col.appendChild(item);
-        row.appendChild(col);
-        })
-      } catch (e) {
-          console.error('SubmitReview error', e)
-      }
-    `
-
-    broadcast(['eval', code])
+    context.ws.send([
+      'batch',
+      [
+        // update label option text
+        [
+          'update-text',
+          `#label_select ion-select-option[value="${label_id}"]`,
+          label_text,
+        ],
+        // update label preview text
+        [
+          'eval',
+          `label_select.shadowRoot.querySelector('[part="text"]').textContent="${label_text}"`,
+        ],
+        //update yes images
+        ['update-in', '#content-yes ion-row', nodeToVNode(yes_images, context)],
+        //update no images
+        ['update-in', '#content-no ion-row', nodeToVNode(no_images, context)],
+        //update unknown images
+        [
+          'update-in',
+          '#content-unknown ion-row',
+          nodeToVNode(unknown_images, context),
+        ],
+      ],
+    ])
   } catch (e) {
     console.error('SubmitReview error', e)
   }
   throw EarlyTerminate
-}
-
-function broadcast(message: ServerMessage) {
-  sessions.forEach(session => {
-    if (session.url?.startsWith('/review-annotation')) {
-      session.ws.send(message)
-    }
-  })
 }
 
 let routes = {
