@@ -46,11 +46,23 @@ let style = Style(/* css */ `
   --background: var(--ion-color-warning, #ffc107);
   --color: #212529;
 }
-.segment-yes, .segment-no, .segment-unknown {
+#answerSegment ion-segment-button {
   border-radius: 1rem;
   margin: 0 0.5rem;
   padding: 0.5rem 0;
   font-size: 1.2rem;
+  background: var(--background);
+  color: var(--color);
+  --indicator-height: 0;
+  --ripple-color: transparent;
+  --color-checked: var(--color);
+  opacity: 0.5;
+  transform: scale(0.8);
+  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+}
+#answerSegment ion-segment-button.segment-button-checked {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .image-item img {
@@ -63,13 +75,31 @@ let style = Style(/* css */ `
 /*change background color to red when clash*/
 .image-item-container[data-clash='true'] {
   --background: var(--ion-color-danger);
+  --color: #fff;
+}
+.image-item-container {
+  --ripple-color: transparent;
 }
 
+/* Make buttons larger */
+.submit-buttons ion-button {
+  min-height: 48px; /* Increased height */
+  min-width: 48px;  /* Minimum width for square buttons */
+  --padding-start: 1.5em;
+  --padding-end: 1.5em;
+  font-size: 1.5em; /* Larger icon size */
+}
+
+/* Make button container match grid width */
 .submit-buttons {
-  width: 100%;
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: center;
+  gap: 16px; /* Space between buttons */
+  width: 100%;
+  max-width: 720px; /* Matches default Ionic fixed grid max-width */
+  margin: 1rem auto 0;
+  padding: 0 16px; /* Match grid's side padding */
+  box-sizing: border-box;
 }
 
 
@@ -108,6 +138,14 @@ function submitAnswer(mark_answer) {
   })
 }
 
+function ImageItemOnClick(event) {
+  if (event.target.closest('ion-checkbox')) {
+    return;
+  }
+  const item = event.currentTarget;
+  const checkbox = item.querySelector('ion-checkbox');
+  checkbox.checked = !checkbox.checked;
+}
 `)
 
 let page = (
@@ -160,6 +198,7 @@ function ImageItem(attrs: {
     <ion-item
       class="image-item-container"
       data-clash={attrs.is_clash ? 'true' : 'false'}
+      onclick="ImageItemOnClick(event)"
     >
       <ion-checkbox data-image-id={attrs.image_id}></ion-checkbox>
       <div class="image-item">
@@ -245,6 +284,47 @@ function getImages(args: { label_id: number }) {
     annotated_images,
     total_images,
   }
+}
+
+function reclassify(
+  label_id: number,
+  mark_answer: number,
+  selected_image_ids: number[],
+  user_id: number,
+) {
+  if (selected_image_ids.length === 0) return
+
+  const placeholders = selected_image_ids.map(() => '?').join(', ')
+
+  // Start a transaction for atomicity
+  const trx = db.transaction(() => {
+    // Delete all selected images' answer records in this label
+    db.prepare(
+      `
+      DELETE FROM image_label
+      WHERE label_id = ?
+      AND image_id IN (${placeholders})
+      `,
+    ).run(label_id, ...selected_image_ids)
+
+    // Add new images' answer records to this label
+    const insertStmt = db.prepare(
+      `
+      INSERT INTO image_label (label_id, image_id, answer, user_id)
+      VALUES (@label_id, @image_id, @answer, @user_id)
+      `,
+    )
+    for (const image_id of selected_image_ids) {
+      insertStmt.run({
+        label_id,
+        image_id,
+        answer: mark_answer,
+        user_id,
+      })
+    }
+  })
+
+  trx()
 }
 
 function Main(attrs: {}, context: DynamicContext) {
@@ -343,10 +423,7 @@ function Main(attrs: {}, context: DynamicContext) {
         </ion-segment-content>
       </ion-segment-view>
 
-      <div
-        class="submit-buttons"
-        style="display: flex; justify-content: center; margin-top: 1rem;"
-      >
+      <div class="submit-buttons">
         <ion-button type="button" onclick="submitAnswer('yes')" color="success">
           <ion-icon name="checkmark"></ion-icon>
         </ion-button>
@@ -372,7 +449,19 @@ function SubmitReview(attrs: {}, context: WsContext) {
     let input = submitReviewParser.parse(body)
     let { label_id, mark_answer, selected_image_ids } = input
 
-    // TODO update the annotation
+    //update the annotation in the database
+    if (
+      mark_answer !== 'change_label' &&
+      selected_image_ids.length > 0 &&
+      user?.id
+    ) {
+      reclassify(
+        label_id,
+        stringToNumber(mark_answer)!,
+        selected_image_ids,
+        user.id,
+      )
+    }
 
     let {
       yes_images,
