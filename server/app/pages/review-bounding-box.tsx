@@ -29,6 +29,13 @@ let style = Style(/* css */ `
 #ReviewBoundingBox {
 
 }
+
+ion-col {
+  background-color:rgb(218, 215, 215);
+  margin: 10px;
+  padding: 10px;
+  border-radius: 10px;
+}
 `)
 
 let script = Script(/* js */ `
@@ -68,34 +75,55 @@ function submitBoxCount() {
   })
 }
 
-// draw bounding box on the canvas
-function drawBoundingBox(image_id) {
-  console.log('drawBoundingBox', image_id)
-  let bounding_box_canvas = document.querySelector(
-    '#bounding_box_canvas-' + image_id,
-  )
-  let image = document.querySelector('#image-' + image_id)
-  console.log('image', image)
+// draw multiple bounding boxes on the single canvas located by image_id
+function drawBoundingBoxes(image_id, boxes) {
+  // boxes: Array of { x, y, width, height, angle } objects
 
-  setTimeout(() => {
-    bounding_box_canvas.width = image.clientWidth
-    bounding_box_canvas.height = image.clientHeight
+  const bounding_box_canvas = document.querySelector('#bounding_box_canvas-' + image_id);
+  const image = document.querySelector('#image-' + image_id);
 
-    console.log('bounding_box_canvas.width', bounding_box_canvas.width)
-    console.log('bounding_box_canvas.height', bounding_box_canvas.height)
+  if (!bounding_box_canvas || !image) {
+    console.error('Canvas or image not found for image_id:', image_id);
+    return;
+  }
 
-    const ctx = bounding_box_canvas.getContext('2d')
-    ctx.clearRect(0, 0, bounding_box_canvas.width, bounding_box_canvas.height)
-    ctx.strokeStyle = 'red'
-    ctx.lineWidth = 2
-    ctx.strokeRect(0, 0, bounding_box_canvas.width, bounding_box_canvas.height)
-  }, 1000)
+  // Resize canvas to match image size
+  bounding_box_canvas.width = image.clientWidth;
+  bounding_box_canvas.height = image.clientHeight;
+
+  const ctx = bounding_box_canvas.getContext('2d');
+  ctx.clearRect(0, 0, bounding_box_canvas.width, bounding_box_canvas.height);
+
+  boxes.forEach(({ x, y, width, height, angle }) => {
+    const radians = angle * Math.PI / 180;
+
+    ctx.save();
+
+    // Translate to center of rectangle
+    ctx.translate(x + width / 2, y + height / 2);
+
+    // Rotate context
+    ctx.rotate(radians);
+
+    // Draw rectangle centered at origin
+    ctx.strokeStyle = 'red';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, width, height);
+
+    ctx.restore();
+  });
 }
 
+
 setTimeout(() => {
-  drawBoundingBox(1)
-  drawBoundingBox(4)
-  drawBoundingBox(2)
+  drawBoundingBoxes(1, [
+    { x: 10, y: 20, width: 30, height: 50, angle: 0 },
+    { x: 150, y: 100, width: 20, height: 60, angle: 45 },
+    { x: 0, y: 80, width: 80, height: 10, angle: 90 },
+  ]);
+  
+  // drawBoundingBox(4,0,0,10,10,0)
+  // drawBoundingBox(2,0,0,10,10,0)
 }, 1000)
 
 `)
