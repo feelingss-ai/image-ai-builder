@@ -98,6 +98,23 @@ where label_id = :label_id
   )
   .pluck()
 
+function ImageItem(attrs: {
+  filename: string
+  original_filename: string | null
+  image_id: number
+}) {
+  return (
+    <ion-col size="12">
+      <div class="image-item" style="text-align: center;">
+        <img src={'/uploads/' + attrs.filename} />
+        <div class="image-item--filename" style="text-align: center;">
+          {attrs.original_filename}
+        </div>
+      </div>
+    </ion-col>
+  )
+}
+
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   if (!user) {
@@ -164,6 +181,20 @@ function Main(attrs: {}, context: DynamicContext) {
           <ion-select-option value="2">2 (7)</ion-select-option>
         </ion-select>
       </ion-item>
+      <ion-grid>
+        <ion-row class="ion-justify-content-center">
+          <ImageItem
+            filename="834ee161-74e2-4919-b716-43c1361f6b09.jpeg"
+            original_filename="cat.jpeg"
+            image_id={1}
+          />
+          <ImageItem
+            filename="6651a823-8771-4e98-8235-2424cb225299.jpeg"
+            original_filename="dog.jpeg"
+            image_id={4}
+          />
+        </ion-row>
+      </ion-grid>
     </>
   )
 }
