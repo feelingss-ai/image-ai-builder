@@ -76,56 +76,54 @@ function submitBoxCount() {
 }
 
 // draw multiple bounding boxes on the single canvas located by image_id
-function drawBoundingBoxes(image_id, boxes) {
+function drawBoundingBoxes(image) {
   // boxes: Array of { x, y, width, height, angle } objects
 
-  const bounding_box_canvas = document.querySelector('#bounding_box_canvas-' + image_id);
-  const image = document.querySelector('#image-' + image_id);
+  const image_id = image.dataset.imageId
+  const canvas = image.parentElement.querySelector('canvas')
+  const boxes = JSON.parse(image.dataset.boxes);
 
-  if (!bounding_box_canvas || !image) {
+  console.log('boxes', boxes)
+
+  if (!canvas || !image) {
     console.error('Canvas or image not found for image_id:', image_id);
     return;
   }
 
   // Resize canvas to match image size
-  bounding_box_canvas.width = image.clientWidth;
-  bounding_box_canvas.height = image.clientHeight;
+  canvas.width = image.clientWidth;
+  canvas.height = image.clientHeight;
 
-  const ctx = bounding_box_canvas.getContext('2d');
-  ctx.clearRect(0, 0, bounding_box_canvas.width, bounding_box_canvas.height);
+  const context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
 
-  boxes.forEach(({ x, y, width, height, angle }) => {
-    const radians = angle * Math.PI / 180;
+  let lineWidth = Math.max(canvas.width, canvas.height) * 0.01
+  context.strokeStyle = '#ff0000';
+  context.lineWidth = lineWidth;
 
-    ctx.save();
+  boxes.forEach((box) => {
+    const width = box.width * canvas.width
+    const height = box.height * canvas.height
+    const left = box.x * canvas.width - width / 2
+    const top = box.y * canvas.height - height / 2
+
+    context.save();
 
     // Translate to center of rectangle
-    ctx.translate(x + width / 2, y + height / 2);
+    context.translate(left + width / 2, top + height / 2);
 
     // Rotate context
-    ctx.rotate(radians);
+    let degrees = box.rotate * 360
+    let radians = degrees / 180 * Math.PI
+    context.rotate(radians);
 
     // Draw rectangle centered at origin
-    ctx.strokeStyle = 'red';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0, 0, width, height);
+    
+    context.strokeRect(-width / 2, -height / 2, width, height);
 
-    ctx.restore();
+    context.restore();
   });
 }
-
-
-setTimeout(() => {
-  drawBoundingBoxes(1, [
-    { x: 10, y: 20, width: 30, height: 50, angle: 0 },
-    { x: 150, y: 100, width: 20, height: 60, angle: 45 },
-    { x: 0, y: 80, width: 80, height: 10, angle: 90 },
-  ]);
-  
-  // drawBoundingBox(4,0,0,10,10,0)
-  // drawBoundingBox(2,0,0,10,10,0)
-}, 1000)
-
 `)
 
 let page = (
@@ -160,6 +158,18 @@ function ImageItem(attrs: {
   filename: string
   original_filename: string | null
   image_id: number
+  boxes: {
+    /** 0..1: 1 is image width */
+    x: number
+    /** 0..1: 1 is image height */
+    y: number
+    /** 0..1: 1 is image width */
+    width: number
+    /** 0..1: 1 is image height */
+    height: number
+    /** 0..1: 1 is 360 degree */
+    rotate: number
+  }[]
 }) {
   return (
     <ion-col size="12">
@@ -167,10 +177,12 @@ function ImageItem(attrs: {
         <div style="position: relative; display: inline-block;">
           <img
             src={'/uploads/' + attrs.filename}
-            id={'image-' + attrs.image_id}
+            data-image-id={attrs.image_id}
+            data-boxes={JSON.stringify(attrs.boxes)}
+            onload="drawBoundingBoxes(this)"
           />
           <canvas
-            id={'bounding_box_canvas-' + attrs.image_id}
+            data-image-id={attrs.image_id}
             style="position: absolute; top: 0; left: 0;"
           ></canvas>
           <div class="image-item--filename" style="text-align: center;">
@@ -254,16 +266,32 @@ function Main(attrs: {}, context: DynamicContext) {
             filename="834ee161-74e2-4919-b716-43c1361f6b09.jpeg"
             original_filename="cat.jpeg"
             image_id={1}
+            boxes={[
+              { x: 0.1, y: 0.2, width: 0.3, height: 0.5, rotate: 0 },
+              { x: 0.5, y: 0.6, width: 0.2, height: 0.6, rotate: 45 / 360 },
+              { x: 0.9, y: 0.8, width: 0.8, height: 0.1, rotate: 90 / 360 },
+            ]}
           />
           <ImageItem
+            // width: 720, height: 718
             filename="6651a823-8771-4e98-8235-2424cb225299.jpeg"
             original_filename="dog.jpeg"
             image_id={4}
+            boxes={[
+              {
+                x: 0.5,
+                y: 0.5,
+                width: 0.8,
+                height: 0.8,
+                rotate: 15 / 360,
+              },
+            ]}
           />
           <ImageItem
             filename="4154eeba-f8ae-45e0-8a70-feaa2390bb37.jpeg"
             original_filename="lobster.jpeg"
             image_id={2}
+            boxes={[]}
           />
         </ion-row>
       </ion-grid>
