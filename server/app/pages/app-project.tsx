@@ -7,10 +7,10 @@ import { mapArray } from '../components/fragment.js'
 import { appIonTabBar } from '../components/app-tab-bar.js'
 import { fitIonFooter, selectIonTab } from '../styles/mobile-style.js'
 
-let pageTitle = 'Chat'
+let pageTitle = 'Project'
 
 let style = Style(/* css */ `
-#Chat {
+#Project {
 
 }
 `)
@@ -25,13 +25,13 @@ let page = (
         </ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content id="Chat" class="ion-padding">
+    <ion-content id="Project" class="ion-padding">
       Items
       <Main />
     </ion-content>
     <ion-footer>
       {appIonTabBar}
-      {selectIonTab('chat')}
+      {selectIonTab('project')}
     </ion-footer>
     {fitIonFooter}
   </>
@@ -57,7 +57,7 @@ function Main(attrs: {}, context: Context) {
 }
 
 let routes = {
-  '/app/chat': {
+  '/app/project': {
     title: title(pageTitle),
     description: 'TODO',
     node: page,

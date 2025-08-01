@@ -11,11 +11,10 @@ export let appIonTabBar = (
         href: '/app/home',
       },
       {
-        tab: 'chat',
-        ios: 'chatbubble',
-        md: 'chatbox',
-        label: <Locale en="Chat" zh_hk="聊天" zh_cn="聊天" />,
-        href: '/app/chat',
+        tab: 'project',
+        icon: 'folder',
+        label: <Locale en="Project" zh_hk="項目" zh_cn="项目" />,
+        href: '/app/project',
       },
       {
         tab: 'notice',
