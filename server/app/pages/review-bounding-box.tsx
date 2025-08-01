@@ -95,10 +95,9 @@ function drawBoundingBoxes(image) {
   canvas.height = image.clientHeight;
 
   const context = canvas.getContext('2d');
-  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.clearRect(0, 0, canvas.width, canvas.height)
 
   let lineWidth = Math.max(canvas.width, canvas.height) * 0.01
-  context.strokeStyle = '#ff0000';
   context.lineWidth = lineWidth;
 
   boxes.forEach((box) => {
@@ -107,6 +106,7 @@ function drawBoundingBoxes(image) {
     const left = box.x * canvas.width - width / 2
     const top = box.y * canvas.height - height / 2
 
+    // Save the current context state
     context.save();
 
     // Translate to center of rectangle
@@ -117,10 +117,21 @@ function drawBoundingBoxes(image) {
     let radians = degrees / 180 * Math.PI
     context.rotate(radians);
 
+    // Create a rainbow gradient for this box's width
+    const gradient = context.createLinearGradient(-width/2, 0, width/2, 0);
+    gradient.addColorStop(0, 'red');
+    gradient.addColorStop(1/6, 'orange');
+    gradient.addColorStop(2/6, 'yellow');
+    gradient.addColorStop(3/6, 'green');
+    gradient.addColorStop(4/6, 'blue');
+    gradient.addColorStop(5/6, 'indigo');
+    gradient.addColorStop(1, 'violet');
+    context.strokeStyle = gradient;
+
     // Draw rectangle centered at origin
-    
     context.strokeRect(-width / 2, -height / 2, width, height);
 
+    // Restore the context state
     context.restore();
   });
 }
