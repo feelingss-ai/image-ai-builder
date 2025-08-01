@@ -68,6 +68,36 @@ function submitBoxCount() {
   })
 }
 
+// draw bounding box on the canvas
+function drawBoundingBox(image_id) {
+  console.log('drawBoundingBox', image_id)
+  let bounding_box_canvas = document.querySelector(
+    '#bounding_box_canvas-' + image_id,
+  )
+  let image = document.querySelector('#image-' + image_id)
+  console.log('image', image)
+
+  setTimeout(() => {
+    bounding_box_canvas.width = image.clientWidth
+    bounding_box_canvas.height = image.clientHeight
+
+    console.log('bounding_box_canvas.width', bounding_box_canvas.width)
+    console.log('bounding_box_canvas.height', bounding_box_canvas.height)
+
+    const ctx = bounding_box_canvas.getContext('2d')
+    ctx.clearRect(0, 0, bounding_box_canvas.width, bounding_box_canvas.height)
+    ctx.strokeStyle = 'red'
+    ctx.lineWidth = 2
+    ctx.strokeRect(0, 0, bounding_box_canvas.width, bounding_box_canvas.height)
+  }, 1000)
+}
+
+setTimeout(() => {
+  drawBoundingBox(1)
+  drawBoundingBox(4)
+  drawBoundingBox(2)
+}, 1000)
+
 `)
 
 let page = (
@@ -105,10 +135,19 @@ function ImageItem(attrs: {
 }) {
   return (
     <ion-col size="12">
-      <div class="image-item" style="text-align: center;">
-        <img src={'/uploads/' + attrs.filename} />
-        <div class="image-item--filename" style="text-align: center;">
-          {attrs.original_filename}
+      <div class="image-item" style="text-align: center">
+        <div style="position: relative; display: inline-block;">
+          <img
+            src={'/uploads/' + attrs.filename}
+            id={'image-' + attrs.image_id}
+          />
+          <canvas
+            id={'bounding_box_canvas-' + attrs.image_id}
+            style="position: absolute; top: 0; left: 0;"
+          ></canvas>
+          <div class="image-item--filename" style="text-align: center;">
+            {attrs.original_filename}
+          </div>
         </div>
       </div>
     </ion-col>
@@ -192,6 +231,11 @@ function Main(attrs: {}, context: DynamicContext) {
             filename="6651a823-8771-4e98-8235-2424cb225299.jpeg"
             original_filename="dog.jpeg"
             image_id={4}
+          />
+          <ImageItem
+            filename="4154eeba-f8ae-45e0-8a70-feaa2390bb37.jpeg"
+            original_filename="lobster.jpeg"
+            image_id={2}
           />
         </ion-row>
       </ion-grid>
