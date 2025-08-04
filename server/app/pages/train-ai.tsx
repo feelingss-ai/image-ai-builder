@@ -25,12 +25,16 @@ import { sleep } from '@beenotung/tslib/async/wait.js'
 import { del, filter, notNull, pick } from 'better-sqlite3-proxy'
 import { Label, proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
-import { baseModel, getClassifierModel } from '../model.js'
+import {
+  baseModel,
+  getClassifierModel,
+  getBestClassifierModel,
+} from '../model.js'
 import { env } from '../../env.js'
 import { join } from 'path'
 import { loadImageClassifierModel, tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
-import { rmSync } from 'fs'
+import { existsSync, rmSync } from 'fs'
 import { scales } from 'chart.js'
 import { log } from 'console'
 import { text } from 'stream/consumers'
@@ -523,11 +527,14 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
   let body = getContextFormBody(context)
   let input = submitTrainParser.parse(body)
   let labels = pick(proxy.label, ['id', 'title', 'dependency_id'])
+
   if (input.training_mode === 'scratch') {
     del(proxy.training_stats, { id: notNull })
+
     for (let i = 0; i < labels.length; i++) {
       retrainModel(labels[i]['id']!)
     }
+
     let code = /* javascript */ `
     train_loss_canvas.chart.data.labels = []
     val_loss_canvas.chart.data.labels = []
@@ -546,6 +553,7 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
       `
     broadcast(['eval', code])
   }
+
   for (let i = 0; i < labels.length; i++) {
     trainModel({
       label_index: labels[i]['id']!,
@@ -557,106 +565,7 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
       cross_validation_ratio: input.cross_validation_ratio / 100,
     })
   }
-  //Just delete the model to retrain
-  async function retrainModel(label_index: number) {
-    rmSync(`saved_models/label-${label_index}`, { recursive: true })
-  }
-  async function trainModel(options: {
-    label_index: number
-    label: Label
-    userID: number
-    epochs: number
-    learning_rate: number
-    batchSize: number
-    cross_validation_ratio: number
-  }) {
-    let { label, label_index, epochs, batchSize, cross_validation_ratio } =
-      options
-    let label_id = label.id!
-    let classifierModel = await getClassifierModel(label)
-    let rows = select_image_filename_by_label.all({ label_id })
-    let embeddings = []
-    let answers = []
-    let classCounts = [0, 0]
-    let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
-    for (let row of rows) {
-      let file = join(env.UPLOAD_DIR, row.filename)
-      let tensor = await baseModel.imageFileToEmbedding(file)
-      embeddings.push(tensor)
-      classCounts[row.answer]++
-      answers.push(row.answer)
-    }
-    /*
-    if (initialEpoch === 0) {
-      shuffleInUnison(embeddings, answers)
-    }
-      */
-    const total = embeddings.length
-    const valCount = Math.floor(total * cross_validation_ratio)
-    const valEmbeddings = embeddings.slice(0, valCount)
-    const valAnswers = answers.slice(0, valCount)
-    const trainEmbeddings = embeddings.slice(valCount)
-    const trainAnswers = answers.slice(valCount)
-    let valX = tf.concat(valEmbeddings)
-    let valY = tf.oneHot(valAnswers, 2)
-    let x = tf.concat(trainEmbeddings)
-    let y = tf.oneHot(trainAnswers, 2)
 
-    await classifierModel.train({
-      x,
-      y,
-      initialEpoch,
-      validationData: [valX, valY],
-      epochs: initialEpoch + epochs,
-      batchSize,
-      shuffle: false,
-      callbacks: [
-        {
-          onEpochEnd(epoch: number, logs?: Logs) {
-            let accuracy = formatNumber(logs!.categoricalAccuracy)
-            let loss = formatNumber(logs!.loss)
-            let val_accuracy = formatNumber(logs!.val_categoricalAccuracy)
-            let val_loss = formatNumber(logs!.val_loss)
-            proxy.training_stats.push({
-              user_id: options.userID,
-              learning_rate: options.learning_rate,
-              epoch: epoch + 1,
-              train_loss: +loss,
-              train_accuracy: +accuracy,
-              val_loss: +val_loss,
-              val_accuracy: +val_accuracy,
-              label_id: label_id,
-            })
-            broadcast([
-              'eval',
-              /* javascript */ `    
-train_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
-train_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${loss};
-
-train_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
-train_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${accuracy};
-
-val_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
-val_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${val_loss};
-
-val_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
-val_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${val_accuracy};
-
-
-train_loss_canvas.chart.update();
-train_accuracy_canvas.chart.update();
-val_accuracy_canvas.chart.update();
-val_loss_canvas.chart.update();
-`,
-            ])
-          },
-        },
-      ],
-    })
-    x.dispose()
-    y.dispose()
-    await classifierModel.save()
-  }
   throw EarlyTerminate
 }
 
@@ -704,6 +613,114 @@ function formatNumber(x: number) {
     return x.toFixed(4)
   }
   return x.toExponential(3)
+}
+
+//Just delete the model to retrain
+async function retrainModel(label_index: number) {
+  if (!existsSync(`saved_models/label-${label_index}`)) return
+  if (!existsSync(`saved_models/label-${label_index}`)) return
+  rmSync(`saved_models/label-${label_index}`, { recursive: true })
+  rmSync(`saved_models/label-${label_index}/best`, { recursive: true })
+}
+
+async function trainModel(options: {
+  label_index: number
+  label: Label
+  userID: number
+  epochs: number
+  learning_rate: number
+  batchSize: number
+  cross_validation_ratio: number
+}) {
+  let { label, label_index, epochs, batchSize, cross_validation_ratio } =
+    options
+  let label_id = label.id!
+  let classifierModel = await getClassifierModel(label) //The latest model
+  let bestClassifierModel = await getBestClassifierModel(label) //The best model
+  let rows = select_image_filename_by_label.all({ label_id })
+  let embeddings = []
+  let answers = []
+  let classCounts = [0, 0]
+  let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
+
+  for (let row of rows) {
+    let file = join(env.UPLOAD_DIR, row.filename)
+    let tensor = await baseModel.imageFileToEmbedding(file)
+    embeddings.push(tensor)
+    classCounts[row.answer]++
+    answers.push(row.answer)
+  }
+
+  if (initialEpoch === 0) {
+    console.log('Initial Epoch: ', initialEpoch)
+    shuffleInUnison(embeddings, answers)
+  }
+
+  const total = embeddings.length
+  const valCount = Math.floor(total * cross_validation_ratio)
+  const valEmbeddings = embeddings.slice(0, valCount)
+  const valAnswers = answers.slice(0, valCount)
+  const trainEmbeddings = embeddings.slice(valCount)
+  const trainAnswers = answers.slice(valCount)
+  let valX = tf.concat(valEmbeddings)
+  let valY = tf.oneHot(valAnswers, 2)
+  let x = tf.concat(trainEmbeddings)
+  let y = tf.oneHot(trainAnswers, 2)
+
+  await classifierModel.train({
+    x,
+    y,
+    initialEpoch,
+    validationData: [valX, valY],
+    epochs: initialEpoch + epochs,
+    batchSize,
+    shuffle: false,
+    callbacks: [
+      {
+        onEpochEnd(epoch: number, logs?: Logs) {
+          let accuracy = formatNumber(logs!.categoricalAccuracy)
+          let loss = formatNumber(logs!.loss)
+          let val_accuracy = formatNumber(logs!.val_categoricalAccuracy)
+          let val_loss = formatNumber(logs!.val_loss)
+          proxy.training_stats.push({
+            user_id: options.userID,
+            learning_rate: options.learning_rate,
+            epoch: epoch + 1,
+            train_loss: +loss,
+            train_accuracy: +accuracy,
+            val_loss: +val_loss,
+            val_accuracy: +val_accuracy,
+            label_id: label_id,
+          })
+          broadcast([
+            'eval',
+            /* javascript */ `    
+train_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
+train_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${loss};
+
+train_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
+train_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${accuracy};
+
+val_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
+val_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${val_loss};
+
+val_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
+val_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${val_accuracy};
+
+
+train_loss_canvas.chart.update();
+train_accuracy_canvas.chart.update();
+val_accuracy_canvas.chart.update();
+val_loss_canvas.chart.update();
+`,
+          ])
+        },
+      },
+    ],
+  })
+  x.dispose()
+  y.dispose()
+  await classifierModel.save()
 }
 
 function shuffleInUnison(a: any, b: any) {
