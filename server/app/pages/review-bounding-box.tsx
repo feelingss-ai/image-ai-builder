@@ -21,6 +21,7 @@ import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
 import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
+import { pick } from 'better-sqlite3-proxy'
 
 let pageTitle = (
   <Locale en="Review Bounding Box" zh_hk="審視邊界框" zh_cn="审阅边界框" />
@@ -187,6 +188,32 @@ let getBoxImageCounts = db.prepare<
     group by count
     `)
 
+// get image_ids by label_id and box_count
+/* example:
+[
+  { image_id: 1 },
+  { image_id: 2 },
+]
+*/
+let getImageIdsByLabelAndBoxCount = db.prepare<
+  {
+    label_id: number
+    box_count: number
+  },
+  { image_id: number }
+>(`
+  SELECT image_id
+  FROM image_bounding_box
+  WHERE label_id = :label_id
+  GROUP BY image_id
+  HAVING COUNT(*) = :box_count
+`)
+
+console.log(
+  'getImageIdsByLabelAndBoxCount',
+  getImageIdsByLabelAndBoxCount.all({ label_id: 1, box_count: 1 }),
+)
+
 // get image bounding boxes by image_id and label_id
 /* example:[
   { x: 0.1, y: 0.2, width: 0.3, height: 0.5, rotate: 0, label_id: 1 },
@@ -200,18 +227,64 @@ let getImageBoundingBoxes = db.prepare<
       width: number
       height: number
       rotate: number
-    }[]
+    }
   }
 >(/* sql */ `
-  select x, y, width, height, rotate, label_id
+  select x, y, width, height, rotate
   from image_bounding_box
   where image_id = :image_id and label_id = :label_id
   `)
 
-console.log(
-  'getImageBoundingBoxes',
-  getImageBoundingBoxes.all({ image_id: 1, label_id: 1 }),
-)
+function getImageItem(image_id: number, label_id: number, box_count: number) {
+  let image_ids = getImageIdsByLabelAndBoxCount.all({
+    label_id: label_id,
+    box_count: box_count,
+  })
+
+  let ids = image_ids.map(image_id => image_id.image_id)
+
+  console.log('ids', ids)
+
+  type Image = (typeof images)[number]
+  let images = pick(proxy.image, ['id', 'filename', 'original_filename'])
+
+  let items = images.filter(image => ids.includes(image.id!))
+  //console.log('items', items)
+
+  for (let item of items) {
+    console.log('item', item.id)
+    let boxes = getImageBoundingBoxes.all({
+      image_id: item.id!,
+      label_id: label_id,
+    })
+    console.log('boxes', boxes)
+    // return (
+    //   <ion-col size="12">
+    //     <ImageItem
+    //     filename={item.filename}
+    //     original_filename={item.original_filename}
+    //     image_id={item.id!}
+    //     boxes={boxes}
+    //   />
+    //   </ion-col>
+    // )
+  }
+
+  //return renderImage(images, boxes)
+}
+
+// let items = mapArray(
+//   images.filter(image => ids.includes(image.id!)),
+//   (image, index, array) => {
+//     let boxes = getImageBoundingBoxes.all({
+//       image_id: image.id!,
+//       label_id: label_id,
+//     })
+//     return renderImage(image,boxes)
+//   },
+// )
+
+getImageItem(1, 1, 1)
 
 function ImageItem(attrs: {
   filename: string
