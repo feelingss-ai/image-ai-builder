@@ -139,8 +139,8 @@ export type ImageBoundingBox = {
   image?: Image
   user_id: number
   user?: User
-  image_label_id: number
-  image_label?: ImageLabel
+  label_id: number
+  label?: Label
   x: number
   y: number
   height: number
@@ -219,7 +219,7 @@ export let proxy = proxySchema<DBProxy>({
       /* foreign references */
       ['image', { field: 'image_id', table: 'image' }],
       ['user', { field: 'user_id', table: 'user' }],
-      ['image_label', { field: 'image_label_id', table: 'image_label' }],
+      ['label', { field: 'label_id', table: 'label' }],
     ],
   },
 })
