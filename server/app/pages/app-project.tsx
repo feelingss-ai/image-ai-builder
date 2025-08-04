@@ -10,9 +10,11 @@ import { Locale } from '../components/locale.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { Script } from '../components/script.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
-import { object, string } from 'cast.ts'
+import { int, object, string } from 'cast.ts'
 import { EarlyTerminate } from '../../exception.js'
 import { proxy } from '../../../db/proxy.js'
+import { nodeToVNode } from '../jsx/vnode.js'
+import { db } from '../../../db/db.js'
 
 let pageTitle = 'Project'
 
@@ -26,17 +28,13 @@ let script = Script(/* js */ `
 
 alert = document.querySelector('ion-alert')
 
-function create_project_alert(project_id) {
+// get new project name by alert input
+function create_modify_project_alert(project_id) {
   let new_project_name = ''
 
   alert.buttons = [{text:'OK', handler: (event) => {
-    let project_name = document.querySelector('#project-id-'+ project_id)
-    console.log('project_id', project_id)
-    console.log('project_name', project_name)
-    console.log('OK')
     new_project_name = event[0]
-    console.log(new_project_name)
-    project_name.textContent = new_project_name
+    emit('/project/modify-project', {project_id: project_id, project_name: new_project_name})
 
   }}, {text:'Cancel', role: 'cancel'}];
 
@@ -52,6 +50,10 @@ function create_project() {
   let new_project_name = document.querySelector('#new-project-name').value
   emit('/project/add-project', {project_name: new_project_name})
   document.querySelector('#new-project-name').value = ''
+}
+
+function delete_project(project_id) {
+  emit('/project/delete-project', {project_id: project_id})
 }
 
 `)
@@ -78,22 +80,38 @@ let page = (
   </>
 )
 
+//generate project item with title and id
 function ProjectItem(attrs: { title: string; id: number }) {
   return (
-    <ion-item>
-      <h2 id={`project-id-${attrs.id}`}>{attrs.title}</h2>
+    <ion-item id={`project-item-${attrs.id}`}>
+      <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
       <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
-        <ion-button id={attrs.id} onclick="create_project_alert(this.id)">
+        <ion-button
+          id={attrs.id}
+          onclick="create_modify_project_alert(this.id)"
+        >
           <ion-icon name="create-outline"></ion-icon>
         </ion-button>
 
-        <ion-button color="danger">
+        <ion-button
+          id={attrs.id}
+          color="danger"
+          onclick="delete_project(this.id)"
+        >
           <ion-icon name="trash-outline"></ion-icon>
         </ion-button>
       </div>
     </ion-item>
   )
 }
+
+let get_last_id = db
+  .prepare<void[], number>(
+    /* sql */ `
+    select MAX(id) from project
+  `,
+  )
+  .pluck()
 
 function Main(attrs: {}, context: Context) {
   let user = getAuthUser(context)
@@ -137,20 +155,70 @@ function Main(attrs: {}, context: Context) {
 
 function AddProject(attrs: {}, context: WsContext) {
   try {
-    console.log('AddProject')
     let parser = object({
       project_name: string(),
     })
+
     let user_id = getAuthUserId(context)
-    console.log('user', user_id)
     let body = getContextFormBody(context)
     let input = parser.parse(body)
-    console.log('project_name', input.project_name)
+    let last_id = get_last_id.get()
+
     proxy.project.push({
       title: input.project_name,
       creator_id: user_id!,
     })
-    console.log('project', proxy.project)
+
+    let new_project_item = (
+      <ProjectItem title={input.project_name} id={last_id! + 1} />
+    )
+
+    context.ws.send([
+      'append',
+      'ion-list',
+      nodeToVNode(new_project_item, context),
+    ])
+  } catch (error) {
+    console.error(error)
+  }
+  throw EarlyTerminate
+}
+
+function ModifyProject(attrs: {}, context: WsContext) {
+  try {
+    let parser = object({
+      project_id: int(),
+      project_name: string(),
+    })
+
+    let body = getContextFormBody(context)
+    let input = parser.parse(body)
+
+    proxy.project[input.project_id].title = input.project_name
+
+    context.ws.send([
+      'update-text',
+      'ion-list #project-title-' + input.project_id,
+      input.project_name,
+    ])
+  } catch (error) {
+    console.error(error)
+  }
+  throw EarlyTerminate
+}
+
+function DeleteProject(attrs: {}, context: WsContext) {
+  try {
+    let parser = object({
+      project_id: int(),
+    })
+
+    let body = getContextFormBody(context)
+    let input = parser.parse(body)
+
+    delete proxy.project[input.project_id]
+
+    context.ws.send(['remove', 'ion-list #project-item-' + input.project_id])
   } catch (error) {
     console.error(error)
   }
@@ -168,6 +236,18 @@ let routes = {
     title: apiEndpointTitle,
     description: 'TODO',
     node: <AddProject />,
+    streaming: false,
+  },
+  '/project/modify-project': {
+    title: apiEndpointTitle,
+    description: 'TODO',
+    node: <ModifyProject />,
+    streaming: false,
+  },
+  '/project/delete-project': {
+    title: apiEndpointTitle,
+    description: 'TODO',
+    node: <DeleteProject />,
     streaming: false,
   },
 } satisfies Routes
