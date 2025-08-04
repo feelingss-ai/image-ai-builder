@@ -28,7 +28,7 @@ export async function up(knex: Knex): Promise<void> {
 // prettier-ignore
 export async function down(knex: Knex): Promise<void> {
   await knex.schema.dropTableIfExists('project_member')
-  await knex.schema.alterTable(`image`, table => table.dropColumn(`project_id`))
-  await knex.schema.alterTable(`label`, table => table.dropColumn(`project_id`))
+  await knex.raw('alter table `image` drop column `project_id`')
+  await knex.raw('alter table `label` drop column `project_id`')
   await knex.schema.dropTableIfExists('project')
 }

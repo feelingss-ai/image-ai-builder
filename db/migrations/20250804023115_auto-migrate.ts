@@ -7,5 +7,5 @@ export async function up(knex: Knex): Promise<void> {
 
 // prettier-ignore
 export async function down(knex: Knex): Promise<void> {
-  await knex.raw('alter table `project` add column `label_id` integer not null references `label`(`id`)')
+  await knex.raw('alter table `project` add column `label_id` integer null references `label`(`id`)')
 }
