@@ -146,6 +146,19 @@ user_id integer FK >0- user.id
 answer integer
 
 
+image_bounding_box
+------------------
+id integer PK
+image_id integer FK >0- image.id
+user_id integer FK >0- user.id
+image_label_id integer FK >0- image_label.id
+x real
+y real
+height real
+width real
+rotate real
+
+
 # zoom: 1.000
 # view: (253, 509)
 # text-bg: #6495ed
