@@ -111,17 +111,6 @@ export type Project = {
   title: string
   creator_id: number
   creator?: User
-  label_id: number
-  label?: Label
-}
-
-export type Label = {
-  id?: null | number
-  title: string
-  dependency_id: null | number
-  dependency?: Label
-  project_id: null | number
-  project?: Project
 }
 
 export type Image = {
@@ -131,6 +120,15 @@ export type Image = {
   user_id: number
   user?: User
   rotation: null | number
+  project_id: null | number
+  project?: Project
+}
+
+export type Label = {
+  id?: null | number
+  title: string
+  dependency_id: null | number
+  dependency?: Label
   project_id: null | number
   project?: Project
 }
@@ -168,8 +166,8 @@ export type DBProxy = {
   verification_code: VerificationCode[]
   content_report: ContentReport[]
   project: Project[]
-  label: Label[]
   image: Image[]
+  label: Label[]
   image_label: ImageLabel[]
   project_member: ProjectMember[]
 }
@@ -211,16 +209,15 @@ export let proxy = proxySchema<DBProxy>({
     project: [
       /* foreign references */
       ['creator', { field: 'creator_id', table: 'user' }],
-      ['label', { field: 'label_id', table: 'label' }],
-    ],
-    label: [
-      /* foreign references */
-      ['dependency', { field: 'dependency_id', table: 'label' }],
-      ['project', { field: 'project_id', table: 'project' }],
     ],
     image: [
       /* foreign references */
       ['user', { field: 'user_id', table: 'user' }],
+      ['project', { field: 'project_id', table: 'project' }],
+    ],
+    label: [
+      /* foreign references */
+      ['dependency', { field: 'dependency_id', table: 'label' }],
       ['project', { field: 'project_id', table: 'project' }],
     ],
     image_label: [

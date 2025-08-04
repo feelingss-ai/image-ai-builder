@@ -126,7 +126,6 @@ project
 id integer PK
 title text
 creator_id integer FK >0- user.id
-label_id integer FK >0- label.id
 
 
 image
