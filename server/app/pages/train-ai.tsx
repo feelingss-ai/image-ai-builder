@@ -24,23 +24,16 @@ import { ServerMessage } from '../../../client/types.js'
 import { sleep } from '@beenotung/tslib/async/wait.js'
 import { del, filter, notNull, pick } from 'better-sqlite3-proxy'
 import { Label, proxy } from '../../../db/proxy.js'
-import {
-  modelsCache,
-  datasetCache,
-  CrayfishDatasetCache,
-  OpenTailDatasetCache,
-  RaiseClawDatasetCache,
-} from 'image-dataset/dist/cache.js'
-import { saveClassifierModelMetadata } from 'image-dataset/dist/model.js'
-import { config } from 'image-dataset/dist/config.js'
 import { db } from '../../../db/db.js'
 import { baseModel, getClassifierModel } from '../model.js'
 import { env } from '../../env.js'
 import { join } from 'path'
 import { loadImageClassifierModel, tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
-import { mkdirSync, rmSync } from 'fs'
+import { rmSync } from 'fs'
 import { scales } from 'chart.js'
+import { log } from 'console'
+import { text } from 'stream/consumers'
 
 let pageTitle = (
   <Locale en="Train AI Model" zh_hk="訓練 AI 模型" zh_cn="训练 AI 模型" />
@@ -65,6 +58,20 @@ learning_rate_input = document.querySelector('#learning_rate_input');
 // Epoch Elements
 epoch_no = document.querySelector('#epoch_no');
 epoch_no_input = document.querySelector('#epoch_no_input');
+
+//Cross-Validation Elements
+cross_validation_ratio = document.querySelector('#cross_validation_ratio');
+cross_validation_ratio_input = document.querySelector('#cross_validation_ratio_input');
+
+//Batch Size Elements
+batch_size = document.querySelector('#batch_size');
+batch_size_input = document.querySelector('#batch_size_input');
+
+// Set the pinFormatter so the pin shows 2^value
+batch_size.pinFormatter = value => Math.pow(2, value);
+
+// Set the input to match the slider at start
+batch_size_input.value = Math.pow(2, batch_size.value);
 
 //change default pin formatter from integer to float
 learning_rate.pinFormatter = (value) => {
@@ -106,6 +113,41 @@ epoch_no_input.addEventListener('ionChange', ({ detail }) => {
   }
 });
 
+cross_validation_ratio.addEventListener('ionChange', ({ detail }) => {
+
+  cross_validation_ratio_input.value = detail.value
+
+  cross_validation_ratio.pinFormatter = (value) => {
+    return cross_validation_ratio.value;
+  }
+})
+
+cross_validation_ratio_input.addEventListener('ionChange', ({ detail }) => {
+  cross_validation_ratio.value = detail.value
+  cross_validation_ratio.pinFormatter = (value) => {
+    return cross_validation_ratio.value;
+  }
+});
+
+batch_size.addEventListener('ionChange', ({ detail }) => {
+  const exp = parseInt(detail.value, 10);
+  const batchValue = Math.pow(2, exp);
+  batch_size_input.value = batchValue;
+  
+  batch_size.pinFormatter = (value) => {
+    return batchValue;
+  }
+})
+
+batch_size_input.addEventListener('ionChange', ({ detail }) => {
+  const input = parseInt(detail.value, 10);
+  const exp = Math.log2(input);
+  batch_size.value = exp
+  batch_size.pinFormatter = (value) => {
+    return input;
+  }
+});
+
 //ignore enter key to submit form
 function cancelEnterSubmit(event) {
   if (event.key === 'Enter') {
@@ -125,16 +167,7 @@ let page = (
         </ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content id="TrainAI" class="ion-padding">
-      <h2>
-        <Locale
-          en="Model Training Setting"
-          zh_hk="模型訓練設定"
-          zh_cn="模型训练设置"
-        ></Locale>
-      </h2>
-      <Main />
-    </ion-content>
+    <Main />
     {script}
   </>
 )
@@ -158,8 +191,7 @@ const count_model = () => {
   return model_no
 }
 
-//const MODEL_NO = count_model()
-const MODEL_NO = 4
+const MODEL_NO = count_model()
 
 function Main(attrs: {}, context: Context) {
   let user = getAuthUser(context)
@@ -212,99 +244,204 @@ function Main(attrs: {}, context: Context) {
   }
 
   return (
-    <form
-      method="POST"
-      action={toRouteUrl(routes, '/train-ai/train')}
-      onsubmit="emitForm(event)"
-    >
-      <ion-item>
-        <ion-label>
-          <Locale en="Learning Rate:" zh_hk="學習率:" zh_cn="学习率:" />
-        </ion-label>
-        {/* Learning Rate Slider */}
-        <ion-range
-          id="learning_rate"
-          step="0.01"
-          pin
-          ticks
-          snaps
-          value="0.03"
-          min="0.01"
-          max="0.1"
-          aria-label="Custom range"
-        ></ion-range>
-        <ion-input
-          id="learning_rate_input"
-          name="learning_rate"
-          type="text"
-          inputmode="numeric"
-          pattern="[0-9]+.?[0-9]*"
-          maxlength="10"
-          min="0"
-          style="width: 25%; font-size: 16px;"
-          placeholder="Numbers only"
-          value="0.03"
-          step="0.01"
-          onkeypress="cancelEnterSubmit(event)"
-        ></ion-input>
-      </ion-item>
-      <ion-item>
-        <ion-label>
-          <Locale en="Epoch to train:" zh_hk="訓練輪數:" zh_cn="训练轮数:" />
-        </ion-label>
-        {/* Epoch Slider */}
-        <ion-range
-          id="epoch_no"
-          step="5"
-          pin
-          ticks
-          snaps
-          value="20"
-          min="0"
-          max="100"
-          aria-label="Custom range"
-        ></ion-range>
-        <ion-input
-          name="epoch_no"
-          id="epoch_no_input"
-          type="text"
-          inputmode="numeric"
-          pattern="[0-9]+"
-          maxlength="10"
-          min="0"
-          style="width: 25%; font-size: 16px;"
-          placeholder="Numbers only"
-          value="20"
-          onkeypress="cancelEnterSubmit(event)"
-        ></ion-input>
-      </ion-item>
-      <ion-item>
-        <ion-label>
-          <Locale en="Training Mode:" zh_hk="訓練模式:" zh_cn="训练模式:" />
-        </ion-label>
-        <ion-select name="training_mode" value="continue">
-          <ion-select-option value="continue">
-            <Locale
-              en="Continue from previous training"
-              zh_hk="繼續上一次訓練"
-              zh_cn="继续上一次训练"
-            />
-          </ion-select-option>
-          <ion-select-option value="scratch">
-            <Locale en="Train from scratch" zh_hk="從頭訓練" zh_cn="从头训练" />
-          </ion-select-option>
-        </ion-select>
-      </ion-item>
-      <br></br>
-      {user ? (
-        <ion-button type="submit">
-          {<Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />}
-        </ion-button>
-      ) : (
-        <p>
-          You can train ai after <Link href="/register">register</Link>.
-        </p>
-      )}
+    <ion-content id="TrainAI" class="ion-padding">
+      <ion-accordion-group>
+        <ion-accordion value="train-ai-settings">
+          <ion-item slot="header" style="--padding-start: 0">
+            <h2>
+              <Locale
+                en="Model Training Setting"
+                zh_hk="模型訓練設定"
+                zh_cn="模型训练设置"
+              ></Locale>
+            </h2>
+          </ion-item>
+          <div slot="content">
+            <form
+              method="POST"
+              action={toRouteUrl(routes, '/train-ai/train')}
+              onsubmit="emitForm(event)"
+            >
+              <ion-item>
+                <ion-label>
+                  <Locale en="Learning Rate:" zh_hk="學習率:" zh_cn="学习率:" />
+                </ion-label>
+                {/* Learning Rate Slider */}
+                <ion-range
+                  id="learning_rate"
+                  step="0.01"
+                  pin
+                  ticks
+                  snaps
+                  value="0.03"
+                  min="0.01"
+                  max="0.1"
+                  aria-label="Custom range"
+                ></ion-range>
+                <ion-input
+                  id="learning_rate_input"
+                  name="learning_rate"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]+.?[0-9]*"
+                  maxlength="10"
+                  min="0"
+                  style="width: 25%; font-size: 16px;"
+                  placeholder="Numbers only"
+                  value="0.03"
+                  step="0.01"
+                  onkeypress="cancelEnterSubmit(event)"
+                  readonly
+                ></ion-input>
+              </ion-item>
+
+              <ion-item>
+                <ion-label>
+                  <Locale
+                    en="Cross-Validation Ratio:"
+                    zh_hk="交叉驗證比率:"
+                    zh_cn="交叉验证比率:"
+                  />
+                </ion-label>
+                {/* Cross-Validation Slider */}
+                <ion-range
+                  id="cross_validation_ratio"
+                  step="5"
+                  pin
+                  ticks
+                  snaps
+                  value="20"
+                  min="0"
+                  max="50"
+                  aria-label="Custom range"
+                ></ion-range>
+                <ion-input
+                  name="cross_validation_ratio"
+                  id="cross_validation_ratio_input"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]+"
+                  maxlength="10"
+                  min="0"
+                  style="width: 25%; font-size: 16px;"
+                  placeholder="Numbers only"
+                  value="20"
+                  onkeypress="cancelEnterSubmit(event)"
+                  readonly
+                ></ion-input>
+              </ion-item>
+
+              <ion-item>
+                <ion-label>
+                  <Locale
+                    en="Batch Size:"
+                    zh_hk="批量大小:"
+                    zh_cn="批量大小:"
+                  />
+                </ion-label>
+                {/* Batch Size Slider */}
+                <ion-range
+                  id="batch_size"
+                  step="1"
+                  pin
+                  ticks
+                  snaps
+                  value="5"
+                  min="0"
+                  max="11"
+                  aria-label="Custom range"
+                ></ion-range>
+                <ion-input
+                  name="batch_size"
+                  id="batch_size_input"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]+"
+                  maxlength="10"
+                  min="1"
+                  style="width: 25%; font-size: 16px;"
+                  placeholder="Numbers only"
+                  value="32"
+                  onkeypress="cancelEnterSubmit(event)"
+                  readonly
+                ></ion-input>
+              </ion-item>
+
+              <ion-item>
+                <ion-label>
+                  <Locale
+                    en="Epoch to train:"
+                    zh_hk="訓練輪數:"
+                    zh_cn="训练轮数:"
+                  />
+                </ion-label>
+                {/* Epoch Slider */}
+                <ion-range
+                  id="epoch_no"
+                  step="5"
+                  pin
+                  ticks
+                  snaps
+                  value="20"
+                  min="0"
+                  max="100"
+                  aria-label="Custom range"
+                ></ion-range>
+                <ion-input
+                  name="epoch_no"
+                  id="epoch_no_input"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]+"
+                  maxlength="10"
+                  min="0"
+                  style="width: 25%; font-size: 16px;"
+                  placeholder="Numbers only"
+                  value="20"
+                  onkeypress="cancelEnterSubmit(event)"
+                  readonly
+                ></ion-input>
+              </ion-item>
+
+              <ion-item>
+                <ion-label>
+                  <Locale
+                    en="Training Mode:"
+                    zh_hk="訓練模式:"
+                    zh_cn="训练模式:"
+                  />
+                </ion-label>
+                <ion-select name="training_mode" value="continue">
+                  <ion-select-option value="continue">
+                    <Locale
+                      en="Continue from previous training"
+                      zh_hk="繼續上一次訓練"
+                      zh_cn="继续上一次训练"
+                    />
+                  </ion-select-option>
+                  <ion-select-option value="scratch">
+                    <Locale
+                      en="Train from scratch"
+                      zh_hk="從頭訓練"
+                      zh_cn="从头训练"
+                    />
+                  </ion-select-option>
+                </ion-select>
+              </ion-item>
+              <br></br>
+              {user ? (
+                <ion-button type="submit">
+                  {<Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />}
+                </ion-button>
+              ) : (
+                <p>
+                  You can train ai after <Link href="/register">register</Link>.
+                </p>
+              )}
+            </form>
+          </div>
+        </ion-accordion>
+      </ion-accordion-group>
       <h2>
         <Locale
           en="Model Evaluation over Epoch"
@@ -368,12 +505,14 @@ function Main(attrs: {}, context: Context) {
           max={1}
         />
       </div>
-    </form>
+    </ion-content>
   )
 }
 
 let submitTrainParser = object({
   learning_rate: float(),
+  cross_validation_ratio: float(),
+  batch_size: int(),
   epoch_no: int(),
   training_mode: values(['continue' as const, 'scratch' as const]),
 })
@@ -414,9 +553,11 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
       userID: user!.id!,
       epochs: input.epoch_no,
       learning_rate: input.learning_rate,
-      batchSize: 32,
+      batchSize: input.batch_size,
+      cross_validation_ratio: input.cross_validation_ratio / 100,
     })
   }
+  //Just delete the model to retrain
   async function retrainModel(label_index: number) {
     rmSync(`saved_models/label-${label_index}`, { recursive: true })
   }
@@ -427,15 +568,17 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
     epochs: number
     learning_rate: number
     batchSize: number
+    cross_validation_ratio: number
   }) {
-    let { label, label_index } = options
+    let { label, label_index, epochs, batchSize, cross_validation_ratio } =
+      options
     let label_id = label.id!
-    let epochs = options.epochs
     let classifierModel = await getClassifierModel(label)
     let rows = select_image_filename_by_label.all({ label_id })
     let embeddings = []
     let answers = []
     let classCounts = [0, 0]
+    let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
     for (let row of rows) {
       let file = join(env.UPLOAD_DIR, row.filename)
       let tensor = await baseModel.imageFileToEmbedding(file)
@@ -443,40 +586,67 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
       classCounts[row.answer]++
       answers.push(row.answer)
     }
-    let x = tf.concat(embeddings)
-    let y = tf.oneHot(answers, 2)
-    let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
+    /*
+    if (initialEpoch === 0) {
+      shuffleInUnison(embeddings, answers)
+    }
+      */
+    const total = embeddings.length
+    const valCount = Math.floor(total * cross_validation_ratio)
+    const valEmbeddings = embeddings.slice(0, valCount)
+    const valAnswers = answers.slice(0, valCount)
+    const trainEmbeddings = embeddings.slice(valCount)
+    const trainAnswers = answers.slice(valCount)
+    let valX = tf.concat(valEmbeddings)
+    let valY = tf.oneHot(valAnswers, 2)
+    let x = tf.concat(trainEmbeddings)
+    let y = tf.oneHot(trainAnswers, 2)
+
     await classifierModel.train({
       x,
       y,
-      epochs,
+      initialEpoch,
+      validationData: [valX, valY],
+      epochs: initialEpoch + epochs,
+      batchSize,
+      shuffle: false,
       callbacks: [
         {
           onEpochEnd(epoch: number, logs?: Logs) {
             let accuracy = formatNumber(logs!.categoricalAccuracy)
             let loss = formatNumber(logs!.loss)
-            let label = JSON.stringify(epoch + 1)
+            let val_accuracy = formatNumber(logs!.val_categoricalAccuracy)
+            let val_loss = formatNumber(logs!.val_loss)
             proxy.training_stats.push({
               user_id: options.userID,
               learning_rate: options.learning_rate,
-              epoch: initialEpoch + epoch + 1,
+              epoch: epoch + 1,
               train_loss: +loss,
               train_accuracy: +accuracy,
-              val_loss: 0,
-              val_accuracy: 0,
+              val_loss: +val_loss,
+              val_accuracy: +val_accuracy,
               label_id: label_id,
             })
             broadcast([
               'eval',
               /* javascript */ `    
-train_loss_canvas.chart.data.labels[${epoch} + ${initialEpoch}] = ${epoch} + ${initialEpoch} + 1
-train_loss_canvas.chart.data.datasets[${label_index}].data[${epoch} + ${initialEpoch}] = ${loss};
+train_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
+train_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${loss};
 
-train_accuracy_canvas.chart.data.labels[${epoch} + ${initialEpoch}] = ${epoch} + ${initialEpoch} + 1
-train_accuracy_canvas.chart.data.datasets[${label_index}].data[${epoch} + ${initialEpoch}] = +${accuracy};
+train_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
+train_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${accuracy};
+
+val_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
+val_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${val_loss};
+
+val_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
+val_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${val_accuracy};
+
 
 train_loss_canvas.chart.update();
 train_accuracy_canvas.chart.update();
+val_accuracy_canvas.chart.update();
+val_loss_canvas.chart.update();
 `,
             ])
           },
@@ -534,6 +704,14 @@ function formatNumber(x: number) {
     return x.toFixed(4)
   }
   return x.toExponential(3)
+}
+
+function shuffleInUnison(a: any, b: any) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+    ;[b[i], b[j]] = [b[j], b[i]]
+  }
 }
 
 let routes = {
