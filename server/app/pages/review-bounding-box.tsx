@@ -20,6 +20,7 @@ import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
 import { EarlyTerminate } from '../../exception.js'
+import { nodeToVNode } from '../jsx/vnode.js'
 
 let pageTitle = (
   <Locale en="Review Bounding Box" zh_hk="審視邊界框" zh_cn="审阅边界框" />
@@ -48,13 +49,14 @@ let script = Script(/* js */ `
   
   // submit form when label_select is changed
   label_select.addEventListener('ionChange', (event) => {
-    label_id = event.detail.value;
+    label_id = +event.detail.value;
   
     // Update URL with new label parameter
     const url = new URL(window.location);
     url.searchParams.set('label', label_id);
     window.history.pushState({}, '', url);
     submitBoxCount();
+    emit('/review-bounding-box/label-changed', { label_id })
   })
 
   box_count_select.addEventListener('ionChange', (event) => {
@@ -165,6 +167,52 @@ where label_id = :label_id
   )
   .pluck()
 
+// get box count and image count by label_id
+/* example:
+[
+  { box_count: 1, image_count: 1 },
+  { box_count: 2, image_count: 2 },
+]
+*/
+let getBoxImageCounts = db.prepare<
+  { label_id: number },
+  { box_count: number; image_count: number }
+>(/* sql */ `
+    with list as ( select image_id, label_id, count(*) as count 
+    from image_bounding_box 
+    where label_id = :label_id 
+    group by image_id, label_id ) 
+    select count as box_count, count(*) as image_count 
+    from list 
+    group by count
+    `)
+
+// get image bounding boxes by image_id and label_id
+/* example:[
+  { x: 0.1, y: 0.2, width: 0.3, height: 0.5, rotate: 0, label_id: 1 },
+] */
+let getImageBoundingBoxes = db.prepare<
+  { image_id: number; label_id: number },
+  {
+    boxes: {
+      x: number
+      y: number
+      width: number
+      height: number
+      rotate: number
+    }[]
+  }
+>(/* sql */ `
+  select x, y, width, height, rotate, label_id
+  from image_bounding_box
+  where image_id = :image_id and label_id = :label_id
+  `)
+
+console.log(
+  'getImageBoundingBoxes',
+  getImageBoundingBoxes.all({ image_id: 1, label_id: 1 }),
+)
+
 function ImageItem(attrs: {
   filename: string
   original_filename: string | null
@@ -263,12 +311,16 @@ function Main(attrs: {}, context: DynamicContext) {
             },
             context,
           )}
-          value={0}
+          value={1}
           id="box_count_select"
         >
-          <ion-select-option value="0">0 (5)</ion-select-option>
-          <ion-select-option value="1">1 (6)</ion-select-option>
-          <ion-select-option value="2">2 (7)</ion-select-option>
+          {mapArray(getBoxImageCounts.all({ label_id: label_id }), item => {
+            return (
+              <ion-select-option value={item.box_count}>
+                {item.box_count} ({item.image_count})
+              </ion-select-option>
+            )
+          })}
         </ion-select>
       </ion-item>
       <ion-grid>
@@ -330,6 +382,51 @@ function SubmitReviewBoundingBox(attrs: {}, context: WsContext) {
   throw EarlyTerminate
 }
 
+function LabelChanged(attrs: {}, context: WsContext) {
+  try {
+    console.log('LabelChanged')
+    let parser = object({
+      label_id: id(),
+    })
+    let body = getContextFormBody(context)
+    let input = parser.parse(body)
+    let { label_id } = input
+    console.log('label_id', label_id)
+
+    let new_box_count_select = (
+      <ion-select
+        label={Locale(
+          {
+            en: 'Box Count',
+            zh_hk: '框數',
+            zh_cn: '框数',
+          },
+          context,
+        )}
+        value={1}
+        id="box_count_select"
+      >
+        {mapArray(getBoxImageCounts.all({ label_id: label_id }), item => {
+          return (
+            <ion-select-option value={item.box_count}>
+              {item.box_count} ({item.image_count})
+            </ion-select-option>
+          )
+        })}
+      </ion-select>
+    )
+
+    context.ws.send([
+      'update-in',
+      'ion-select#box_count_select',
+      nodeToVNode(new_box_count_select, context),
+    ])
+  } catch (error) {
+    console.error(error)
+  }
+  throw EarlyTerminate
+}
+
 let routes = {
   '/review-bounding-box': {
     resolve(context) {
@@ -345,6 +442,12 @@ let routes = {
     title: apiEndpointTitle,
     description: 'TODO',
     node: <SubmitReviewBoundingBox />,
+    streaming: false,
+  },
+  '/review-bounding-box/label-changed': {
+    title: apiEndpointTitle,
+    description: 'TODO',
+    node: <LabelChanged />,
     streaming: false,
   },
 } satisfies Routes
