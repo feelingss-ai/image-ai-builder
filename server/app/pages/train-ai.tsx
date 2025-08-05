@@ -84,6 +84,7 @@ learning_rate.pinFormatter = (value) => {
 }
 
 //sync data of slider and input
+//sync data of slider and input
 learning_rate.addEventListener('ionChange', ({ detail }) => {
   learning_rate_input.value = detail.value
   learning_rate.pinFormatter = (value) => {
@@ -93,16 +94,16 @@ learning_rate.addEventListener('ionChange', ({ detail }) => {
   }
 });
 
-//sync data of slider and input
 learning_rate_input.addEventListener('ionChange', ({ detail }) => {
   learning_rate.value = detail.value
+  learning_rate.value = detail.value
   learning_rate.pinFormatter = (value) => {
+    return learning_rate.value;
     return learning_rate.value;
   }
 });
 
 epoch_no.addEventListener('ionChange', ({ detail }) => {
-  
   epoch_no_input.value = detail.value
   
   epoch_no.pinFormatter = (value) => {
