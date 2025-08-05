@@ -29,6 +29,7 @@ import {
   baseModel,
   getClassifierModel,
   getBestClassifierModel,
+  modelCheckpoint,
 } from '../model.js'
 import { env } from '../../env.js'
 import { join } from 'path'
@@ -619,8 +620,8 @@ function formatNumber(x: number) {
 //Just delete the model to retrain
 async function retrainModel(label_index: number) {
   if (!existsSync(`saved_models/label-${label_index}`)) return
-  if (!existsSync(`saved_models/label-${label_index}`)) return
   rmSync(`saved_models/label-${label_index}`, { recursive: true })
+  if (!existsSync(`saved_models/label-${label_index}/best`)) return
   rmSync(`saved_models/label-${label_index}/best`, { recursive: true })
 }
 
@@ -653,7 +654,6 @@ async function trainModel(options: {
   }
 
   if (initialEpoch === 0) {
-    console.log('Initial Epoch: ', initialEpoch)
     shuffleInUnison(embeddings, answers)
   }
 
@@ -668,60 +668,69 @@ async function trainModel(options: {
   let x = tf.concat(trainEmbeddings)
   let y = tf.oneHot(trainAnswers, 2)
 
-  await classifierModel.train({
-    x,
-    y,
-    initialEpoch,
-    validationData: [valX, valY],
-    epochs: initialEpoch + epochs,
-    batchSize,
-    shuffle: false,
-    callbacks: [
-      {
-        onEpochEnd(epoch: number, logs?: Logs) {
-          let accuracy = formatNumber(logs!.categoricalAccuracy)
-          let loss = formatNumber(logs!.loss)
-          let val_accuracy = formatNumber(logs!.val_categoricalAccuracy)
-          let val_loss = formatNumber(logs!.val_loss)
-          proxy.training_stats.push({
-            user_id: options.userID,
-            learning_rate: options.learning_rate,
-            epoch: epoch + 1,
-            train_loss: +loss,
-            train_accuracy: +accuracy,
-            val_loss: +val_loss,
-            val_accuracy: +val_accuracy,
-            label_id: label_id,
-          })
-          broadcast([
-            'eval',
-            /* javascript */ `    
-train_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
-train_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${loss};
+  for(let i = 0; i < epochs; i++){
+    await classifierModel.train({
+      x,
+      y,
+      initialEpoch: initialEpoch + i,
+      validationData: [valX, valY],
+      epochs: initialEpoch + i + 1,
+      batchSize,
+      shuffle: false,
+      verbose: 0, //For logging training stats, 0 to disable, 1 to enable
+      callbacks: [
+        {
+          onEpochEnd(epoch: number, logs?: Logs) {
+            let accuracy = formatNumber(logs!.categoricalAccuracy)
+            let loss = formatNumber(logs!.loss)
+            let val_accuracy = formatNumber(logs!.val_categoricalAccuracy)
+            let val_loss = formatNumber(logs!.val_loss)
+            proxy.training_stats.push({
+              user_id: options.userID,
+              learning_rate: options.learning_rate,
+              epoch: epoch + 1,
+              train_loss: +loss,
+              train_accuracy: +accuracy,
+              val_loss: +val_loss,
+              val_accuracy: +val_accuracy,
+              label_id: label_id,
+            })
+            broadcast([
+              'eval',
+              /* javascript */ `    
+                train_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
+                train_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${loss};
 
-train_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
-train_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${accuracy};
+                train_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
+                train_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${accuracy};
 
-val_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
-val_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${val_loss};
+                val_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
+                val_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${val_loss};
 
-val_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
-val_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${val_accuracy};
+                val_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
+                val_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${val_accuracy};
 
 
-train_loss_canvas.chart.update();
-train_accuracy_canvas.chart.update();
-val_accuracy_canvas.chart.update();
-val_loss_canvas.chart.update();
-`,
-          ])
-        },
-      },
-    ],
-  })
+                train_loss_canvas.chart.update();
+                train_accuracy_canvas.chart.update();
+                val_accuracy_canvas.chart.update();
+                val_loss_canvas.chart.update();
+                `,
+            ])
+          },
+        }
+      ],
+    })
+    let better = await modelCheckpoint(label, valX, valY)
+    if(better){
+      console.log(`Model ${label.title} improved at epoch ${i + 1}`)
+      await bestClassifierModel.save()
+    }
+    await bestClassifierModel.save()
+    await classifierModel.save()
+  }
   x.dispose()
   y.dispose()
-  await classifierModel.save()
 }
 
 function shuffleInUnison(a: any, b: any) {
