@@ -63,16 +63,19 @@ function create_modify_project_alert(project_id) {
     alert.present()
   }
 
+  //send new project name to server
 function create_project() {
   let new_project_name = document.querySelector('#new-project-name').value
   emit('/project/add-project', {project_name: new_project_name})
   document.querySelector('#new-project-name').value = ''
 }
 
+  //send delete project id to server
 function delete_project(project_id) {
   emit('/project/delete-project', {project_id: project_id})
 }
 
+  //send select project id to server
 function select_project(project_id) {
   console.log('select_project', project_id)
   let project_id_num = project_id.split('-')[2]
@@ -220,12 +223,6 @@ function ModifyProject(attrs: {}, context: DynamicContext) {
       'ion-list #project-title-' + input.project_id,
       input.project_name,
     ])
-
-    // context.ws.send([
-    //   'update-text',
-    //   'ion-list #project-title-' + input.project_id,
-    //   input.project_name,
-    // ])
   } catch (error) {
     console.error(error)
   }
@@ -270,7 +267,10 @@ function SelectProject(attrs: {}, context: DynamicContext) {
 
 function broadcast(message: ServerMessage) {
   sessions.forEach(session => {
-    if (session.url?.startsWith('/app/project')) {
+    if (
+      session.url?.startsWith('/app/project') ||
+      session.url?.startsWith('/project/') //like '/project/add-project'
+    ) {
       session.ws.send(message)
     }
   })
