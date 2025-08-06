@@ -32,12 +32,15 @@ let style = Style(/* css */ `
 }
 
 ion-item {
-  margin: auto;
   cursor: pointer;
   border-radius: 10px;
   transition: all 0.3s ease;
+  margin: 10px;
+  overflow: visible;
   &:hover {
-    transform: scale(1.05);
+    transform: scale(1.02);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    z-index: 10;
   }
 }
 `)
@@ -114,11 +117,7 @@ let page = (
 //generate project item with title and id
 function ProjectItem(attrs: { title: string; id: number }) {
   return (
-    <ion-item
-      id={`project-item-${attrs.id}`}
-      onclick="select_project(this.id)"
-      style="margin: auto"
-    >
+    <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
       <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
       <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
         <ion-button id={attrs.id} onclick="create_modify_project_alert(event)">
