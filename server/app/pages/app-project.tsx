@@ -23,11 +23,11 @@ import { db } from '../../../db/db.js'
 import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
-import { pick } from 'better-sqlite3-proxy'
+import { pick, del } from 'better-sqlite3-proxy'
 
 let pageTitle = 'Project'
-let addMemberTitle = (
-  <Locale en="Add Member" zh_hk="添加成員" zh_cn="添加成员" />
+let manageMemberTitle = (
+  <Locale en="Manage Member" zh_hk="管理成員" zh_cn="管理成员" />
 )
 
 let style = Style(/* css */ `
@@ -95,10 +95,23 @@ function select_project(project_id) {
   emit('/project/select-project', {project_id: project_id_num})
 }
 
-function add_member(event) {
+function manage_member(event) {
   event.stopPropagation()
   let project_id = event.target.id
-  emit('/app/project/add-member', {project_id: project_id})
+  const url = new URL(window.location)
+  url.searchParams.set('project_id', project_id)
+  window.history.pushState({}, '', url)
+  emit('/app/project/manage-member', { project_id: project_id })
+}
+
+function delete_member(event) {
+  event.stopPropagation()
+  let member_id = event.target.id
+  let project_id = +event.target.dataset.project_id
+  emit('/project/delete-member', {
+    user_id: member_id,
+    project_id: project_id,
+  })
 }
 `)
 
@@ -124,19 +137,19 @@ let page = (
   </>
 )
 
-let add_member_page = (
+let manage_member_page = (
   <>
     {style}
     <ion-header>
       <ion-toolbar>
         <IonBackButton href="/app/project" backText="Project" />
         <ion-title role="heading" aria-level="1">
-          {addMemberTitle}
+          {manageMemberTitle}
         </ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content id="AddMember" class="ion-padding">
-      <AddMember />
+    <ion-content id="ManageMember" class="ion-padding">
+      <ManageMember />
     </ion-content>
   </>
 )
@@ -154,7 +167,11 @@ function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
       >
         <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
         <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
-          <ion-button id={attrs.id} onclick="add_member(event)">
+          <ion-button
+            id={attrs.id}
+            onclick="manage_member(event)"
+            color="warning"
+          >
             <ion-icon name="person-outline"></ion-icon>
           </ion-button>
           <ion-button
@@ -187,6 +204,28 @@ function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
           id={attrs.id}
           color="danger"
           onclick="delete_project(event)"
+        >
+          <ion-icon name="trash-outline"></ion-icon>
+        </ion-button>
+      </div>
+    </ion-item>
+  )
+}
+
+function MemberItem(attrs: {
+  id: number
+  username: string
+  project_id: number
+}) {
+  return (
+    <ion-item id={`member-item-${attrs.id}`}>
+      <h2 id={`member-title-${attrs.id}`}>{attrs.username}</h2>
+      <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
+        <ion-button
+          id={attrs.id}
+          data-project_id={attrs.project_id}
+          color="danger"
+          onclick="delete_member(event)"
         >
           <ion-icon name="trash-outline"></ion-icon>
         </ion-button>
@@ -362,12 +401,7 @@ let get_current_project_member = db
   )
   .pluck()
 
-console.log(
-  'get_current_project_member',
-  get_current_project_member.all({ project_id: 9 }),
-)
-
-function AddMember(attrs: {}, context: DynamicContext) {
+function ManageMember(attrs: {}, context: DynamicContext) {
   let parser = object({
     project_id: int(),
   })
@@ -390,21 +424,55 @@ function AddMember(attrs: {}, context: DynamicContext) {
 
   return (
     <>
-      <h2>Current Project Member</h2>
+      <p>
+        <Locale
+          en="Current Project Member"
+          zh_hk="當前項目成員"
+          zh_cn="当前项目成员"
+        />
+      </p>
       <ion-list>
         {mapArray(user_list, user => (
-          <ion-item>
-            <h2 id={`member-id-${user.id}`}>{user.username}</h2>
-            <ion-button id={user.id} onclick="remove_member(event)">
-              <ion-icon name="trash-outline"></ion-icon>
-            </ion-button>
-          </ion-item>
+          <MemberItem
+            id={user.id!}
+            username={user.username!}
+            project_id={input.project_id}
+          />
         ))}
       </ion-list>
     </>
   )
+}
 
-  console.log('current_project_member', current_project_member)
+let delete_member = db.prepare<
+  { user_id: number; project_id: number },
+  void
+>(/* sql */ `
+    delete from project_member where user_id = :user_id and project_id = :project_id
+  `)
+
+function DeleteMember(attrs: {}, context: DynamicContext) {
+  try {
+    let parser = object({
+      user_id: int(),
+      project_id: int(),
+    })
+
+    let body = getContextFormBody(context)
+    let input = parser.parse(body)
+
+    console.log('delete_member', input.user_id, input.project_id)
+
+    delete_member.run({
+      user_id: input.user_id,
+      project_id: input.project_id,
+    })
+
+    broadcast(['remove', 'ion-list #member-item-' + input.user_id])
+  } catch (error) {
+    console.error(error)
+  }
+  throw EarlyTerminate
 }
 
 function broadcast(message: ServerMessage) {
@@ -425,10 +493,10 @@ let routes = {
     node: page,
     layout_type: LayoutType.ionic,
   },
-  '/app/project/add-member': {
-    title: title(addMemberTitle),
+  '/app/project/manage-member': {
+    title: title(manageMemberTitle),
     description: 'TODO',
-    node: add_member_page,
+    node: manage_member_page,
     layout_type: LayoutType.ionic,
   },
   '/project/add-project': {
@@ -453,6 +521,12 @@ let routes = {
     title: apiEndpointTitle,
     description: 'TODO',
     node: <SelectProject />,
+    streaming: false,
+  },
+  '/project/delete-member': {
+    title: apiEndpointTitle,
+    description: 'TODO',
+    node: <DeleteMember />,
     streaming: false,
   },
 } satisfies Routes
