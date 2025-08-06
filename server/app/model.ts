@@ -1,13 +1,13 @@
 import { loadModels } from 'image-dataset/dist/model'
 import {
   calcHiddenLayerSize,
-  loadGraphModel,
+  loadLayersModel,
   loadImageClassifierModel,
   loadImageModel,
   PreTrainedImageModels,
 } from 'tensorflow-helpers'
 import { Label } from '../../db/proxy'
-import { Tensor, Scalar } from '@tensorflow/tfjs'
+import { Tensor, Scalar, models } from '@tensorflow/tfjs'
 
 // label -> model
 let classifierModelCache: Record<string, Promise<Model>> = {}
@@ -48,30 +48,55 @@ export async function getClassifierModel(label: Label) {
 }
 
 export async function getBestClassifierModel(label: Label) {
-  let bestClassifierModel = loadGraphModel({
-    dir: `saved_models/label-${label.id}/best_model/model.json`,})
-  return bestClassifierModel
+  let bestClassifierModelPromise = classifierModelCache[label.title + '-best']
+
+  if (!bestClassifierModelPromise) {
+    bestClassifierModelPromise = loadImageClassifierModel({
+      baseModel,
+      modelDir: `saved_models/label-${label.id}/best`,
+      datasetDir: `datasets/label-${label.id}`,
+      classNames: ['yes', 'no'],
+      hiddenLayers: [
+        calcHiddenLayerSize({
+          inputSize: baseModel.spec.features,
+          outputSize: 2,
+          // 1 to 5
+          // 1 is easiest
+          // 5 is hardest
+          difficulty: 3,
+        }),
+      ],
+    })
+    classifierModelCache[label.title + '-best'] = bestClassifierModelPromise
+  }
+  return bestClassifierModelPromise
 }
 
-export async function modelCheckpoint(label : Label, x : Tensor, y : Tensor) : Promise<boolean> {
+export async function modelCheckpoint(label: Label, x: Tensor, y: Tensor) {
   let latestClassifierModel = await getClassifierModel(label)
   let bestClassifierModel = await getBestClassifierModel(label)
+  bestClassifierModel.compile()
+  let [latestModelLoss, latestModelAccruacy] = getValueFromScalar(
+    latestClassifierModel.classifierModel.evaluate(x, y),
+  ) as [number, number]
 
-  let [latestModelLoss, latestModelAccruacy] = getValueFromScalar(latestClassifierModel.classifierModel.evaluate(x, y)) as [number, number]
-  let [bestModelLoss, bestModelAccruacy] = getValueFromScalar(bestClassifierModel.classifierModel.evaluate(x, y)) as [number, number]
-
-  if(latestModelLoss < bestModelLoss) {
+  let [bestModelLoss, bestModelAccruacy] = getValueFromScalar(
+    bestClassifierModel.classifierModel.evaluate(x, y),
+  ) as [number, number]
+  console.log(
+    `Label${label.id} Latest model loss: ${latestModelLoss}, Best Model loss: ${bestModelLoss}`,
+  )
+  if (latestModelLoss < bestModelLoss) {
     return true
-  }else{
+  } else {
     return false
   }
 }
 
-function getValueFromScalar(result: Scalar | Scalar[]){
+function getValueFromScalar(result: Scalar | Scalar[]) {
   if (Array.isArray(result)) {
-    return result.map((scalar) => scalar.dataSync()[0])
+    return result.map(scalar => scalar.dataSync()[0])
   } else {
     return result.dataSync()[0]
   }
 }
-  

@@ -637,8 +637,6 @@ async function trainModel(options: {
   let { label, label_index, epochs, batchSize, cross_validation_ratio } =
     options
   let label_id = label.id!
-  let classifierModel = await getClassifierModel(label) //The latest model
-  let bestClassifierModel = await getBestClassifierModel(label) //The best model
   let rows = select_image_filename_by_label.all({ label_id })
   let embeddings = []
   let answers = []
@@ -668,7 +666,9 @@ async function trainModel(options: {
   let x = tf.concat(trainEmbeddings)
   let y = tf.oneHot(trainAnswers, 2)
 
-  for(let i = 0; i < epochs; i++){
+  for (let i = 0; i < epochs; i++) {
+    let classifierModel = await getClassifierModel(label) //The latest model
+    let bestClassifierModel = await getBestClassifierModel(label) //The best model
     await classifierModel.train({
       x,
       y,
@@ -718,16 +718,16 @@ async function trainModel(options: {
                 `,
             ])
           },
-        }
+        },
       ],
     })
-    let better = await modelCheckpoint(label, valX, valY)
-    if(better){
-      console.log(`Model ${label.title} improved at epoch ${i + 1}`)
-      await bestClassifierModel.save()
-    }
-    await bestClassifierModel.save()
     await classifierModel.save()
+    let better = await modelCheckpoint(label, valX, valY)
+    if (better) {
+      console.log(`Model ${label.title} improved at epoch ${i + 1}`)
+      await classifierModel.save(`saved_models/label-${label.id}/best`)
+      getBestClassifierModel(label)
+    }
   }
   x.dispose()
   y.dispose()
