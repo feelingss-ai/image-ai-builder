@@ -23,7 +23,7 @@ import { db } from '../../../db/db.js'
 import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
-import { pick, del, filter } from 'better-sqlite3-proxy'
+import { pick, del, filter, find } from 'better-sqlite3-proxy'
 
 let pageTitle = 'Project'
 let manageMemberTitle = (
@@ -113,6 +113,16 @@ function delete_member(event) {
     project_id: project_id,
   })
 }
+
+function add_member(event) {
+  event.stopPropagation()
+  let new_member_name = document.querySelector('#new-member-name').value
+  let project_id = +event.target.dataset.project_id
+  emit('/project/add-member', {
+    project_id: project_id,
+    member_name: new_member_name,
+  })
+}
 `)
 
 let page = (
@@ -195,24 +205,6 @@ function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
       ) : null}
     </ion-item>
   )
-  // return (
-  //   <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
-  //     <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
-  //     <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
-  //       <ion-button id={attrs.id} onclick="create_modify_project_alert(event)">
-  //         <ion-icon name="create-outline"></ion-icon>
-  //       </ion-button>
-
-  //       <ion-button
-  //         id={attrs.id}
-  //         color="danger"
-  //         onclick="delete_project(event)"
-  //       >
-  //         <ion-icon name="trash-outline"></ion-icon>
-  //       </ion-button>
-  //     </div>
-  //   </ion-item>
-  // )
 }
 
 function MemberItem(attrs: {
@@ -433,6 +425,15 @@ function ManageMember(attrs: {}, context: DynamicContext) {
 
   return (
     <>
+      <ion-input id="new-member-name" placeholder="New Member Name"></ion-input>
+      <ion-button
+        onclick="add_member(event)"
+        data-project_id={input.project_id}
+      >
+        <ion-icon name="add"></ion-icon>
+        <Locale en="Add Member" zh_hk="新增成員" zh_cn="新增成员" />
+      </ion-button>
+      <ion-alert id="user-not-found-alert" header="User not found"></ion-alert>
       <p>
         <Locale
           en="Current Project Member"
@@ -478,6 +479,53 @@ function DeleteMember(attrs: {}, context: DynamicContext) {
     })
 
     broadcast(['remove', 'ion-list #member-item-' + input.user_id])
+  } catch (error) {
+    console.error(error)
+  }
+  throw EarlyTerminate
+}
+
+function AddMember(attrs: {}, context: WsContext) {
+  try {
+    let parser = object({
+      project_id: int(),
+      member_name: string(),
+    })
+
+    let body = getContextFormBody(context)
+    let input = parser.parse(body)
+
+    console.log('input', input.project_id, input.member_name)
+
+    let user_names = proxy.user.map(user => user.username)
+    console.log('user_names', user_names)
+    if (!user_names.includes(input.member_name)) {
+      context.ws.send([
+        'eval',
+        'document.querySelector("#user-not-found-alert").present()',
+      ])
+    } else {
+      let user = find(proxy.user, { username: input.member_name })
+      let user_id = user?.id
+      console.log('user_id', user_id)
+      proxy.project_member.push({
+        project_id: input.project_id,
+        user_id: user_id!,
+      })
+
+      let new_member_item = (
+        <MemberItem
+          id={user_id!}
+          username={input.member_name}
+          project_id={input.project_id}
+        />
+      )
+      context.ws.send([
+        'append',
+        'ion-list',
+        nodeToVNode(new_member_item, context),
+      ])
+    }
   } catch (error) {
     console.error(error)
   }
@@ -536,6 +584,12 @@ let routes = {
     title: apiEndpointTitle,
     description: 'TODO',
     node: <DeleteMember />,
+    streaming: false,
+  },
+  '/project/add-member': {
+    title: apiEndpointTitle,
+    description: 'TODO',
+    node: <AddMember />,
     streaming: false,
   },
 } satisfies Routes
