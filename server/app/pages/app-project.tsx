@@ -23,8 +23,12 @@ import { db } from '../../../db/db.js'
 import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
+import { pick } from 'better-sqlite3-proxy'
 
 let pageTitle = 'Project'
+let addMemberTitle = (
+  <Locale en="Add Member" zh_hk="添加成員" zh_cn="添加成员" />
+)
 
 let style = Style(/* css */ `
 #Project {
@@ -90,6 +94,12 @@ function select_project(project_id) {
   console.log('select_project', project_id_num)
   emit('/project/select-project', {project_id: project_id_num})
 }
+
+function add_member(event) {
+  event.stopPropagation()
+  let project_id = event.target.id
+  emit('/app/project/add-member', {project_id: project_id})
+}
 `)
 
 let page = (
@@ -114,8 +124,57 @@ let page = (
   </>
 )
 
+let add_member_page = (
+  <>
+    {style}
+    <ion-header>
+      <ion-toolbar>
+        <IonBackButton href="/app/project" backText="Project" />
+        <ion-title role="heading" aria-level="1">
+          {addMemberTitle}
+        </ion-title>
+      </ion-toolbar>
+    </ion-header>
+    <ion-content id="AddMember" class="ion-padding">
+      <AddMember />
+    </ion-content>
+  </>
+)
+
 //generate project item with title and id
-function ProjectItem(attrs: { title: string; id: number }) {
+function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
+  let ids = get_created_project_id.all({ user_id: attrs.user_id })
+  console.log('ids', ids)
+  //if user is creator, show add member button
+  if (ids.includes(attrs.id)) {
+    return (
+      <ion-item
+        id={`project-item-${attrs.id}`}
+        onclick="select_project(this.id)"
+      >
+        <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
+        <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
+          <ion-button id={attrs.id} onclick="add_member(event)">
+            <ion-icon name="person-outline"></ion-icon>
+          </ion-button>
+          <ion-button
+            id={attrs.id}
+            onclick="create_modify_project_alert(event)"
+          >
+            <ion-icon name="create-outline"></ion-icon>
+          </ion-button>
+
+          <ion-button
+            id={attrs.id}
+            color="danger"
+            onclick="delete_project(event)"
+          >
+            <ion-icon name="trash-outline"></ion-icon>
+          </ion-button>
+        </div>
+      </ion-item>
+    )
+  }
   return (
     <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
       <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
@@ -144,8 +203,20 @@ let get_last_id = db
   )
   .pluck()
 
+//get all project id that user created
+let get_created_project_id = db
+  .prepare<{ user_id: number }, number>(
+    /* sql */ `
+    select id from project where creator_id = :user_id
+  `,
+  )
+  .pluck()
+
+console.log(get_created_project_id.all({ user_id: 2 }))
+
 function Main(attrs: {}, context: Context) {
   let user = getAuthUser(context)
+  let user_id = getAuthUserId(context)
   if (!user) {
     return (
       <>
@@ -176,7 +247,11 @@ function Main(attrs: {}, context: Context) {
       </ion-button>
       <ion-list>
         {mapArray(proxy.project, project => (
-          <ProjectItem title={project.title} id={project.id!} />
+          <ProjectItem
+            title={project.title}
+            id={project.id!}
+            user_id={user_id!}
+          />
         ))}
       </ion-list>
       <ion-alert header="Please Enter New Project Name"></ion-alert>
@@ -200,8 +275,17 @@ function AddProject(attrs: {}, context: WsContext) {
       creator_id: user_id!,
     })
 
+    proxy.project_member.push({
+      project_id: last_id!,
+      user_id: user_id!,
+    })
+
     let new_project_item = (
-      <ProjectItem title={input.project_name} id={last_id! + 1} />
+      <ProjectItem
+        title={input.project_name}
+        id={last_id! + 1}
+        user_id={user_id!}
+      />
     )
 
     broadcast(['append', 'ion-list', nodeToVNode(new_project_item, context)])
@@ -270,6 +354,59 @@ function SelectProject(attrs: {}, context: DynamicContext) {
   throw EarlyTerminate
 }
 
+let get_current_project_member = db
+  .prepare<{ project_id: number }, number>(
+    /* sql */ `
+    select user_id from project_member where project_id = :project_id
+  `,
+  )
+  .pluck()
+
+console.log(
+  'get_current_project_member',
+  get_current_project_member.all({ project_id: 9 }),
+)
+
+function AddMember(attrs: {}, context: DynamicContext) {
+  let parser = object({
+    project_id: int(),
+  })
+
+  let user_id = getAuthUserId(context)
+  let body = getContextFormBody(context)
+  let input = parser.parse(body)
+
+  let current_project_member = get_current_project_member.all({
+    project_id: input.project_id,
+  })
+
+  let users = pick(proxy.user, ['id', 'username'])
+
+  let user_list = users.filter(user =>
+    current_project_member.includes(user.id!),
+  )
+
+  console.log('user_list', user_list)
+
+  return (
+    <>
+      <h2>Current Project Member</h2>
+      <ion-list>
+        {mapArray(user_list, user => (
+          <ion-item>
+            <h2 id={`member-id-${user.id}`}>{user.username}</h2>
+            <ion-button id={user.id} onclick="remove_member(event)">
+              <ion-icon name="trash-outline"></ion-icon>
+            </ion-button>
+          </ion-item>
+        ))}
+      </ion-list>
+    </>
+  )
+
+  console.log('current_project_member', current_project_member)
+}
+
 function broadcast(message: ServerMessage) {
   sessions.forEach(session => {
     if (
@@ -286,6 +423,12 @@ let routes = {
     title: title(pageTitle),
     description: 'TODO',
     node: page,
+    layout_type: LayoutType.ionic,
+  },
+  '/app/project/add-member': {
+    title: title(addMemberTitle),
+    description: 'TODO',
+    node: add_member_page,
     layout_type: LayoutType.ionic,
   },
   '/project/add-project': {
