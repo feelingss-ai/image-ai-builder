@@ -5,11 +5,11 @@ import { Locale } from './locale.js'
 export let appIonTabBar = (
   <IonTabBar
     tabs={[
-      {
-        icon: 'home',
-        label: <Locale en="Home" zh_hk="主頁" zh_cn="主页" />,
-        href: '/app/home',
-      },
+      // {
+      //   icon: 'home',
+      //   label: <Locale en="Home" zh_hk="主頁" zh_cn="主页" />,
+      //   href: '/app/home',
+      // },
       {
         tab: 'project',
         icon: 'folder',

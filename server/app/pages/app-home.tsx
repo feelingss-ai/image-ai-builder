@@ -14,6 +14,7 @@ import { fitIonFooter, selectIonTab } from '../styles/mobile-style.js'
 import { characters } from './app-character.js'
 import { Context, DynamicContext } from '../context.js'
 import { getAuthUserId } from '../auth/user.js'
+import { IonBackButton } from '../components/ion-back-button.js'
 
 let pageTitle = <Locale en="Home" zh_hk="主頁" zh_cn="主页" />
 
@@ -42,6 +43,7 @@ let sweetAlertPlugin = loadClientPlugin({
 let homePage = (
   <>
     {style}
+    {/*
     <ion-menu content-id="main-content" id="sideMenu">
       <ion-header>
         <ion-toolbar>
@@ -58,30 +60,32 @@ let homePage = (
         </ion-list>
       </ion-content>
     </ion-menu>
+    */}
     {/* This extra layer of div is only needed when using ion-menu */}
     <div id="main-content">
       <ion-header>
-        <ion-toolbar color="primary">
-          <ion-buttons slot="start">
+        <ion-toolbar>
+          {/* <ion-buttons slot="start">
             <ion-menu-button></ion-menu-button>
-          </ion-buttons>
+          </ion-buttons> */}
+          <IonBackButton href={`/app/project`} backText="Projects" />
           <ion-title role="heading" aria-level="1">
             {pageTitle}
           </ion-title>
-          <ion-buttons slot="end">
+          {/* <ion-buttons slot="end">
             <Link tagName="ion-button" href="/app/about" color="light">
               About
             </Link>
-          </ion-buttons>
+          </ion-buttons> */}
         </ion-toolbar>
       </ion-header>
       <Main />
     </div>
-    <ion-footer>
+    {/* <ion-footer>
       {appIonTabBar}
       {selectIonTab('home')}
-    </ion-footer>
-    {fitIonFooter}
+    </ion-footer> */}
+    {/* {fitIonFooter} */}
     {script}
   </>
 )
