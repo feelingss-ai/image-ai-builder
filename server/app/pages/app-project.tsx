@@ -32,6 +32,7 @@ let style = Style(/* css */ `
 }
 
 ion-item {
+  margin: auto;
   cursor: pointer;
   border-radius: 10px;
   transition: all 0.3s ease;
@@ -46,7 +47,9 @@ let script = Script(/* js */ `
 alert = document.querySelector('ion-alert')
 
 // get new project name by alert input
-function create_modify_project_alert(project_id) {
+function create_modify_project_alert(event) {
+  event.stopPropagation()
+  let project_id = event.target.id
   let new_project_name = ''
 
   alert.buttons = [{text:'OK', handler: (event) => {
@@ -71,7 +74,9 @@ function create_project() {
 }
 
   //send delete project id to server
-function delete_project(project_id) {
+function delete_project(event) {
+  event.stopPropagation()
+  let project_id = event.target.id
   emit('/project/delete-project', {project_id: project_id})
 }
 
@@ -109,20 +114,21 @@ let page = (
 //generate project item with title and id
 function ProjectItem(attrs: { title: string; id: number }) {
   return (
-    <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
+    <ion-item
+      id={`project-item-${attrs.id}`}
+      onclick="select_project(this.id)"
+      style="margin: auto"
+    >
       <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
       <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
-        <ion-button
-          id={attrs.id}
-          onclick="create_modify_project_alert(this.id)"
-        >
+        <ion-button id={attrs.id} onclick="create_modify_project_alert(event)">
           <ion-icon name="create-outline"></ion-icon>
         </ion-button>
 
         <ion-button
           id={attrs.id}
           color="danger"
-          onclick="delete_project(this.id)"
+          onclick="delete_project(event)"
         >
           <ion-icon name="trash-outline"></ion-icon>
         </ion-button>
