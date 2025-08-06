@@ -90,6 +90,13 @@ function drawBoundingBoxes(image) {
     return;
   }
 
+  if(!image.clientWidth || !image.clientHeight) {
+    setTimeout(() => {
+      drawBoundingBoxes(image)
+    }, 33)
+    return
+  }
+
   // Resize canvas to match image size
   canvas.width = image.clientWidth;
   canvas.height = image.clientHeight;
@@ -332,6 +339,8 @@ function Main(attrs: {}, context: DynamicContext) {
   let box_count = +params.get('box_count')! || 1
   let total_images = proxy.image.length
 
+  let images_items = getImageItem(label_id, box_count)
+
   return (
     <>
       <ion-item>
@@ -378,9 +387,7 @@ function Main(attrs: {}, context: DynamicContext) {
         </ion-select>
       </ion-item>
       <ion-grid>
-        <ion-row class="ion-justify-content-center">
-          {getImageItem(label_id, box_count)}
-        </ion-row>
+        <ion-row class="ion-justify-content-center">{images_items}</ion-row>
       </ion-grid>
     </>
   )
