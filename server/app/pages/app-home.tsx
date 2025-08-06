@@ -12,6 +12,8 @@ import { o } from '../jsx/jsx.js'
 import { PageRoute, Routes } from '../routes.js'
 import { fitIonFooter, selectIonTab } from '../styles/mobile-style.js'
 import { characters } from './app-character.js'
+import { Context, DynamicContext } from '../context.js'
+import { getAuthUserId } from '../auth/user.js'
 
 let pageTitle = <Locale en="Home" zh_hk="主頁" zh_cn="主页" />
 
@@ -73,26 +75,7 @@ let homePage = (
           </ion-buttons>
         </ion-toolbar>
       </ion-header>
-      <ion-content class="ion-padding">
-        <ion-list>
-          <Link tagName="ion-item" href={'/upload-image'}>
-            1. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
-          </Link>
-          <Link tagName="ion-item" href={'/annotate-image'}>
-            2. <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />
-          </Link>
-          <Link tagName="ion-item" href={'/train-ai'}>
-            3. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
-          </Link>
-          <Link tagName="ion-item" href={'/preview-ai'}>
-            4. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
-          </Link>
-          <Link tagName="ion-item" href={'/stats'}>
-            5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
-          </Link>
-        </ion-list>
-        {wsStatus.safeArea}
-      </ion-content>
+      <Main />
     </div>
     <ion-footer>
       {appIonTabBar}
@@ -102,6 +85,59 @@ let homePage = (
     {script}
   </>
 )
+
+function Main(attrs: {}, context: DynamicContext) {
+  let user_id = getAuthUserId(context)
+  let params = new URLSearchParams(context.routerMatch?.search)
+  let project_id = params.get('project_id')
+  if (!project_id) {
+    return (
+      <>
+        <div style="margin: auto; width: fit-content; text-align: center;">
+          <p class="ion-padding ion-margin error">
+            <Locale
+              en="You must select project first"
+              zh_hk="您必須先選擇項目"
+              zh_cn="您必须先选择项目"
+            />
+          </p>
+          <ion-button color="primary" onclick='goto("/app/project")'>
+            <Locale en="Select Project" zh_hk="選擇項目" zh_cn="选择项目" />
+          </ion-button>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <ion-content class="ion-padding">
+      <ion-list>
+        <Link
+          tagName="ion-item"
+          href={'/upload-image?project_id=' + project_id}
+        >
+          1. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
+        </Link>
+        <Link
+          tagName="ion-item"
+          href={'/annotate-image?project_id=' + project_id}
+        >
+          2. <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />
+        </Link>
+        <Link tagName="ion-item" href={'/train-ai?project_id=' + project_id}>
+          3. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
+        </Link>
+        <Link tagName="ion-item" href={'/preview-ai?project_id=' + project_id}>
+          4. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
+        </Link>
+        <Link tagName="ion-item" href={'/stats?project_id=' + project_id}>
+          5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
+        </Link>
+      </ion-list>
+      {wsStatus.safeArea}
+    </ion-content>
+  )
+}
 
 // pre-render into html to reduce time to first contentful paint (FCP)
 // homePage = prerender(homePage)
