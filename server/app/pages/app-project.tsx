@@ -2,7 +2,12 @@ import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle, LayoutType, title } from '../../config.js'
 import Style from '../components/style.js'
-import { Context, WsContext, getContextFormBody } from '../context.js'
+import {
+  Context,
+  WsContext,
+  getContextFormBody,
+  DynamicContext,
+} from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { appIonTabBar } from '../components/app-tab-bar.js'
 import { fitIonFooter, selectIonTab } from '../styles/mobile-style.js'
@@ -15,12 +20,24 @@ import { EarlyTerminate } from '../../exception.js'
 import { proxy } from '../../../db/proxy.js'
 import { nodeToVNode } from '../jsx/vnode.js'
 import { db } from '../../../db/db.js'
+import { ServerMessage } from '../../../client/types.js'
+import { sessions } from '../session.js'
+import { Link, Redirect } from '../components/router.js'
 
 let pageTitle = 'Project'
 
 let style = Style(/* css */ `
 #Project {
 
+}
+
+ion-item {
+  cursor: pointer;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+  &:hover {
+    transform: scale(1.05);
+  }
 }
 `)
 
@@ -56,6 +73,12 @@ function delete_project(project_id) {
   emit('/project/delete-project', {project_id: project_id})
 }
 
+function select_project(project_id) {
+  console.log('select_project', project_id)
+  let project_id_num = project_id.split('-')[2]
+  console.log('select_project', project_id_num)
+  emit('/project/select-project', {project_id: project_id_num})
+}
 `)
 
 let page = (
@@ -83,7 +106,7 @@ let page = (
 //generate project item with title and id
 function ProjectItem(attrs: { title: string; id: number }) {
   return (
-    <ion-item id={`project-item-${attrs.id}`}>
+    <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
       <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
       <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
         <ion-button
@@ -173,18 +196,14 @@ function AddProject(attrs: {}, context: WsContext) {
       <ProjectItem title={input.project_name} id={last_id! + 1} />
     )
 
-    context.ws.send([
-      'append',
-      'ion-list',
-      nodeToVNode(new_project_item, context),
-    ])
+    broadcast(['append', 'ion-list', nodeToVNode(new_project_item, context)])
   } catch (error) {
     console.error(error)
   }
   throw EarlyTerminate
 }
 
-function ModifyProject(attrs: {}, context: WsContext) {
+function ModifyProject(attrs: {}, context: DynamicContext) {
   try {
     let parser = object({
       project_id: int(),
@@ -196,18 +215,24 @@ function ModifyProject(attrs: {}, context: WsContext) {
 
     proxy.project[input.project_id].title = input.project_name
 
-    context.ws.send([
+    broadcast([
       'update-text',
       'ion-list #project-title-' + input.project_id,
       input.project_name,
     ])
+
+    // context.ws.send([
+    //   'update-text',
+    //   'ion-list #project-title-' + input.project_id,
+    //   input.project_name,
+    // ])
   } catch (error) {
     console.error(error)
   }
   throw EarlyTerminate
 }
 
-function DeleteProject(attrs: {}, context: WsContext) {
+function DeleteProject(attrs: {}, context: DynamicContext) {
   try {
     let parser = object({
       project_id: int(),
@@ -218,11 +243,37 @@ function DeleteProject(attrs: {}, context: WsContext) {
 
     delete proxy.project[input.project_id]
 
-    context.ws.send(['remove', 'ion-list #project-item-' + input.project_id])
+    broadcast(['remove', 'ion-list #project-item-' + input.project_id])
   } catch (error) {
     console.error(error)
   }
   throw EarlyTerminate
+}
+
+function SelectProject(attrs: {}, context: DynamicContext) {
+  try {
+    let parser = object({
+      project_id: int(),
+    })
+
+    let body = getContextFormBody(context)
+    let input = parser.parse(body)
+
+    console.log('select_project', input.project_id)
+
+    Redirect({ href: '/app/home?project_id=' + input.project_id }, context)
+  } catch (error) {
+    console.error(error)
+  }
+  throw EarlyTerminate
+}
+
+function broadcast(message: ServerMessage) {
+  sessions.forEach(session => {
+    if (session.url?.startsWith('/app/project')) {
+      session.ws.send(message)
+    }
+  })
 }
 
 let routes = {
@@ -248,6 +299,12 @@ let routes = {
     title: apiEndpointTitle,
     description: 'TODO',
     node: <DeleteProject />,
+    streaming: false,
+  },
+  '/project/select-project': {
+    title: apiEndpointTitle,
+    description: 'TODO',
+    node: <SelectProject />,
     streaming: false,
   },
 } satisfies Routes
