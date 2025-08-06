@@ -23,7 +23,7 @@ import { db } from '../../../db/db.js'
 import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
-import { pick, del } from 'better-sqlite3-proxy'
+import { pick, del, filter } from 'better-sqlite3-proxy'
 
 let pageTitle = 'Project'
 let manageMemberTitle = (
@@ -156,17 +156,17 @@ let manage_member_page = (
 
 //generate project item with title and id
 function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
-  let ids = get_created_project_id.all({ user_id: attrs.user_id })
-  console.log('ids', ids)
-  //if user is creator, show add member button
-  if (ids.includes(attrs.id)) {
-    return (
-      <ion-item
-        id={`project-item-${attrs.id}`}
-        onclick="select_project(this.id)"
-      >
-        <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
+  let project = proxy.project[attrs.id]
+
+  // if user is creator, show add member button
+  let is_owner = project.creator_id == attrs.user_id
+
+  return (
+    <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
+      <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
+      {is_owner ? (
         <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
+          {/* edit member list */}
           <ion-button
             id={attrs.id}
             onclick="manage_member(event)"
@@ -174,6 +174,8 @@ function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
           >
             <ion-icon name="person-outline"></ion-icon>
           </ion-button>
+
+          {/* edit project */}
           <ion-button
             id={attrs.id}
             onclick="create_modify_project_alert(event)"
@@ -181,6 +183,7 @@ function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
             <ion-icon name="create-outline"></ion-icon>
           </ion-button>
 
+          {/* delete project */}
           <ion-button
             id={attrs.id}
             color="danger"
@@ -189,27 +192,27 @@ function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
             <ion-icon name="trash-outline"></ion-icon>
           </ion-button>
         </div>
-      </ion-item>
-    )
-  }
-  return (
-    <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
-      <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
-      <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
-        <ion-button id={attrs.id} onclick="create_modify_project_alert(event)">
-          <ion-icon name="create-outline"></ion-icon>
-        </ion-button>
-
-        <ion-button
-          id={attrs.id}
-          color="danger"
-          onclick="delete_project(event)"
-        >
-          <ion-icon name="trash-outline"></ion-icon>
-        </ion-button>
-      </div>
+      ) : null}
     </ion-item>
   )
+  // return (
+  //   <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
+  //     <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
+  //     <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
+  //       <ion-button id={attrs.id} onclick="create_modify_project_alert(event)">
+  //         <ion-icon name="create-outline"></ion-icon>
+  //       </ion-button>
+
+  //       <ion-button
+  //         id={attrs.id}
+  //         color="danger"
+  //         onclick="delete_project(event)"
+  //       >
+  //         <ion-icon name="trash-outline"></ion-icon>
+  //       </ion-button>
+  //     </div>
+  //   </ion-item>
+  // )
 }
 
 function MemberItem(attrs: {
@@ -274,6 +277,9 @@ function Main(attrs: {}, context: Context) {
       </>
     )
   }
+  let projects = filter(proxy.project_member, { user_id: user_id! }).map(
+    row => row.project!,
+  )
   return (
     <>
       <ion-input
@@ -285,7 +291,7 @@ function Main(attrs: {}, context: Context) {
         <Locale en="Create New Project" zh_hk="新增項目" zh_cn="新增项目" />
       </ion-button>
       <ion-list>
-        {mapArray(proxy.project, project => (
+        {mapArray(projects, project => (
           <ProjectItem
             title={project.title}
             id={project.id!}
@@ -307,27 +313,30 @@ function AddProject(attrs: {}, context: WsContext) {
     let user_id = getAuthUserId(context)
     let body = getContextFormBody(context)
     let input = parser.parse(body)
-    let last_id = get_last_id.get()
 
-    proxy.project.push({
+    let project_id = proxy.project.push({
       title: input.project_name,
       creator_id: user_id!,
     })
 
     proxy.project_member.push({
-      project_id: last_id!,
+      project_id,
       user_id: user_id!,
     })
 
     let new_project_item = (
       <ProjectItem
         title={input.project_name}
-        id={last_id! + 1}
+        id={project_id}
         user_id={user_id!}
       />
     )
 
-    broadcast(['append', 'ion-list', nodeToVNode(new_project_item, context)])
+    context.ws.send([
+      'append',
+      'ion-list',
+      nodeToVNode(new_project_item, context),
+    ])
   } catch (error) {
     console.error(error)
   }
