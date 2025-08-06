@@ -67,41 +67,55 @@ let style = Style(/* css */ `
 `)
 
 let script = Script(/* js */ `
-async function deleteLabel(event) {
-  let item = event.target.closest('ion-item')
-  let url = item.dataset.url
-  let labelId = item.dataset.labelId
-  let labelCount = +item.dataset.labelsCount
-  console.log('label id', labelId)
-  let labelTitle = item.querySelector('ion-label').textContent
-  let message = 
-    (labelCount > 0
-      ? 'Label "{label}" is used by {count} images, are you sure to delete it?'
-      : 'Are you sure to delete label "{label}"?')
-    .replace("{label}", labelTitle)
-    .replace("{count}", labelCount)
-  let ans = await showConfirm({
-    title: message,
-    confirmButtonText: 'Delete',
-    cancelButtonText: 'Cancel',
-  })
-  if (!ans) return
-  await fetch_json(url)
-}
+  async function deleteLabel(event) {
+    let item = event.target.closest('ion-item')
+    let labelId = item.dataset.labelId
+    let labelCount = +item.dataset.labelCount
+    let url = item.querySelector('ion-button').dataset.url
+    let labelTitle = item.querySelector('ion-input').value
+    console.log('item ', item)
+    console.log('url', url)
+    console.log('labelId', labelId)
+    console.log('labelCount', labelCount)
+    console.log('label', labelTitle)
+    let message = 
+      (labelCount > 0
+        ? 'Label "{label}" is used by {count} images, are you sure to delete it?'
+        : 'Are you sure to delete label "{label}"?')
+      .replace("{label}", labelTitle)
+      .replace("{count}", labelCount)
+    let ans = await showConfirm({
+      title: message,
+      confirmButtonText: 'Delete',
+      cancelButtonText: 'Cancel',
+    })
+    if (!ans) return
+    await fetch_json(url)
+  }
 
-// lol
 async function renameLabel(event) {
-  //console.log('renameLabel test')
- // console.log('event', event)
+  // collect data from event (html form)
   let item = event.target.closest('ion-item')
-  let url = item.dataset.url
-  let labelId = item.dataset.labelId
-  let labelTitle = item.querySelector('ion-label').textContent
-  let newTitle = prompt('Enter new label title', labelTitle)
-  console.log('label id ', labelId)
-  console.log('label title ', labelTitle)
-  console.log('new title ', newTitle)
+  let url = item.querySelector('ion-input').dataset.url
+  let label_id = item.dataset.labelId
+  let label_title = item.querySelector('ion-input').value
+  console.log('item', item)
+  console.log('label id ', label_id)
+  console.log('label title ', label_title)
   console.log('url ', url)
+
+  // pass form to server by URL 
+  await fetch_json(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      label_id: +label_id, // pass label id
+      label_title: label_title, // pass label title
+    }),
+  }).catch(error => { // error handling
+    console.error('Error renaming label:', error)
+    showError(error)
+  })
 }
 
 `)
@@ -241,9 +255,7 @@ function LabelItem(attrs: { label: Label }, context: Context) {
       <ion-input
         value={label.title}
         onchange="renameLabel(event)"
-        data-url={toRouteUrl(routes, '/api/label/:id/rename', {
-          params: { id: label.id! },
-        })}
+        data-url={toRouteUrl(routes, '/api/label/rename')}
       />
       <ion-button
         color="danger"
@@ -339,10 +351,63 @@ function SubmitLabel(attrs: {}, context: WsContext) {
   }
 }
 
+// rename parser
+let renameParser = object({
+  label_id: id(),
+  label_title: string(),
+})
+
 async function renameLabelById(context: ExpressContext) {
   let throws = makeThrows(context)
 
   let user_id = getAuthUserId(context)!
+  if (!user_id)
+    throws({
+      en: 'You must be logged in to delete labels',
+      zh_hk: '您必須登入才能刪除標籤',
+      zh_cn: '您必须登录才能删除标签',
+    })
+
+  try {
+    let body = getContextFormBody(context)
+    let input = renameParser.parse(body)
+    let label_id = input.label_id
+    let label_title = input.label_title
+    console.log('rename label id:', label_id)
+    console.log('rename label title:', label_title)
+
+    // exist ? label
+    let label = proxy.label[label_id]
+    if (!label) {
+      throws({
+        en: 'Label not found',
+        zh_hk: '找不到標籤',
+        zh_cn: '找不到标签',
+      })
+    }
+
+    // update db
+    seedRow(
+      proxy.label,
+      {
+        id: label_id,
+      },
+      {
+        title: label_title,
+        dependency_id: null,
+      },
+    )
+    //debug success msg
+    console.log('updated label:', label_id, '->', label_title)
+
+    // return null (if not return null -> appear errorLog in UI, not sure why need return null)
+    return {}
+  } catch (error) {
+    if (error !== EarlyTerminate) {
+      console.error(error)
+    }
+    throw EarlyTerminate
+  }
 }
 
 async function deleteLabelById(context: ExpressContext) {
@@ -365,6 +430,7 @@ async function deleteLabelById(context: ExpressContext) {
     })
 
   let labelTitle = proxy.label[label_id]?.title
+  console.log('delete label title: ', labelTitle)
 
   db.transaction(() => {
     del(proxy.image_label, { label_id })
@@ -381,108 +447,6 @@ async function deleteLabelById(context: ExpressContext) {
   return { message }
 }
 
-// Handles the deletion of a label
-function DeleteLabel(attrs: {}, context: WsContext) {
-  try {
-    let throws = makeThrows(context)
-    let user_id = getAuthUserId(context)!
-    if (!user_id)
-      throws({
-        en: 'You must be logged in to delete labels',
-        zh_hk: '您必須登入才能刪除標籤',
-        zh_cn: '您必须登录才能删除标签',
-      })
-
-    let body = getContextFormBody(context)
-    let input = object({
-      id: number({ min: 1 }),
-    }).parse(body)
-
-    // Find the label to delete
-    let labelToDelete = proxy.label.find(
-      label => label && label.id === input.id,
-    )
-    if (!labelToDelete) {
-      throws({
-        en: 'Label not found',
-        zh_hk: '找不到標籤',
-        zh_cn: '找不到标签',
-      })
-    }
-
-    // Check if label is being used in any image labels
-    let labelInUse = proxy.image_label?.some(
-      imageLabel => imageLabel && imageLabel.label_id === input.id,
-    )
-
-    if (labelInUse) {
-      throws({
-        en: 'Cannot delete label that is being used in image annotations',
-        zh_hk: '無法刪除正在圖像註釋中使用的標籤',
-        zh_cn: '无法删除正在图像注释中使用的标签',
-      })
-    }
-
-    // Delete the label
-    let deletedLabel = proxy.label.find(label => label && label.id === input.id)
-    if (deletedLabel) {
-      // Remove from proxy
-      let index = proxy.label.indexOf(deletedLabel)
-      if (index > -1) {
-        proxy.label.splice(index, 1)
-      }
-    }
-
-    console.log(
-      `Deleted label with ID: ${input.id}, title: ${deletedLabel?.title}`,
-    )
-
-    // Send success response using add-class and remove-class
-    context.ws.send([
-      'batch',
-      [
-        ['add-class', '#create-message', 'success-message'],
-        ['remove-class', '#create-message', 'error-message'],
-        [
-          'update-text',
-          '#create-message',
-          `Label "${deletedLabel?.title}" deleted successfully!`,
-        ],
-      ],
-    ])
-
-    // Remove success class and reload after 2 seconds
-    context.ws.send([
-      'eval',
-      `setTimeout(() => { 
-        window.location.reload(); 
-      }, 2000);`,
-    ])
-
-    // Terminate execution to prevent further processing
-    throw EarlyTerminate
-  } catch (error) {
-    // Handle non-termination errors by logging and sending error message to client
-    if (error !== EarlyTerminate) {
-      console.error(error)
-      context.ws.send([
-        'batch',
-        [
-          ['add-class', '#create-message', 'error-message'],
-          ['remove-class', '#create-message', 'success-message'],
-          [
-            'update-text',
-            '#create-message',
-            `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          ],
-        ],
-      ])
-    }
-    // Ensure termination of the function
-    throw EarlyTerminate
-  }
-}
-
 let routes = {
   '/edit-label': {
     title: <Title t={pageTitle} />,
@@ -495,7 +459,7 @@ let routes = {
     description: 'Create new class label',
     node: <SubmitLabel />,
   },
-  '/api/label/:id/rename': ajaxRoute({
+  '/api/label/rename': ajaxRoute({
     description: 'Rename class label by id',
     api: renameLabelById,
   }),
