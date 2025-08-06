@@ -71,7 +71,6 @@ let script = Script(/* js */ `
 
 //send selected image label and box count to server
 function submitBoxCount() {
-  console.log('submitBoxCount')
   emit('/review-bounding-box/submit-box-count', {
     label_id,
     box_count,
@@ -85,8 +84,6 @@ function drawBoundingBoxes(image) {
   const image_id = image.dataset.imageId
   const canvas = image.parentElement.querySelector('canvas')
   const boxes = JSON.parse(image.dataset.boxes);
-
-  console.log('boxes', boxes)
 
   if (!canvas || !image) {
     console.error('Canvas or image not found for image_id:', image_id);
@@ -188,46 +185,38 @@ let getBoxImageCounts = db.prepare<
     group by count
     `)
 
-// get image_ids by label_id and box_count
-/* example:
-[
-  { image_id: 1 },
-  { image_id: 2 },
-]
-*/
-let getImageIdsByLabelAndBoxCount = db.prepare<
-  {
-    label_id: number
-    box_count: number
-  },
-  { image_id: number }
->(`
-  SELECT image_id
-  FROM image_bounding_box
-  WHERE label_id = :label_id
-  GROUP BY image_id
-  HAVING COUNT(*) = :box_count
-`)
-
-console.log(
-  'getImageIdsByLabelAndBoxCount',
-  getImageIdsByLabelAndBoxCount.all({ label_id: 1, box_count: 1 }),
-)
+// get image_ids by label_id and box_count like 1,2,3
+let getImageIdsByLabelAndBoxCount = db
+  .prepare<
+    {
+      label_id: number
+      box_count: number
+    },
+    number
+  >(
+    /* sql */ `
+  select image_id
+  from image_bounding_box
+  where label_id = :label_id
+  group by image_id
+  having count(*) = :box_count
+`,
+  )
+  .pluck()
 
 // get image bounding boxes by image_id and label_id
 /* example:[
-  { x: 0.1, y: 0.2, width: 0.3, height: 0.5, rotate: 0, label_id: 1 },
+  { x: 0.1, y: 0.2, width: 0.3, height: 0.5, rotate: 0},
+  { x: 0.5, y: 0.6, width: 0.2, height: 0.6, rotate: 0.125 },
 ] */
 let getImageBoundingBoxes = db.prepare<
   { image_id: number; label_id: number },
   {
-    boxes: {
-      x: number
-      y: number
-      width: number
-      height: number
-      rotate: number
-    }
+    x: number
+    y: number
+    width: number
+    height: number
+    rotate: number
   }
 >(/* sql */ `
   select x, y, width, height, rotate
@@ -235,56 +224,47 @@ let getImageBoundingBoxes = db.prepare<
   where image_id = :image_id and label_id = :label_id
   `)
 
-function getImageItem(image_id: number, label_id: number, box_count: number) {
+// return a list of ImageItem by label_id and box_count
+function getImageItem(label_id: number, box_count: number) {
   let image_ids = getImageIdsByLabelAndBoxCount.all({
     label_id: label_id,
     box_count: box_count,
   })
 
-  let ids = image_ids.map(image_id => image_id.image_id)
-
-  console.log('ids', ids)
-
   type Image = (typeof images)[number]
   let images = pick(proxy.image, ['id', 'filename', 'original_filename'])
+  let items = images.filter(image => image_ids.includes(image.id!))
 
-  let items = images.filter(image => ids.includes(image.id!))
-  //console.log('items', items)
+  function renderImage(
+    image: Image,
+    boxes: {
+      x: number
+      y: number
+      width: number
+      height: number
+      rotate: number
+    }[],
+  ) {
+    return (
+      <ImageItem
+        filename={image.filename}
+        original_filename={image.original_filename}
+        image_id={image.id!}
+        boxes={boxes}
+      />
+    )
+  }
 
-  for (let item of items) {
-    console.log('item', item.id)
+  let images_items = mapArray(items, item => {
     let boxes = getImageBoundingBoxes.all({
       image_id: item.id!,
       label_id: label_id,
     })
-    console.log('boxes', boxes)
-    // return (
-    //   <ion-col size="12">
-    //     <ImageItem
-    //     filename={item.filename}
-    //     original_filename={item.original_filename}
-    //     image_id={item.id!}
-    //     boxes={boxes}
-    //   />
-    //   </ion-col>
-    // )
-  }
+    return renderImage(item, boxes)
+  })
 
-  //return renderImage(images, boxes)
+  return images_items
 }
-
-// let items = mapArray(
-//   images.filter(image => ids.includes(image.id!)),
-//   (image, index, array) => {
-//     let boxes = getImageBoundingBoxes.all({
-//       image_id: image.id!,
-//       label_id: label_id,
-//     })
-//     return renderImage(image,boxes)
-//   },
-// )
-
-getImageItem(1, 1, 1)
 
 function ImageItem(attrs: {
   filename: string
@@ -349,6 +329,7 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let params = new URLSearchParams(context.routerMatch?.search)
   let label_id = +params.get('label')! || 1
+  let box_count = +params.get('box_count')! || 1
   let total_images = proxy.image.length
 
   return (
@@ -398,37 +379,7 @@ function Main(attrs: {}, context: DynamicContext) {
       </ion-item>
       <ion-grid>
         <ion-row class="ion-justify-content-center">
-          <ImageItem
-            filename="834ee161-74e2-4919-b716-43c1361f6b09.jpeg"
-            original_filename="cat.jpeg"
-            image_id={1}
-            boxes={[
-              { x: 0.1, y: 0.2, width: 0.3, height: 0.5, rotate: 0 },
-              { x: 0.5, y: 0.6, width: 0.2, height: 0.6, rotate: 45 / 360 },
-              { x: 0.9, y: 0.8, width: 0.8, height: 0.1, rotate: 90 / 360 },
-            ]}
-          />
-          <ImageItem
-            // width: 720, height: 718
-            filename="6651a823-8771-4e98-8235-2424cb225299.jpeg"
-            original_filename="dog.jpeg"
-            image_id={4}
-            boxes={[
-              {
-                x: 0.5,
-                y: 0.5,
-                width: 0.8,
-                height: 0.8,
-                rotate: 15 / 360,
-              },
-            ]}
-          />
-          <ImageItem
-            filename="4154eeba-f8ae-45e0-8a70-feaa2390bb37.jpeg"
-            original_filename="lobster.jpeg"
-            image_id={2}
-            boxes={[]}
-          />
+          {getImageItem(label_id, box_count)}
         </ion-row>
       </ion-grid>
     </>
@@ -449,6 +400,14 @@ function SubmitReviewBoundingBox(attrs: {}, context: WsContext) {
     let { label_id, box_count } = input
     console.log('label_id', label_id)
     console.log('box_count', box_count)
+
+    let images_items = getImageItem(label_id, box_count)
+
+    context.ws.send([
+      'update-in',
+      'ion-grid ion-row',
+      nodeToVNode(images_items, context),
+    ])
   } catch (error) {
     console.error(error)
   }
