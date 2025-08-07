@@ -30,10 +30,17 @@ import {
   getClassifierModel,
   getBestClassifierModel,
   modelCheckpoint,
+  compileModel,
+  reloadModel,
+  classifierModelCache,
 } from '../model.js'
 import { env } from '../../env.js'
 import { join } from 'path'
-import { loadImageClassifierModel, tf } from 'tensorflow-helpers'
+import {
+  loadImageClassifierModel,
+  tf,
+  calcHiddenLayerSize,
+} from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
 import { existsSync, rmSync } from 'fs'
 import { scales } from 'chart.js'
@@ -280,7 +287,7 @@ function Main(attrs: {}, context: Context) {
                   ticks
                   snaps
                   value="0.03"
-                  min="0.01"
+                  min="0"
                   max="0.1"
                   aria-label="Custom range"
                 ></ion-range>
@@ -643,6 +650,9 @@ async function trainModel(options: {
   let classCounts = [0, 0]
   let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
 
+  let classifierModel = await getClassifierModel(label) //The latest model
+  let bestClassifierModel = await getBestClassifierModel(label) //The best model
+
   for (let row of rows) {
     let file = join(env.UPLOAD_DIR, row.filename)
     let tensor = await baseModel.imageFileToEmbedding(file)
@@ -667,8 +677,8 @@ async function trainModel(options: {
   let y = tf.oneHot(trainAnswers, 2)
 
   for (let i = 0; i < epochs; i++) {
-    let classifierModel = await getClassifierModel(label) //The latest model
-    let bestClassifierModel = await getBestClassifierModel(label) //The best model
+    compileModel(classifierModel, options.learning_rate)
+    compileModel(bestClassifierModel, options.learning_rate)
     await classifierModel.train({
       x,
       y,
@@ -722,12 +732,7 @@ async function trainModel(options: {
       ],
     })
     await classifierModel.save()
-    let better = await modelCheckpoint(label, valX, valY)
-    if (better) {
-      console.log(`Model ${label.title} improved at epoch ${i + 1}`)
-      await classifierModel.save(`saved_models/label-${label.id}/best`)
-      getBestClassifierModel(label)
-    }
+    await modelCheckpoint(label, valX, valY)
   }
   x.dispose()
   y.dispose()

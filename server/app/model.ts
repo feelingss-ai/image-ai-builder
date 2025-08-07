@@ -7,10 +7,10 @@ import {
   PreTrainedImageModels,
 } from 'tensorflow-helpers'
 import { Label } from '../../db/proxy'
-import { Tensor, Scalar, models } from '@tensorflow/tfjs'
+import * as tf from '@tensorflow/tfjs'
 
 // label -> model
-let classifierModelCache: Record<string, Promise<Model>> = {}
+export let classifierModelCache: Record<string, Promise<Model>> = {}
 
 // filename -> number[] (for base image model)
 let embeddingCache = new Map<string, number[]>()
@@ -72,28 +72,65 @@ export async function getBestClassifierModel(label: Label) {
   return bestClassifierModelPromise
 }
 
-export async function modelCheckpoint(label: Label, x: Tensor, y: Tensor) {
-  let latestClassifierModel = await getClassifierModel(label)
-  let bestClassifierModel = await getBestClassifierModel(label)
-  bestClassifierModel.compile()
+export async function modelCheckpoint(
+  label: Label,
+  x: tf.Tensor,
+  y: tf.Tensor,
+) {
+  let latestModel = await getClassifierModel(label)
+  let bestModel = await getBestClassifierModel(label)
+  latestModel.compile()
+  bestModel.compile()
   let [latestModelLoss, latestModelAccruacy] = getValueFromScalar(
-    latestClassifierModel.classifierModel.evaluate(x, y),
+    latestModel.classifierModel.evaluate(x, y),
   ) as [number, number]
 
   let [bestModelLoss, bestModelAccruacy] = getValueFromScalar(
-    bestClassifierModel.classifierModel.evaluate(x, y),
+    bestModel.classifierModel.evaluate(x, y),
   ) as [number, number]
-  console.log(
-    `Label${label.id} Latest model loss: ${latestModelLoss}, Best Model loss: ${bestModelLoss}`,
-  )
+  console.log(`Latest Model ${label.title} Loss: ${latestModelLoss}`)
+  console.log(`Best Model ${label.title} Loss: ${bestModelLoss}`)
+
   if (latestModelLoss < bestModelLoss) {
-    return true
-  } else {
-    return false
+    await latestModel.save(`saved_models/label-${label.id}/best`)
+    delete classifierModelCache[label.title + '-best']
+    await getBestClassifierModel(label)
   }
 }
 
-function getValueFromScalar(result: Scalar | Scalar[]) {
+export function compileModel(model: Model, learningRate: number) {
+  if (learningRate === 0) {
+    model.classifierModel.compile({
+      optimizer: 'Adam',
+      loss: tf.metrics.categoricalCrossentropy,
+      metrics: [tf.metrics.categoricalAccuracy],
+    })
+  } else {
+    model.classifierModel.compile({
+      optimizer: tf.train.sgd(learningRate),
+      loss: tf.metrics.categoricalCrossentropy,
+      metrics: [tf.metrics.categoricalAccuracy],
+    })
+  }
+}
+
+export async function reloadModel(label: Label) {
+  classifierModelCache[label.title + '-best'] = loadImageClassifierModel({
+    baseModel,
+    modelDir: `saved_models/label-${label.id}/best`,
+    datasetDir: `datasets/label-${label.id}`,
+    classNames: ['yes', 'no'],
+    hiddenLayers: [
+      calcHiddenLayerSize({
+        inputSize: baseModel.spec.features,
+        outputSize: 2,
+        difficulty: 3,
+      }),
+    ],
+  })
+}
+
+function getValueFromScalar(result: tf.Scalar | tf.Scalar[]) {
   if (Array.isArray(result)) {
     return result.map(scalar => scalar.dataSync()[0])
   } else {
