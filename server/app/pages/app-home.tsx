@@ -15,6 +15,7 @@ import { characters } from './app-character.js'
 import { Context, DynamicContext } from '../context.js'
 import { getAuthUserId } from '../auth/user.js'
 import { IonBackButton } from '../components/ion-back-button.js'
+import { Page } from '../components/page.js'
 
 let pageTitle = <Locale en="Home" zh_hk="主頁" zh_cn="主页" />
 
@@ -90,6 +91,7 @@ let homePage = (
   </>
 )
 
+// return <Page/> for custom page title
 function Main(attrs: {}, context: DynamicContext) {
   let params = new URLSearchParams(context.routerMatch?.search)
   let project_id = params.get('project')
@@ -109,6 +111,16 @@ function Main(attrs: {}, context: DynamicContext) {
           </ion-button>
         </div>
       </>
+    )
+  }
+
+  // TODO check if the current user is a member of the project
+  let is_member = true
+  if (!is_member) {
+    return (
+      <ion-content class="ion-padding">
+        <p>You are not a member of this project</p>
+      </ion-content>
     )
   }
 
