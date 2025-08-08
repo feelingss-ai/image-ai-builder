@@ -28,19 +28,13 @@ import { db } from '../../../db/db.js'
 import {
   baseModel,
   getClassifierModel,
-  getBestClassifierModel,
   modelCheckpoint,
   compileModel,
-  reloadModel,
   classifierModelCache,
 } from '../model.js'
 import { env } from '../../env.js'
 import { join } from 'path'
-import {
-  loadImageClassifierModel,
-  tf,
-  calcHiddenLayerSize,
-} from 'tensorflow-helpers'
+import { tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
 import { existsSync, rmSync } from 'fs'
 import { scales } from 'chart.js'
@@ -287,7 +281,7 @@ function Main(attrs: {}, context: Context) {
                   ticks
                   snaps
                   value="0.03"
-                  min="0"
+                  min="0.01"
                   max="0.1"
                   aria-label="Custom range"
                 ></ion-range>
@@ -541,7 +535,7 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
     del(proxy.training_stats, { id: notNull })
 
     for (let i = 0; i < labels.length; i++) {
-      retrainModel(labels[i]['id']!)
+      retrainModel(labels[i]!)
     }
 
     let code = /* javascript */ `
@@ -625,11 +619,20 @@ function formatNumber(x: number) {
 }
 
 //Just delete the model to retrain
-async function retrainModel(label_index: number) {
-  if (!existsSync(`saved_models/label-${label_index}`)) return
-  rmSync(`saved_models/label-${label_index}`, { recursive: true })
-  if (!existsSync(`saved_models/label-${label_index}/best`)) return
-  rmSync(`saved_models/label-${label_index}/best`, { recursive: true })
+async function retrainModel(label: Label) {
+  if (!existsSync(`saved_models/label-${label.id}`)) {
+    return
+  } else {
+    rmSync(`saved_models/label-${label.id}`, { recursive: true })
+    delete classifierModelCache[label.title]
+  }
+
+  if (!existsSync(`saved_models/label-${label.id}/best`)) {
+    return
+  } else {
+    rmSync(`saved_models/label-${label.id}/best`, { recursive: true })
+    delete classifierModelCache[label.title + `best`]
+  }
 }
 
 async function trainModel(options: {
@@ -641,8 +644,14 @@ async function trainModel(options: {
   batchSize: number
   cross_validation_ratio: number
 }) {
-  let { label, label_index, epochs, batchSize, cross_validation_ratio } =
-    options
+  let {
+    label,
+    label_index,
+    epochs,
+    batchSize,
+    cross_validation_ratio,
+    learning_rate,
+  } = options
   let label_id = label.id!
   let rows = select_image_filename_by_label.all({ label_id })
   let embeddings = []
@@ -651,7 +660,6 @@ async function trainModel(options: {
   let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
 
   let classifierModel = await getClassifierModel(label) //The latest model
-  let bestClassifierModel = await getBestClassifierModel(label) //The best model
 
   for (let row of rows) {
     let file = join(env.UPLOAD_DIR, row.filename)
@@ -677,8 +685,7 @@ async function trainModel(options: {
   let y = tf.oneHot(trainAnswers, 2)
 
   for (let i = 0; i < epochs; i++) {
-    compileModel(classifierModel, options.learning_rate)
-    compileModel(bestClassifierModel, options.learning_rate)
+    compileModel(classifierModel, learning_rate)
     await classifierModel.train({
       x,
       y,

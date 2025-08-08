@@ -48,27 +48,23 @@ export async function getClassifierModel(label: Label) {
 }
 
 export async function getBestClassifierModel(label: Label) {
-  let bestClassifierModelPromise = classifierModelCache[label.title + '-best']
-
-  if (!bestClassifierModelPromise) {
-    bestClassifierModelPromise = loadImageClassifierModel({
-      baseModel,
-      modelDir: `saved_models/label-${label.id}/best`,
-      datasetDir: `datasets/label-${label.id}`,
-      classNames: ['yes', 'no'],
-      hiddenLayers: [
-        calcHiddenLayerSize({
-          inputSize: baseModel.spec.features,
-          outputSize: 2,
-          // 1 to 5
-          // 1 is easiest
-          // 5 is hardest
-          difficulty: 3,
-        }),
-      ],
-    })
-    classifierModelCache[label.title + '-best'] = bestClassifierModelPromise
-  }
+  let bestClassifierModelPromise = loadImageClassifierModel({
+    baseModel,
+    modelDir: `saved_models/label-${label.id}/best`,
+    datasetDir: `datasets/label-${label.id}`,
+    classNames: ['yes', 'no'],
+    hiddenLayers: [
+      calcHiddenLayerSize({
+        inputSize: baseModel.spec.features,
+        outputSize: 2,
+        // 1 to 5
+        // 1 is easiest
+        // 5 is hardest
+        difficulty: 3,
+      }),
+    ],
+  })
+  classifierModelCache[label.title + `best`] = bestClassifierModelPromise
   return bestClassifierModelPromise
 }
 
@@ -79,8 +75,10 @@ export async function modelCheckpoint(
 ) {
   let latestModel = await getClassifierModel(label)
   let bestModel = await getBestClassifierModel(label)
+
   latestModel.compile()
   bestModel.compile()
+
   let [latestModelLoss, latestModelAccruacy] = getValueFromScalar(
     latestModel.classifierModel.evaluate(x, y),
   ) as [number, number]
@@ -88,45 +86,23 @@ export async function modelCheckpoint(
   let [bestModelLoss, bestModelAccruacy] = getValueFromScalar(
     bestModel.classifierModel.evaluate(x, y),
   ) as [number, number]
-  console.log(`Latest Model ${label.title} Loss: ${latestModelLoss}`)
-  console.log(`Best Model ${label.title} Loss: ${bestModelLoss}`)
 
   if (latestModelLoss < bestModelLoss) {
+    console.log(
+      `Latest Model ${label.title} Loss: ${latestModelLoss}, Best Model ${label.title} Loss: ${bestModelLoss}`,
+    )
     await latestModel.save(`saved_models/label-${label.id}/best`)
     delete classifierModelCache[label.title + '-best']
-    await getBestClassifierModel(label)
+  } else {
+    console.log(`Model ${label.title} no improve`)
   }
 }
 
 export function compileModel(model: Model, learningRate: number) {
-  if (learningRate === 0) {
-    model.classifierModel.compile({
-      optimizer: 'Adam',
-      loss: tf.metrics.categoricalCrossentropy,
-      metrics: [tf.metrics.categoricalAccuracy],
-    })
-  } else {
-    model.classifierModel.compile({
-      optimizer: tf.train.sgd(learningRate),
-      loss: tf.metrics.categoricalCrossentropy,
-      metrics: [tf.metrics.categoricalAccuracy],
-    })
-  }
-}
-
-export async function reloadModel(label: Label) {
-  classifierModelCache[label.title + '-best'] = loadImageClassifierModel({
-    baseModel,
-    modelDir: `saved_models/label-${label.id}/best`,
-    datasetDir: `datasets/label-${label.id}`,
-    classNames: ['yes', 'no'],
-    hiddenLayers: [
-      calcHiddenLayerSize({
-        inputSize: baseModel.spec.features,
-        outputSize: 2,
-        difficulty: 3,
-      }),
-    ],
+  model.classifierModel.compile({
+    optimizer: tf.train.sgd(learningRate),
+    loss: tf.metrics.categoricalCrossentropy,
+    metrics: [tf.metrics.categoricalAccuracy],
   })
 }
 
