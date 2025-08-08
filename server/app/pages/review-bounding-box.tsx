@@ -196,28 +196,20 @@ let getBoxImageCounts = db.prepare<
     group by count
     `)
 
-// get image_ids by label_id and box_count like 1,2,3
+// get image_ids by label_id and box_count like [ { image_id: 1, user_ids: '1,2' } ]
 let getImageIdsUserIdsByLabelAndBoxCount = db.prepare<
   {
     label_id: number
     box_count: number
   },
-  { image_id: number; user_id: number }
+  { image_id: number; user_ids: string }
 >(/* sql */ `
-  select image_id, user_id
+  select image_id, group_concat(user_id) as user_ids
   from image_bounding_box
   where label_id = :label_id
   group by image_id
   having count(*) = :box_count
 `)
-
-console.log(
-  'getImageIdsUserIdsByLabelAndBoxCount',
-  getImageIdsUserIdsByLabelAndBoxCount.all({
-    label_id: 1,
-    box_count: 1,
-  }),
-)
 
 // get image bounding boxes by image_id and label_id
 /* example:[
@@ -241,14 +233,26 @@ let getImageBoundingBoxes = db.prepare<
 
 // return a list of ImageItem by label_id and box_count
 function getImageItem(label_id: number, box_count: number) {
-  let image_ids = getImageIdsByLabelAndBoxCount.all({
+  let image_ids = getImageIdsUserIdsByLabelAndBoxCount.all({
     label_id: label_id,
     box_count: box_count,
   })
 
+  // format image_ids to [ { image_id: 1, user_ids: [1,2] } ]
+  let formatted_image_ids = image_ids.map(row => ({
+    image_id: row.image_id,
+    user_ids: row.user_ids.split(',').map(id => Number(id)),
+  }))
+
   type Image = (typeof images)[number]
   let images = pick(proxy.image, ['id', 'filename', 'original_filename'])
-  let items = images.filter(image => image_ids.includes(image.id!))
+  let items = images.filter(image =>
+    formatted_image_ids.map(item => item.image_id).includes(image.id!),
+  )
+
+  let imageIdToUserMap = new Map(
+    formatted_image_ids.map(item => [item.image_id, item.user_ids]),
+  )
 
   function renderImage(
     image: Image,
@@ -259,13 +263,18 @@ function getImageItem(label_id: number, box_count: number) {
       height: number
       rotate: number
     }[],
+    user_ids: number[] | undefined,
   ) {
+    // Map user_ids to usernames
+    let user_names =
+      user_ids?.map(id => proxy.user[id]?.username).filter(Boolean) ?? []
     return (
       <ImageItem
         filename={image.filename}
         original_filename={image.original_filename}
         image_id={image.id!}
         boxes={boxes}
+        user_names={user_names as string[]}
       />
     )
   }
@@ -275,7 +284,7 @@ function getImageItem(label_id: number, box_count: number) {
       image_id: item.id!,
       label_id: label_id,
     })
-    return renderImage(item, boxes)
+    return renderImage(item, boxes, imageIdToUserMap.get(item.id!))
   })
 
   return images_items
@@ -297,6 +306,7 @@ function ImageItem(attrs: {
     /** 0..1: 1 is 360 degree */
     rotate: number
   }[]
+  user_names: string[]
 }) {
   return (
     <ion-col size="12">
@@ -314,6 +324,13 @@ function ImageItem(attrs: {
           ></canvas>
           <div class="image-item--filename" style="text-align: center;">
             {attrs.original_filename}
+            <br />
+            {attrs.user_names.length > 0 && (
+              <span style="font-size: 0.8rem;">
+                <Locale en="Annotated by" zh_hk="標註者" zh_cn="标注者" />:{' '}
+                {attrs.user_names.join(', ')}
+              </span>
+            )}
           </div>
         </div>
       </div>
