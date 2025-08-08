@@ -72,11 +72,77 @@ function showImage() {
   })
 }
 
-function rotateAnnotationImage(image) {
-  let degree = image.dataset.rotation || 0
-  degree = (degree + 90) % 360
-  image.dataset.rotation = degree
-  rotateImageInline(image)
+// Submits an image annotation and updates the UI with new count
+function addBoundingBox() {
+  let image = document.getElementById('label_image')
+  let image_id = image.dataset.imageId
+  let label_id = document.getElementById('label_select').value
+  
+  console.log('addBoundingBox: image_id =', image_id, 'type:', typeof image_id)
+  console.log('addBoundingBox: label_id =', label_id, 'type:', typeof label_id)
+  console.log('addBoundingBox: camera =', window.camera)
+  
+  // Validate data before sending
+  if (!image_id || image_id === 'undefined' || image_id === 'null') {
+    console.error('addBoundingBox: Invalid image_id:', image_id)
+    return
+  }
+  
+  if (!label_id || label_id === 'undefined' || label_id === 'null') {
+    console.error('addBoundingBox: Invalid label_id:', label_id)
+    return
+  }
+  
+  // Convert to numbers
+  image_id = parseInt(image_id)
+  label_id = parseInt(label_id)
+  
+  console.log('addBoundingBox: Converted image_id =', image_id, 'type:', typeof image_id)
+  console.log('addBoundingBox: Converted label_id =', label_id, 'type:', typeof label_id)
+  
+  // Get current camera position from drag-ui
+  if (typeof window.camera !== 'undefined') {
+    // Debug: Check if this is the same camera object
+    console.log('addBoundingBox: Window camera reference:', window.camera)
+    
+    // Try to get the actual camera state from the drag-ui module
+    let currentCamera = window.camera
+    
+    // If we have access to the drag-ui's internal camera, use that instead
+    if (typeof setupDragUI === 'function' && window._dragUICamera) {
+      currentCamera = window._dragUICamera
+      console.log('addBoundingBox: Using drag-ui internal camera:', currentCamera)
+    }
+    
+    // Try to get the most up-to-date camera state using the getCurrentCamera function
+    if (typeof getCurrentCamera === 'function') {
+      currentCamera = getCurrentCamera()
+      console.log('addBoundingBox: Using getCurrentCamera():', currentCamera)
+    }
+    
+    // Force a render to ensure camera state is up to date
+    if (typeof render === 'function') {
+      render()
+    }
+    
+    // Get the most up-to-date camera values by directly accessing the camera object
+    // that's being used by the drag-ui module
+    let data = {
+      image_id: image_id,
+      label_id: label_id,
+      x: currentCamera.x,
+      y: currentCamera.y,
+      width: currentCamera.width,
+      height: currentCamera.height,
+      rotate: currentCamera.rotate
+    }
+    
+    console.log('addBoundingBox: Camera object:', currentCamera)
+    console.log('addBoundingBox: Sending data:', data)
+    emit('/annotate-bounding-box/addBoundingBox', data);
+  } else {
+    console.error('Camera not initialized')
+  }
 }
 
 function draw_image() {
@@ -99,6 +165,8 @@ function draw_image() {
 }
 var last_time = 0
 function setupEditorUI() {
+  console.log('setupEditorUI called')
+  
   // TODO: get bounding boxes from database
   let bounding_boxes = []
   // debugger;
@@ -113,7 +181,11 @@ function setupEditorUI() {
     debugEndMessage: debugEndMessage,
 
     bounding_boxes: bounding_boxes,
+    resetCamera: true,
   })
+  
+  // Camera reset is now handled in setupDragUI with resetCamera: true
+  console.log('setupEditorUI: Camera reset handled by setupDragUI')
 }
 
 function updateSelectOptionText(selector, text) {
@@ -208,11 +280,55 @@ let select_next_image = db.prepare<
   { label_id: number },
   { id: number; filename: string; rotation: number | null }
 >(/* sql */ `
-  select image_label.id, image.filename
+  select image.id, image.filename, image.rotation
   from image_label
   inner join image on image.id = image_label.image_id
   where answer = 1
     and image_label.label_id = :label_id
+`)
+
+let insert_bounding_box = db.prepare<
+  {
+    image_id: number
+    user_id: number
+    label_id: number
+    x: number
+    y: number
+    width: number
+    height: number
+    rotate: number
+  },
+  { id: number }
+>(/* sql */ `
+  INSERT INTO image_bounding_box (image_id, user_id, label_id, x, y, width, height, rotate)
+  VALUES (:image_id, :user_id, :label_id, :x, :y, :width, :height, :rotate)
+  RETURNING id
+`)
+
+let check_image_label = db.prepare<
+  {
+    image_id: number
+    user_id: number
+    label_id: number
+  },
+  { id: number } | null
+>(/* sql */ `
+  SELECT id FROM image_label 
+  WHERE image_id = :image_id AND user_id = :user_id AND label_id = :label_id
+  LIMIT 1
+`)
+
+let ensure_image_label = db.prepare<
+  {
+    image_id: number
+    user_id: number
+    label_id: number
+  },
+  { id: number }
+>(/* sql */ `
+  INSERT INTO image_label (image_id, user_id, label_id, answer)
+  VALUES (:image_id, :user_id, :label_id, 1)
+  RETURNING id
 `)
 
 function Main(attrs: {}, context: any) {
@@ -290,7 +406,7 @@ function Main(attrs: {}, context: any) {
             }
             style="width: 100vw; max-width: 100vw; height: auto; max-height: 60vh; object-fit: contain;"
             // hidden={!image}
-            onLoad="setupEditorUI()"
+            onLoad="setTimeout(() => { if (typeof setupEditorUI === 'function') setupEditorUI(); }, 100);"
           />
           <div
             id="no-image-message"
@@ -308,6 +424,16 @@ function Main(attrs: {}, context: any) {
 
 let showImageParser = object({
   label_id: id(),
+})
+
+let addBoundingBoxParser = object({
+  image_id: id(),
+  label_id: id(),
+  x: number(),
+  y: number(),
+  width: number(),
+  height: number(),
+  rotate: number(),
 })
 
 // Displays the next image for annotation based on the selected label
@@ -374,6 +500,156 @@ function ShowImage(attrs: {}, context: WsContext) {
   }
 }
 
+function AddBoundingBox(attrs: {}, context: WsContext) {
+  try {
+    let throws = makeThrows(context)
+    let user_id = getAuthUserId(context)!
+    if (!user_id)
+      throws({
+        en: 'You must be logged in to add bounding box',
+        zh_hk: '您必須登入才能添加邊界框',
+        zh_cn: '您必须登录才能添加边界框',
+      })
+
+    let body = getContextFormBody(context)
+    let input = addBoundingBoxParser.parse(body)
+
+    console.log('AddBoundingBox: Processing input:', input)
+    console.log(`AddBoundingBox: user_id=${user_id}`)
+
+    // Debug: Check database state
+    console.log('AddBoundingBox: Database state check:')
+    console.log('- Total labels:', proxy.label.length)
+    console.log('- Total images:', proxy.image.length)
+    console.log('- Total users:', proxy.user.length)
+    console.log('- Total image_labels:', proxy.image_label.length)
+
+    // Debug: Check for undefined entries
+    console.log('AddBoundingBox: Checking for undefined entries:')
+    console.log(
+      '- Labels with undefined id:',
+      proxy.label.filter(l => !l || l.id === undefined).length,
+    )
+    console.log(
+      '- Images with undefined id:',
+      proxy.image.filter(i => !i || i.id === undefined).length,
+    )
+    console.log(
+      '- Users with undefined id:',
+      proxy.user.filter(u => !u || u.id === undefined).length,
+    )
+
+    // Check if image_label record exists, create if not
+    let existing_image_label = check_image_label.get({
+      image_id: input.image_id,
+      user_id: user_id,
+      label_id: input.label_id,
+    })
+
+    if (!existing_image_label) {
+      // Create new image_label record
+      let image_label_result = ensure_image_label.get({
+        image_id: input.image_id,
+        user_id: user_id,
+        label_id: input.label_id,
+      })
+
+      if (!image_label_result) {
+        throws({
+          en: 'Failed to create image label record',
+          zh_hk: '創建圖片標籤記錄失敗',
+          zh_cn: '创建图片标签记录失败',
+        })
+      }
+    }
+
+    // Verify that the label exists
+    let label = proxy.label[input.label_id]
+    if (!label) {
+      console.log(
+        'AddBoundingBox: Available labels:',
+        proxy.label
+          .filter(l => l && l.id !== undefined)
+          .map(l => ({ id: l.id, title: l.title })),
+      )
+      throws({
+        en: 'Label not found',
+        zh_hk: '找不到標籤',
+        zh_cn: '找不到标签',
+      })
+    }
+
+    // Verify that the image exists
+    let image = proxy.image[input.image_id]
+    if (!image) {
+      console.log(
+        'AddBoundingBox: Available images:',
+        proxy.image
+          .filter(i => i && i.id !== undefined)
+          .map(i => ({ id: i.id, filename: i.filename })),
+      )
+      throws({
+        en: 'Image not found',
+        zh_hk: '找不到圖片',
+        zh_cn: '找不到图片',
+      })
+    }
+
+    // Verify that the user exists
+    let user_record = proxy.user.find(u => u && u.id === user_id)
+    if (!user_record) {
+      console.log(
+        'AddBoundingBox: Available users:',
+        proxy.user
+          .filter(u => u && u.id !== undefined)
+          .map(u => ({ id: u.id, username: u.username })),
+      )
+      throws({
+        en: 'User not found',
+        zh_hk: '找不到用戶',
+        zh_cn: '找不到用户',
+      })
+    }
+    // Insert bounding box into database
+    let result = insert_bounding_box.get({
+      image_id: input.image_id,
+      user_id: user_id,
+      label_id: input.label_id,
+      x: input.x,
+      y: input.y,
+      width: input.width,
+      height: input.height,
+      rotate: input.rotate,
+    })
+
+    if (!result) {
+      throws({
+        en: 'Failed to insert bounding box',
+        zh_hk: '插入邊界框失敗',
+        zh_cn: '插入边界框失败',
+      })
+    }
+
+    // Send success message to client
+    context.ws.send([
+      'update-text',
+      '#debugMessage',
+      `Bounding box added successfully! ID: ${result!.id}`,
+    ])
+
+    // Terminate execution to prevent further processing
+    throw EarlyTerminate
+  } catch (error) {
+    // Handle non-termination errors by logging and sending error message to client
+    if (error !== EarlyTerminate) {
+      console.error(error)
+      context.ws.send(showError(error))
+    }
+    // Ensure termination of the function
+    throw EarlyTerminate
+  }
+}
+
 let routes = {
   '/annotate-bounding-box': {
     title: <Title t={pageTitle} />,
@@ -385,6 +661,16 @@ let routes = {
     description: 'Annotate bounding boxes on images',
     node: <ShowImage />,
   },
+  '/annotate-bounding-box/addBoundingBox': {
+    title: <Title t={pageTitle} />,
+    description: 'Annotate bounding boxes on images',
+    node: <AddBoundingBox />,
+  },
+  // '/annotate-bounding-box/submitBoundingBox': {
+  //   title: <Title t={pageTitle} />,
+  //   description: 'Annotate bounding boxes on images',
+  //   node: <SubmitBoundingBox />,
+  // },
 } satisfies Routes
 
 export default { routes }
