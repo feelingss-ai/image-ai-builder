@@ -167,6 +167,25 @@ var last_time = 0
 function setupEditorUI() {
   console.log('setupEditorUI called')
   
+  // Get DOM elements
+  let label_image = document.getElementById('label_image')
+  let minimapCanvas = document.getElementById('minimapCanvas')
+  let previewCanvas = document.getElementById('previewCanvas')
+  let debugMessage = document.getElementById('debugMessage')
+  let debugStartMessage = document.getElementById('debugStartMessage')
+  let debugMoveMessage = document.getElementById('debugMoveMessage')
+  let debugEndMessage = document.getElementById('debugEndMessage')
+  
+  // Clear any existing touch listeners to prevent conflicts
+  if (previewCanvas._dragUiListenersAttached) {
+    console.log('setupEditorUI: Removing existing listeners before re-initializing')
+    // Remove existing listeners by cloning the element
+    let newCanvas = previewCanvas.cloneNode(true)
+    previewCanvas.parentNode.replaceChild(newCanvas, previewCanvas)
+    // Update reference to the new canvas
+    previewCanvas = document.getElementById('previewCanvas')
+  }
+  
   // TODO: get bounding boxes from database
   let bounding_boxes = []
   // debugger;
@@ -217,22 +236,142 @@ AnnotateBoundingBox.addEventListener('ionChange', function(event) {
   emit('/annotate-bounding-box/showImage', { label_id });
 });
 
-window.setupEditorUI = setupEditorUI
+// Function to zoom in the image by reducing camera width and height
+function zoomInImage() {
+  console.log('zoomInImage called')
+  
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  
+  // Get current camera state
+  let camera = window.camera
+  console.log('zoomInImage: Current camera state:', camera)
+  
+  // Calculate zoom factor (reduce width and height by 20%)
+  let zoomFactor = 0.8
+  
+  // Update camera dimensions
+  let newWidth = camera.width * zoomFactor
+  let newHeight = camera.height * zoomFactor
+  
+  // Ensure minimum size to prevent zooming too much
+  let minSize = 0.1
+  if (newWidth < minSize) {
+    newWidth = minSize
+  }
+  if (newHeight < minSize) {
+    newHeight = minSize
+  }
+  
+  // Update camera state
+  camera.width = newWidth
+  camera.height = newHeight
+  
+  console.log('zoomInImage: Updated camera state:', camera)
+  
+  // Force immediate re-render
+  if (typeof window.render === 'function') {
+    window.render()
+    console.log('zoomInImage: Render function called')
+  } else {
+    console.error('zoomInImage: Render function not available')
+  }
+    
+  // Log the zoom operation
+  console.log('zoomInImage: Image zoomed in by', (1 - zoomFactor) * 100, '%')
+}
 
-// window.onServerMessage = window.onServerMessage || function(message) {
-//   console.log('Received server message:', message);
-//   if (message[0] === 'update-attrs' && message[1] === '#label_image') {
-//     console.log('Updating label_image:', message[2]);
-//     let img = document.getElementById('label_image');
-//     if (img && message[2].onload) {
-//       // Set up the onload handler for the new image
-//       img.onload = function() {
-//         console.log('Image loaded, calling setupEditorUI');
-//         setupEditorUI();
-//       };
-//     }
-//   }
-// }
+// Function to zoom out the image by increasing camera width and height
+function zoomOutImage() {
+  console.log('zoomOutImage called')
+  
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  
+  // Get current camera state
+  let camera = window.camera
+  console.log('zoomOutImage: Current camera state:', camera)
+  
+  // Calculate zoom factor (increase width and height by 25%)
+  let zoomFactor = 1.25
+  
+  // Update camera dimensions
+  let newWidth = camera.width * zoomFactor
+  let newHeight = camera.height * zoomFactor
+  
+  // Ensure maximum size to prevent zooming out too much
+  let maxSize = 1.0
+  if (newWidth > maxSize) {
+    newWidth = maxSize
+  }
+  if (newHeight > maxSize) {
+    newHeight = maxSize
+  }
+  
+  // Always allow zooming out, even if current size is 1.0
+  // Only prevent if we're already at max size
+  if (camera.width < maxSize || camera.height < maxSize) {
+    // Update camera state
+    camera.width = newWidth
+    camera.height = newHeight
+    
+    console.log('zoomOutImage: Updated camera state:', camera)
+    
+    // Force immediate re-render
+    if (typeof window.render === 'function') {
+      window.render()
+      console.log('zoomOutImage: Render function called')
+    } else {
+      console.error('zoomOutImage: Render function not available')
+    }
+    
+    // Log the zoom operation
+    console.log('zoomOutImage: Image zoomed out by', (zoomFactor - 1) * 100, '%')
+  } else {
+    console.log('zoomOutImage: Already at maximum zoom out level')
+  }
+}
+
+// Function to reset zoom to original size
+function resetZoom() {
+  console.log('resetZoom called')
+  
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  
+  // Get current camera state
+  let camera = window.camera
+  console.log('resetZoom: Current camera state:', camera)
+  
+  // Reset to original size and center position
+  camera.width = 1.0
+  camera.height = 1.0
+  camera.x = 0.5
+  camera.y = 0.5
+  camera.rotate = 0
+  camera.rotate_angle = 0
+  
+  console.log('resetZoom: Reset camera state:', camera)
+  
+  // Force immediate re-render
+  if (typeof window.render === 'function') {
+    window.render()
+    console.log('resetZoom: Render function called')
+  } else {
+    console.error('resetZoom: Render function not available')
+  }
+  
+  // Log the reset operation
+  console.log('resetZoom: Image zoom and position reset to original state')
+}
+
+window.setupEditorUI = setupEditorUI
 
 `)
 
@@ -414,9 +553,53 @@ function Main(attrs: {}, context: any) {
             hidden={!!image}
           ></div>
         </div>
-        <ion-button color="success" style="margin-top: 1rem;">
-          <Locale en="Submit Annotation" zh_hk="提交標註" zh_cn="提交标注" />
-        </ion-button>
+        <div style="display: flex; justify-content: space-between; margin-top: 1rem; gap: 1rem;">
+          <ion-button
+            color="primary"
+            style="flex: 1;"
+            onclick="addBoundingBox()"
+            title={
+              <Locale en="add bounding box" zh_hk="增加標註" zh_cn="增加标注" />
+            }
+          >
+            <ion-icon name="add" slot="icon-only"></ion-icon>
+          </ion-button>
+          <ion-button
+            color="secondary"
+            style="flex: 1;"
+            onclick="zoomInImage()"
+            title={
+              <Locale en="Zoom in image" zh_hk="放大圖片" zh_cn="放大图片" />
+            }
+          >
+            <ion-icon name="expand" slot="icon-only"></ion-icon>
+          </ion-button>
+          <ion-button
+            color="tertiary"
+            style="flex: 1;"
+            onclick="zoomOutImage()"
+            title={
+              <Locale en="Zoom out image" zh_hk="縮小圖片" zh_cn="缩小图片" />
+            }
+          >
+            <ion-icon name="contract" slot="icon-only"></ion-icon>
+          </ion-button>
+          <ion-button
+            color="warning"
+            style="flex: 1;"
+            onclick="resetZoom()"
+            title={<Locale en="Reset zoom" zh_hk="重置縮放" zh_cn="重置缩放" />}
+          >
+            <ion-icon name="refresh" slot="icon-only"></ion-icon>
+          </ion-button>
+          <ion-button color="success" style="flex: 1;">
+            <Locale
+              en="Submit bounding box"
+              zh_hk="提交標註"
+              zh_cn="提交标注"
+            />
+          </ion-button>
+        </div>
       </div>
     </>
   )
@@ -473,6 +656,9 @@ function ShowImage(attrs: {}, context: WsContext) {
           // 'onload': 'setupEditorUI()',
         },
       ])
+
+      // NOTE: Do not trigger setupEditorUI here; the <img onLoad> already calls it
+      // to avoid double-registration of touch listeners
     } else {
       // Hide image if no image found
       context.ws.send([

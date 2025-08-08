@@ -48,6 +48,9 @@ function setupDragUI(options: {
   // Always use the global camera object directly
   let camera = window.camera
 
+  // Initialize touch tracking
+  let lastTouches: Record<number, Touch> = {}
+
   // Check if we should reset camera state
   if (options.resetCamera) {
     console.log('setupDragUI: Resetting camera to original state')
@@ -60,6 +63,8 @@ function setupDragUI(options: {
       rotate_angle: 0,
     }
     camera = window.camera
+    // Clear any cached touch data when resetting
+    lastTouches = {}
   } else if (!camera || typeof camera.x === 'undefined') {
     console.log('setupDragUI: Initializing camera object')
     window.camera = {
@@ -87,8 +92,6 @@ function setupDragUI(options: {
   let cameraContext = cameraCanvas.getContext('2d')!
 
   render()
-
-  let lastTouches: Record<number, Touch> = {}
 
   function formatTouches(touches: TouchList) {
     return Array.from(touches, touch => {
@@ -219,18 +222,25 @@ function setupDragUI(options: {
         let right = left + width
         let bottom = top + height
 
-        if (left >= 0 && right <= image.naturalWidth) {
-          camera.width = newWidth
-        } else if (newWidth <= 1) {
-          camera.width = newWidth
-          camera.x -= (newWidth - camera.width) / 2
+        // Allow zooming out even when starting from width/height = 1
+        // Only prevent if we're already at max size (2.0)
+        let maxSize = 2.0
+        if (newWidth <= maxSize) {
+          if (left >= 0 && right <= image.naturalWidth) {
+            camera.width = newWidth
+          } else if (newWidth <= 1) {
+            camera.width = newWidth
+            camera.x -= (newWidth - camera.width) / 2
+          }
         }
 
-        if (top >= 0 && bottom <= image.naturalHeight) {
-          camera.height = newHeight
-        } else if (newHeight <= 1) {
-          camera.height = newHeight
-          camera.y -= (newHeight - camera.height) / 2
+        if (newHeight <= maxSize) {
+          if (top >= 0 && bottom <= image.naturalHeight) {
+            camera.height = newHeight
+          } else if (newHeight <= 1) {
+            camera.height = newHeight
+            camera.y -= (newHeight - camera.height) / 2
+          }
         }
 
         // Debug: Log camera updates during scale
