@@ -124,15 +124,19 @@ function drawBoundingBoxes(image) {
     let radians = degrees / 180 * Math.PI
     context.rotate(radians);
 
-    // Create a rainbow gradient for this box's width
-    const gradient = context.createLinearGradient(-width/2, 0, width/2, 0);
-    gradient.addColorStop(0, 'red');
-    gradient.addColorStop(1/6, 'orange');
-    gradient.addColorStop(2/6, 'yellow');
-    gradient.addColorStop(3/6, 'green');
-    gradient.addColorStop(4/6, 'blue');
-    gradient.addColorStop(5/6, 'indigo');
-    gradient.addColorStop(1, 'violet');
+    const gradient = context.createConicGradient(0, 0, 0);
+    // Create a rainbow gradient with hsl
+    let n = 32;
+    for(let i = 0; i <= n; i++){
+      let h = 360 * i / n;
+      let s = 100;
+      let l = 50;
+      let color = 'hsl(' + h + ',' + s + '%,' + l + '%)';
+      gradient.addColorStop(i/n, color);
+    }
+
+
+
     context.strokeStyle = gradient;
 
     // Draw rectangle centered at origin
@@ -193,23 +197,27 @@ let getBoxImageCounts = db.prepare<
     `)
 
 // get image_ids by label_id and box_count like 1,2,3
-let getImageIdsByLabelAndBoxCount = db
-  .prepare<
-    {
-      label_id: number
-      box_count: number
-    },
-    number
-  >(
-    /* sql */ `
-  select image_id
+let getImageIdsUserIdsByLabelAndBoxCount = db.prepare<
+  {
+    label_id: number
+    box_count: number
+  },
+  { image_id: number; user_id: number }
+>(/* sql */ `
+  select image_id, user_id
   from image_bounding_box
   where label_id = :label_id
   group by image_id
   having count(*) = :box_count
-`,
-  )
-  .pluck()
+`)
+
+console.log(
+  'getImageIdsUserIdsByLabelAndBoxCount',
+  getImageIdsUserIdsByLabelAndBoxCount.all({
+    label_id: 1,
+    box_count: 1,
+  }),
+)
 
 // get image bounding boxes by image_id and label_id
 /* example:[
