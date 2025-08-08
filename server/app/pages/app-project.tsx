@@ -335,6 +335,7 @@ function Main(attrs: {}, context: Context) {
   )
 }
 
+// TODO add field to mark if the project is public
 function AddProject(attrs: {}, context: WsContext) {
   try {
     let parser = object({
@@ -549,7 +550,7 @@ let delete_member = db.prepare<
     delete from project_member where user_id = :user_id and project_id = :project_id
   `)
 
-function DeleteMember(attrs: {}, context: DynamicContext) {
+function DeleteMember(attrs: {}, context: WsContext) {
   try {
     let parser = object({
       user_id: int(),
@@ -564,7 +565,19 @@ function DeleteMember(attrs: {}, context: DynamicContext) {
       project_id: input.project_id,
     })
 
-    broadcast(['remove', 'ion-list #member-item-' + input.user_id])
+    // remove member from member list
+    context.ws.send(['remove', 'ion-list #member-item-' + input.user_id])
+
+    // remove project from project list
+    sessions.forEach(session => {
+      let user_id = session.ws.request.signedCookies.user_id
+      if (user_id == input.user_id) {
+        session.ws.send([
+          'remove',
+          'ion-list #project-item-' + input.project_id,
+        ])
+      }
+    })
   } catch (error) {
     console.error(error)
   }
@@ -611,10 +624,23 @@ function AddMember(attrs: {}, context: WsContext) {
           project_id={input.project_id}
         />
       )
+
+      let new_project_item = (
+        <ProjectItem
+          title={proxy.project[input.project_id].title}
+          id={input.project_id}
+          user_id={user_id!}
+        />
+      )
       context.ws.send([
         'append',
         'ion-list',
         nodeToVNode(new_member_item, context),
+      ])
+      send_to_user(user_id!, [
+        'append',
+        'ion-list',
+        nodeToVNode(new_project_item, context),
       ])
     }
   } catch (error) {
@@ -629,6 +655,14 @@ function broadcast(message: ServerMessage) {
       session.url?.startsWith('/app/project') ||
       session.url?.startsWith('/project/') //like '/project/add-project'
     ) {
+      session.ws.send(message)
+    }
+  })
+}
+
+function send_to_user(user_id: number, message: ServerMessage) {
+  sessions.forEach(session => {
+    if (session.ws.request.signedCookies.user_id == user_id) {
       session.ws.send(message)
     }
   })
