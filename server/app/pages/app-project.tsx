@@ -11,7 +11,7 @@ import {
 import { mapArray } from '../components/fragment.js'
 import { appIonTabBar } from '../components/app-tab-bar.js'
 import { fitIonFooter, selectIonTab } from '../styles/mobile-style.js'
-import { Locale } from '../components/locale.js'
+import { Locale, Title } from '../components/locale.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { Script } from '../components/script.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
@@ -25,7 +25,7 @@ import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
 import { pick, del, filter, find } from 'better-sqlite3-proxy'
 
-let pageTitle = <Locale en="Project" zh_hk="項目" zh_cn="项目" />
+let pageTitle = <Locale en="Project List" zh_hk="項目列表" zh_cn="项目列表" />
 let manageMemberTitle = (
   <Locale en="Manage Member" zh_hk="管理成員" zh_cn="管理成员" />
 )
@@ -635,7 +635,7 @@ function broadcast(message: ServerMessage) {
 }
 
 let projectListRoute: PageRoute = {
-  title: title(pageTitle),
+  title: <Title t={pageTitle} />,
   description: 'TODO',
   node: page,
   layout_type: LayoutType.ionic,
@@ -645,7 +645,7 @@ let routes = {
   '/': projectListRoute,
   '/app/project': projectListRoute,
   '/app/project/manage-member': {
-    title: title(manageMemberTitle),
+    title: <Title t={manageMemberTitle} />,
     description: 'TODO',
     node: manage_member_page,
     layout_type: LayoutType.ionic,
