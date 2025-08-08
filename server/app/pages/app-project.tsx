@@ -263,6 +263,10 @@ function Main(attrs: {}, context: Context) {
         id="new-project-name"
         placeholder="New Project Name"
       ></ion-input>
+      <ion-alert
+        id="project-exist-alert"
+        header="Project already exists"
+      ></ion-alert>
       <ion-button onclick="create_project()">
         <ion-icon name="add"></ion-icon>
         <Locale en="Create New Project" zh_hk="新增項目" zh_cn="新增项目" />
@@ -291,29 +295,36 @@ function AddProject(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
-    let project_id = proxy.project.push({
-      title: input.project_name,
-      creator_id: user_id!,
-    })
+    if (find(proxy.project, { title: input.project_name })) {
+      context.ws.send([
+        'eval',
+        'document.querySelector("#project-exist-alert").present()',
+      ])
+    } else {
+      let project_id = proxy.project.push({
+        title: input.project_name,
+        creator_id: user_id!,
+      })
 
-    proxy.project_member.push({
-      project_id,
-      user_id: user_id!,
-    })
+      proxy.project_member.push({
+        project_id,
+        user_id: user_id!,
+      })
 
-    let new_project_item = (
-      <ProjectItem
-        title={input.project_name}
-        id={project_id}
-        user_id={user_id!}
-      />
-    )
+      let new_project_item = (
+        <ProjectItem
+          title={input.project_name}
+          id={project_id}
+          user_id={user_id!}
+        />
+      )
 
-    context.ws.send([
-      'append',
-      'ion-list',
-      nodeToVNode(new_project_item, context),
-    ])
+      context.ws.send([
+        'append',
+        'ion-list',
+        nodeToVNode(new_project_item, context),
+      ])
+    }
   } catch (error) {
     console.error(error)
   }
