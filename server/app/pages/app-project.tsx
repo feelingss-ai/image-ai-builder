@@ -1,5 +1,5 @@
 import { o } from '../jsx/jsx.js'
-import { Routes } from '../routes.js'
+import { PageRoute, Routes } from '../routes.js'
 import { apiEndpointTitle, LayoutType, title } from '../../config.js'
 import Style from '../components/style.js'
 import {
@@ -634,13 +634,16 @@ function broadcast(message: ServerMessage) {
   })
 }
 
+let projectListRoute: PageRoute = {
+  title: title(pageTitle),
+  description: 'TODO',
+  node: page,
+  layout_type: LayoutType.ionic,
+}
+
 let routes = {
-  '/app/project': {
-    title: title(pageTitle),
-    description: 'TODO',
-    node: page,
-    layout_type: LayoutType.ionic,
-  },
+  '/': projectListRoute,
+  '/app/project': projectListRoute,
   '/app/project/manage-member': {
     title: title(manageMemberTitle),
     description: 'TODO',

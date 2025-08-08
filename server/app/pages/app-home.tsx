@@ -150,11 +150,11 @@ let homeRoute: PageRoute = {
 }
 
 let routes = {
-  ...(config.layout_type === LayoutType.ionic
-    ? {
-        '/': homeRoute,
-      }
-    : {}),
+  // ...(config.layout_type === LayoutType.ionic
+  //   ? {
+  //       '/': homeRoute,
+  //     }
+  //   : {}),
   '/app/home': homeRoute,
 } satisfies Routes
 
