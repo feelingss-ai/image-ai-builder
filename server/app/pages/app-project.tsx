@@ -99,7 +99,7 @@ function manage_member(event) {
   event.stopPropagation()
   let project_id = event.target.id
   const url = new URL(window.location)
-  url.searchParams.set('project_id', project_id)
+  url.searchParams.set('project', project_id)
   window.history.pushState({}, '', url)
   emit('/app/project/manage-member', { project_id: project_id })
 }
@@ -164,7 +164,7 @@ let manage_member_page = (
   </>
 )
 
-//generate project item with title and id
+//generate project item with title, id and user_id
 function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
   let project = proxy.project[attrs.id]
 
@@ -207,6 +207,7 @@ function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
   )
 }
 
+//generate member item with username, id and project_id
 function MemberItem(attrs: {
   id: number
   username: string
@@ -387,7 +388,7 @@ function SelectProject(attrs: {}, context: DynamicContext) {
 
     console.log('select_project', input.project_id)
 
-    Redirect({ href: '/app/home?project_id=' + input.project_id }, context)
+    Redirect({ href: '/app/home?project=' + input.project_id }, context)
   } catch (error) {
     console.error(error)
   }
@@ -434,6 +435,7 @@ function ManageMember(attrs: {}, context: DynamicContext) {
         <Locale en="Add Member" zh_hk="新增成員" zh_cn="新增成员" />
       </ion-button>
       <ion-alert id="user-not-found-alert" header="User not found"></ion-alert>
+      <ion-alert id="user-exist-alert" header="User already exists"></ion-alert>
       <p>
         <Locale
           en="Current Project Member"
@@ -499,14 +501,25 @@ function AddMember(attrs: {}, context: WsContext) {
 
     let user_names = proxy.user.map(user => user.username)
     console.log('user_names', user_names)
-    if (!user_names.includes(input.member_name)) {
+    let user = find(proxy.user, { username: input.member_name })
+    let user_id = user?.id
+    console.log('user_id', user_id)
+    let project_member_id = find(proxy.project_member, {
+      user_id: user_id!,
+      project_id: input.project_id,
+    })
+
+    if (!user_id) {
       context.ws.send([
         'eval',
         'document.querySelector("#user-not-found-alert").present()',
       ])
+    } else if (project_member_id) {
+      context.ws.send([
+        'eval',
+        'document.querySelector("#user-exist-alert").present()',
+      ])
     } else {
-      let user = find(proxy.user, { username: input.member_name })
-      let user_id = user?.id
       console.log('user_id', user_id)
       proxy.project_member.push({
         project_id: input.project_id,

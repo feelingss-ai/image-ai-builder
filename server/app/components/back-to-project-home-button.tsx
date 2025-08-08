@@ -7,7 +7,7 @@ export function BackToProjectHomeButton(attrs: {}, context: DynamicContext) {
   let project_id = params.get('project_id')
   return (
     <IonBackButton
-      href={`/app/home?project_id=${project_id}`}
+      href={`/app/home?project=${project_id}`}
       backText="Project Home"
     />
   )

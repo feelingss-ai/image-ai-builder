@@ -91,9 +91,8 @@ let homePage = (
 )
 
 function Main(attrs: {}, context: DynamicContext) {
-  let user_id = getAuthUserId(context)
   let params = new URLSearchParams(context.routerMatch?.search)
-  let project_id = params.get('project_id')
+  let project_id = params.get('project')
   if (!project_id) {
     return (
       <>
@@ -116,25 +115,19 @@ function Main(attrs: {}, context: DynamicContext) {
   return (
     <ion-content class="ion-padding">
       <ion-list>
-        <Link
-          tagName="ion-item"
-          href={'/upload-image?project_id=' + project_id}
-        >
+        <Link tagName="ion-item" href={'/upload-image?project=' + project_id}>
           1. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
         </Link>
-        <Link
-          tagName="ion-item"
-          href={'/annotate-image?project_id=' + project_id}
-        >
+        <Link tagName="ion-item" href={'/annotate-image?project=' + project_id}>
           2. <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />
         </Link>
-        <Link tagName="ion-item" href={'/train-ai?project_id=' + project_id}>
+        <Link tagName="ion-item" href={'/train-ai?project=' + project_id}>
           3. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
         </Link>
-        <Link tagName="ion-item" href={'/preview-ai?project_id=' + project_id}>
+        <Link tagName="ion-item" href={'/preview-ai?project=' + project_id}>
           4. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
         </Link>
-        <Link tagName="ion-item" href={'/stats?project_id=' + project_id}>
+        <Link tagName="ion-item" href={'/stats?project=' + project_id}>
           5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
         </Link>
       </ion-list>
