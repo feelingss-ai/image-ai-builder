@@ -204,7 +204,7 @@ let getImageIdsUserIdsByLabelAndBoxCount = db.prepare<
   },
   { image_id: number; user_ids: string }
 >(/* sql */ `
-  select image_id, group_concat(user_id) as user_ids
+  select image_id, group_concat(distinct user_id) as  user_ids
   from image_bounding_box
   where label_id = :label_id
   group by image_id
@@ -399,7 +399,7 @@ function Main(attrs: {}, context: DynamicContext) {
             },
             context,
           )}
-          value={1}
+          value={box_count}
           id="box_count_select"
         >
           {mapArray(getBoxImageCounts.all({ label_id: label_id }), item => {
