@@ -89,9 +89,7 @@ function delete_project(event) {
 
   //send select project id to server
 function select_project(project_id) {
-  console.log('select_project', project_id)
   let project_id_num = project_id.split('-')[2]
-  console.log('select_project', project_id_num)
   emit('/project/select-project', {project_id: project_id_num})
 }
 
@@ -209,45 +207,31 @@ function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
 
 //generate member item with username, id and project_id
 function MemberItem(attrs: {
-  id: number
+  user_id: number
   username: string
   project_id: number
 }) {
+  let project = proxy.project[attrs.project_id]
+  let is_owner = project.creator_id == attrs.user_id
   return (
-    <ion-item id={`member-item-${attrs.id}`}>
-      <h2 id={`member-title-${attrs.id}`}>{attrs.username}</h2>
-      <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
-        <ion-button
-          id={attrs.id}
-          data-project_id={attrs.project_id}
-          color="danger"
-          onclick="delete_member(event)"
-        >
-          <ion-icon name="trash-outline"></ion-icon>
-        </ion-button>
-      </div>
+    <ion-item id={`member-item-${attrs.user_id}`}>
+      <h2 id={`member-title-${attrs.user_id}`}>{attrs.username}</h2>
+      {/* if user is not owner, show delete button */}
+      {!is_owner ? (
+        <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
+          <ion-button
+            id={attrs.user_id}
+            data-project_id={attrs.project_id}
+            color="danger"
+            onclick="delete_member(event)"
+          >
+            <ion-icon name="trash-outline"></ion-icon>
+          </ion-button>
+        </div>
+      ) : null}
     </ion-item>
   )
 }
-
-let get_last_id = db
-  .prepare<void[], number>(
-    /* sql */ `
-    select MAX(id) from project
-  `,
-  )
-  .pluck()
-
-//get all project id that user created
-let get_created_project_id = db
-  .prepare<{ user_id: number }, number>(
-    /* sql */ `
-    select id from project where creator_id = :user_id
-  `,
-  )
-  .pluck()
-
-console.log(get_created_project_id.all({ user_id: 2 }))
 
 function Main(attrs: {}, context: Context) {
   let user = getAuthUser(context)
@@ -283,7 +267,7 @@ function Main(attrs: {}, context: Context) {
         <ion-icon name="add"></ion-icon>
         <Locale en="Create New Project" zh_hk="新增項目" zh_cn="新增项目" />
       </ion-button>
-      <ion-list>
+      <ion-list id="project-list">
         {mapArray(projects, project => (
           <ProjectItem
             title={project.title}
@@ -368,6 +352,8 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
+    del(proxy.project_member, { project_id: input.project_id })
+
     delete proxy.project[input.project_id]
 
     broadcast(['remove', 'ion-list #project-item-' + input.project_id])
@@ -386,8 +372,6 @@ function SelectProject(attrs: {}, context: DynamicContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
-    console.log('select_project', input.project_id)
-
     Redirect({ href: '/app/home?project=' + input.project_id }, context)
   } catch (error) {
     console.error(error)
@@ -395,6 +379,7 @@ function SelectProject(attrs: {}, context: DynamicContext) {
   throw EarlyTerminate
 }
 
+//get all user_id that is in the project like 1,2,3
 let get_current_project_member = db
   .prepare<{ project_id: number }, number>(
     /* sql */ `
@@ -408,7 +393,6 @@ function ManageMember(attrs: {}, context: DynamicContext) {
     project_id: int(),
   })
 
-  let user_id = getAuthUserId(context)
   let body = getContextFormBody(context)
   let input = parser.parse(body)
 
@@ -418,11 +402,10 @@ function ManageMember(attrs: {}, context: DynamicContext) {
 
   let users = pick(proxy.user, ['id', 'username'])
 
+  //example: user_list = [ { id: 1, username: 'ada' }, { id: 2, username: 'ada2' } ]
   let user_list = users.filter(user =>
     current_project_member.includes(user.id!),
   )
-
-  console.log('user_list', user_list)
 
   return (
     <>
@@ -446,7 +429,7 @@ function ManageMember(attrs: {}, context: DynamicContext) {
       <ion-list>
         {mapArray(user_list, user => (
           <MemberItem
-            id={user.id!}
+            user_id={user.id!}
             username={user.username!}
             project_id={input.project_id}
           />
@@ -473,8 +456,6 @@ function DeleteMember(attrs: {}, context: DynamicContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
-    console.log('delete_member', input.user_id, input.project_id)
-
     delete_member.run({
       user_id: input.user_id,
       project_id: input.project_id,
@@ -497,13 +478,8 @@ function AddMember(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
-    console.log('input', input.project_id, input.member_name)
-
-    let user_names = proxy.user.map(user => user.username)
-    console.log('user_names', user_names)
     let user = find(proxy.user, { username: input.member_name })
     let user_id = user?.id
-    console.log('user_id', user_id)
     let project_member_id = find(proxy.project_member, {
       user_id: user_id!,
       project_id: input.project_id,
@@ -520,7 +496,6 @@ function AddMember(attrs: {}, context: WsContext) {
         'document.querySelector("#user-exist-alert").present()',
       ])
     } else {
-      console.log('user_id', user_id)
       proxy.project_member.push({
         project_id: input.project_id,
         user_id: user_id!,
@@ -528,7 +503,7 @@ function AddMember(attrs: {}, context: WsContext) {
 
       let new_member_item = (
         <MemberItem
-          id={user_id!}
+          user_id={user_id!}
           username={input.member_name}
           project_id={input.project_id}
         />
