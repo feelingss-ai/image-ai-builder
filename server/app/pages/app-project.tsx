@@ -25,7 +25,7 @@ import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
 import { pick, del, filter, find } from 'better-sqlite3-proxy'
 
-let pageTitle = 'Project'
+let pageTitle = <Locale en="Project" zh_hk="項目" zh_cn="项目" />
 let manageMemberTitle = (
   <Locale en="Manage Member" zh_hk="管理成員" zh_cn="管理成员" />
 )
@@ -51,7 +51,7 @@ ion-item {
 
 let script = Script(/* js */ `
 
-alert = document.querySelector('ion-alert')
+alert = document.querySelector('#please-enter-new-project-name-alert')
 
 // get new project name by alert input
 function create_modify_project_alert(event) {
@@ -67,17 +67,21 @@ function create_modify_project_alert(event) {
 
   alert.inputs = [
     {
-      placeholder: 'Project Name',
     },
   ];
+
     alert.present()
   }
 
   //send new project name to server
 function create_project() {
   let new_project_name = document.querySelector('#new-project-name').value
+  if (new_project_name.trim() === '') {
+    document.querySelector('#project-name-empty-alert').present()
+  } else {
   emit('/project/add-project', {project_name: new_project_name})
   document.querySelector('#new-project-name').value = ''
+}
 }
 
   //send delete project id to server
@@ -261,11 +265,36 @@ function Main(attrs: {}, context: Context) {
     <>
       <ion-input
         id="new-project-name"
-        placeholder="New Project Name"
+        placeholder={Locale(
+          {
+            en: 'New Project Name',
+            zh_hk: '新項目名稱',
+            zh_cn: '新项目名称',
+          },
+          context,
+        )}
       ></ion-input>
       <ion-alert
+        id="project-name-empty-alert"
+        header={Locale(
+          {
+            en: 'Project name cannot be empty',
+            zh_hk: '項目名稱不能為空',
+            zh_cn: '项目名称不能为空',
+          },
+          context,
+        )}
+      ></ion-alert>
+      <ion-alert
         id="project-exist-alert"
-        header="Project already exists"
+        header={Locale(
+          {
+            en: 'Project already exists',
+            zh_hk: '項目已存在',
+            zh_cn: '项目已存在',
+          },
+          context,
+        )}
       ></ion-alert>
       <ion-button onclick="create_project()">
         <ion-icon name="add"></ion-icon>
@@ -280,7 +309,28 @@ function Main(attrs: {}, context: Context) {
           />
         ))}
       </ion-list>
-      <ion-alert header="Please Enter New Project Name"></ion-alert>
+      <ion-alert
+        id="unauthorized-alert"
+        header={Locale(
+          {
+            en: 'You are not authorized to access this project',
+            zh_hk: '您無權限存取此項目',
+            zh_cn: '您无权限访问此项目',
+          },
+          context,
+        )}
+      ></ion-alert>
+      <ion-alert
+        id="please-enter-new-project-name-alert"
+        header={Locale(
+          {
+            en: 'Please Enter New Project Name',
+            zh_hk: '請輸入新項目名稱',
+            zh_cn: '请输入新项目名称',
+          },
+          context,
+        )}
+      ></ion-alert>
     </>
   )
 }
@@ -374,16 +424,28 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
   throw EarlyTerminate
 }
 
-function SelectProject(attrs: {}, context: DynamicContext) {
+function SelectProject(attrs: {}, context: WsContext) {
   try {
     let parser = object({
       project_id: int(),
     })
 
+    let user_id = getAuthUserId(context)
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
-    Redirect({ href: '/app/home?project=' + input.project_id }, context)
+    let project_member = find(proxy.project_member, {
+      project_id: input.project_id,
+      user_id: user_id!,
+    })
+    if (!project_member) {
+      context.ws.send([
+        'eval',
+        'document.querySelector("#unauthorized-alert").present()',
+      ])
+    } else {
+      context.ws.send(['redirect', '/app/home?project=' + input.project_id])
+    }
   } catch (error) {
     console.error(error)
   }
@@ -420,7 +482,17 @@ function ManageMember(attrs: {}, context: DynamicContext) {
 
   return (
     <>
-      <ion-input id="new-member-name" placeholder="New Member Name"></ion-input>
+      <ion-input
+        id="new-member-name"
+        placeholder={Locale(
+          {
+            en: 'New Member Name',
+            zh_hk: '新成員名稱',
+            zh_cn: '新成员名称',
+          },
+          context,
+        )}
+      ></ion-input>
       <ion-button
         onclick="add_member(event)"
         data-project_id={input.project_id}
@@ -428,8 +500,28 @@ function ManageMember(attrs: {}, context: DynamicContext) {
         <ion-icon name="add"></ion-icon>
         <Locale en="Add Member" zh_hk="新增成員" zh_cn="新增成员" />
       </ion-button>
-      <ion-alert id="user-not-found-alert" header="User not found"></ion-alert>
-      <ion-alert id="user-exist-alert" header="User already exists"></ion-alert>
+      <ion-alert
+        id="user-not-found-alert"
+        header={Locale(
+          {
+            en: 'User not found',
+            zh_hk: '用戶不存在',
+            zh_cn: '用户不存在',
+          },
+          context,
+        )}
+      ></ion-alert>
+      <ion-alert
+        id="user-exist-alert"
+        header={Locale(
+          {
+            en: 'User already exists',
+            zh_hk: '用戶已存在',
+            zh_cn: '用户已存在',
+          },
+          context,
+        )}
+      ></ion-alert>
       <p>
         <Locale
           en="Current Project Member"
