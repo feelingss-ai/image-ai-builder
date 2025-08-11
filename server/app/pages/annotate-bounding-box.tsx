@@ -164,7 +164,7 @@ function draw_image() {
   )
 }
 var last_time = 0
-function setupEditorUI() {
+async function setupEditorUI() {
   console.log('setupEditorUI called')
   
   // Get DOM elements
@@ -371,6 +371,79 @@ function resetZoom() {
   console.log('resetZoom: Image zoom and position reset to original state')
 }
 
+function rotateLeft() {
+  console.log('rotateLeft called')
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  let camera = window.camera
+  camera.rotate = (camera.rotate - 0.05) % 1
+  camera.rotate_angle = camera.rotate * 2 * Math.PI
+  if (typeof window.render === 'function') {
+    window.render()
+    console.log('rotateLeft: Render function called')
+  }
+}
+
+function rotateRight() {
+  console.log('rotateRight called')
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  let camera = window.camera
+  camera.rotate = (camera.rotate + 0.05) % 1
+  camera.rotate_angle = camera.rotate * 2 * Math.PI
+  if (typeof window.render === 'function') {
+    window.render()
+    console.log('rotateRight: Render function called')
+  }
+}
+
+// --- Continuous rotation (press & hold) ---
+let _isRotating = false
+let _rotateDir = 0 // -1 (left) or +1 (right)
+let _lastRotateTs = 0
+const _rotationSpeedTurnsPerSecond = 0.25 // 0.25 turn = 90° per second
+
+function _rotationLoop(ts) {
+  if (!_isRotating) return
+  if (!_lastRotateTs) _lastRotateTs = ts
+  const dt = (ts - _lastRotateTs) / 1000
+  _lastRotateTs = ts
+  if (window.camera) {
+    const cam = window.camera
+    cam.rotate = (cam.rotate + _rotateDir * _rotationSpeedTurnsPerSecond * dt + 1) % 1
+    cam.rotate_angle = cam.rotate * 2 * Math.PI
+    if (typeof window.render === 'function') window.render()
+  }
+  requestAnimationFrame(_rotationLoop)
+}
+
+function startRotation(dir) {
+  if (!_isRotating) {
+    _isRotating = true
+    _rotateDir = dir
+    _lastRotateTs = 0
+    requestAnimationFrame(_rotationLoop)
+  } else {
+    _rotateDir = dir // allow switching direction while holding different button
+  }
+}
+
+function stopRotation() {
+  _isRotating = false
+  _rotateDir = 0
+  _lastRotateTs = 0
+}
+
+// Safety: stop rotation if pointer released outside button or window loses focus
+window.addEventListener('pointerup', stopRotation)
+window.addEventListener('pointercancel', stopRotation)
+window.addEventListener('blur', stopRotation)
+window.addEventListener('visibilitychange', () => { if (document.hidden) stopRotation() })
+
 window.setupEditorUI = setupEditorUI
 
 `)
@@ -503,7 +576,7 @@ function Main(attrs: {}, context: any) {
           <ion-select
             value={label_id}
             label={Locale(
-              { en: 'Class Label', zh_hk: '類別標籤', zh_cn: '类別标签' },
+              { en: 'Class Label', zh_hk: '類別標籤', zh_cn: '类别标签' },
               context,
             )}
             id="label_select"
@@ -553,45 +626,82 @@ function Main(attrs: {}, context: any) {
             hidden={!!image}
           ></div>
         </div>
-        <div style="display: flex; justify-content: space-between; margin-top: 1rem; gap: 1rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
+          <div style="display: flex; justify-content: space-between; gap: 1rem;">
           <ion-button
-            color="primary"
+              color="secondary"
             style="flex: 1;"
-            onclick="addBoundingBox()"
-            title={
-              <Locale en="add bounding box" zh_hk="增加標註" zh_cn="增加标注" />
-            }
+              onclick="zoomInImage()"
+              title={<Locale en="Zoom In" zh_hk="放大" zh_cn="放大" />}
           >
-            <ion-icon name="add" slot="icon-only"></ion-icon>
+              <ion-icon name="expand" slot="icon-only"></ion-icon>
           </ion-button>
           <ion-button
-            color="secondary"
+              color="tertiary"
             style="flex: 1;"
-            onclick="zoomInImage()"
+              onclick="zoomOutImage()"
+              title={<Locale en="Zoom Out" zh_hk="縮小" zh_cn="缩小" />}
+            >
+              <ion-icon name="contract" slot="icon-only"></ion-icon>
+            </ion-button>
+            <ion-button
+              color="medium"
+              style="flex: 1;"
+              onmousedown="startRotation(-1)"
+              onmouseup="stopRotation()"
+              onmouseleave="stopRotation()"
+              ontouchstart="startRotation(-1)"
+              ontouchend="stopRotation()"
+              ontouchcancel="stopRotation()"
             title={
-              <Locale en="Zoom in image" zh_hk="放大圖片" zh_cn="放大图片" />
+                <Locale en="Rotate Left" zh_hk="向左旋轉" zh_cn="向左旋转" />
             }
           >
-            <ion-icon name="expand" slot="icon-only"></ion-icon>
+              <ion-icon
+                name="refresh-circle"
+                style="transform: scaleX(-1);"
+                slot="icon-only"
+              ></ion-icon>
           </ion-button>
           <ion-button
-            color="tertiary"
+              color="medium"
             style="flex: 1;"
-            onclick="zoomOutImage()"
+              onmousedown="startRotation(1)"
+              onmouseup="stopRotation()"
+              onmouseleave="stopRotation()"
+              ontouchstart="startRotation(1)"
+              ontouchend="stopRotation()"
+              ontouchcancel="stopRotation()"
             title={
-              <Locale en="Zoom out image" zh_hk="縮小圖片" zh_cn="缩小图片" />
+                <Locale en="Rotate Right" zh_hk="向右旋轉" zh_cn="向右旋转" />
             }
           >
-            <ion-icon name="contract" slot="icon-only"></ion-icon>
+              <ion-icon name="refresh-circle" slot="icon-only"></ion-icon>
           </ion-button>
           <ion-button
             color="warning"
             style="flex: 1;"
             onclick="resetZoom()"
-            title={<Locale en="Reset zoom" zh_hk="重置縮放" zh_cn="重置缩放" />}
+              title={<Locale en="Reset" zh_hk="重設" zh_cn="重置" />}
           >
             <ion-icon name="refresh" slot="icon-only"></ion-icon>
           </ion-button>
+          </div>
+          <div style="display: flex; justify-content: space-between; gap: 1rem;">
+            <ion-button
+              color="primary"
+              style="flex: 1;"
+              onclick="addBoundingBox()"
+              title={
+                <Locale
+                  en="Add Bounding Box"
+                  zh_hk="新增標註框"
+                  zh_cn="新增标注框"
+                />
+              }
+            >
+              <ion-icon name="add" slot="icon-only"></ion-icon>
+            </ion-button>
           <ion-button color="success" style="flex: 1;">
             <Locale
               en="Submit bounding box"
@@ -599,6 +709,7 @@ function Main(attrs: {}, context: any) {
               zh_cn="提交标注"
             />
           </ion-button>
+          </div>
         </div>
       </div>
     </>
