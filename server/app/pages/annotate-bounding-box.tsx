@@ -59,21 +59,81 @@ let style = Style(/* css */ `
 `)
 
 let script = Script(/* js */ `
+// Helper function to wait for WebSocket to be ready
+async function waitForWebSocket(maxAttempts = 50) {
+  let attempts = 0
+  while (typeof emit !== 'function' && attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    attempts++
+  }
+  
+  if (typeof emit !== 'function') {
+    console.error('WebSocket not ready after timeout')
+    return false
+  }
+  return true
+}
+
 // Displays the next image for annotation based on selected label
-function showImage() {
+async function showImage() {
   const labelId = label_select.value
   if (!labelId) {
     console.error('No label_id selected')
     return
   }
   console.log('showImage called with label_id:', labelId)
+  
+  // Wait for WebSocket to be ready
+  if (!(await waitForWebSocket())) {
+    console.error('showImage: WebSocket not ready')
+    return
+  }
+  
   emit('/annotate-bounding-box/showImage', {
     label_id: labelId,
   })
 }
 
+// Function to fetch bounding boxes from server
+async function fetchBoundingBoxes(image_id, label_id) {
+  try {
+    console.log('fetchBoundingBoxes: Fetching for image_id:', image_id, 'label_id:', label_id)
+    
+    // Clear previous data
+    window.boundingBoxesData = null
+    
+    // Wait for WebSocket to be ready
+    if (!(await waitForWebSocket())) {
+      console.error('fetchBoundingBoxes: WebSocket not ready')
+      return []
+    }
+    
+    // Send request via WebSocket
+    emit('/annotate-bounding-box/getBoundingBoxes', { image_id, label_id })
+    
+    // Wait for response (poll for data)
+    let attempts = 0
+    const maxAttempts = 50 // 5 seconds max wait
+    while (!window.boundingBoxesData && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      attempts++
+    }
+    
+    if (window.boundingBoxesData) {
+      console.log('fetchBoundingBoxes: Received', window.boundingBoxesData.length, 'boxes')
+      return window.boundingBoxesData
+    } else {
+      console.error('fetchBoundingBoxes: Timeout waiting for response')
+      return []
+    }
+  } catch (error) {
+    console.error('fetchBoundingBoxes: Error:', error)
+    return []
+  }
+}
+
 // Submits an image annotation and updates the UI with new count
-function addBoundingBox() {
+async function addBoundingBox() {
   let image = document.getElementById('label_image')
   let image_id = image.dataset.imageId
   let label_id = document.getElementById('label_select').value
@@ -139,6 +199,13 @@ function addBoundingBox() {
     
     console.log('addBoundingBox: Camera object:', currentCamera)
     console.log('addBoundingBox: Sending data:', data)
+    
+    // Wait for WebSocket to be ready
+    if (!(await waitForWebSocket())) {
+      console.error('addBoundingBox: WebSocket not ready')
+      return
+    }
+    
     emit('/annotate-bounding-box/addBoundingBox', data);
   } else {
     console.error('Camera not initialized')
@@ -163,7 +230,10 @@ function draw_image() {
     0, 0, canvas.width, canvas.height,
   )
 }
-var last_time = 0
+// Check if last_time is already declared to prevent re-declaration errors
+if (typeof window.last_time === 'undefined') {
+  window.last_time = 0
+}
 async function setupEditorUI() {
   console.log('setupEditorUI called')
   
@@ -186,9 +256,18 @@ async function setupEditorUI() {
     previewCanvas = document.getElementById('previewCanvas')
   }
   
-  // TODO: get bounding boxes from database
+  // Get bounding boxes from database
+  let image_id = parseInt(label_image.dataset.imageId)
+  let label_id = parseInt(document.getElementById('label_select').value)
   let bounding_boxes = []
-  // debugger;
+  
+  if (image_id && label_id) {
+    console.log('setupEditorUI: Fetching bounding boxes for image_id:', image_id, 'label_id:', label_id)
+    // Fetch existing bounding boxes from database using client-side function
+    bounding_boxes = await fetchBoundingBoxes(image_id, label_id)
+    console.log('setupEditorUI: Found', bounding_boxes.length, 'bounding boxes')
+  }
+  
   setupDragUI({
     image: label_image,
     minimap_canvas: minimapCanvas,
@@ -224,17 +303,33 @@ function updateSelectOptionText(selector, text) {
   }
 }
 
-AnnotateBoundingBox.addEventListener('ionChange', function(event) {
-  if (event.target.id !== 'label_select') {
-    return;
-  }
-  const label_id = event.target.value;
-  if (!label_id) {
-    console.error('No label_id selected');
-    return;
-  }
-  emit('/annotate-bounding-box/showImage', { label_id });
-});
+// Add event listener for ion-select changes
+// Only add the event listener once to prevent duplicates
+if (!window._ionChangeListenerAdded) {
+  document.addEventListener('ionChange', async function(event) {
+    if (event.target.id !== 'label_select') {
+      return;
+    }
+    const label_id = parseInt(event.target.value);
+    if (!label_id) {
+      console.error('No label_id selected');
+      return;
+    }
+    
+    // Clear previous bounding box data when switching labels
+    window.boundingBoxesData = null
+    console.log('Cleared bounding box data for new label')
+    
+    // Wait for WebSocket to be ready
+    if (!(await waitForWebSocket())) {
+      console.error('ionChange: WebSocket not ready')
+      return
+    }
+    
+    emit('/annotate-bounding-box/showImage', { label_id });
+  });
+  window._ionChangeListenerAdded = true;
+}
 
 // Function to zoom in the image by reducing camera width and height
 function zoomInImage() {
@@ -402,16 +497,19 @@ function rotateRight() {
 }
 
 // --- Continuous rotation (press & hold) ---
-let _isRotating = false
-let _rotateDir = 0 // -1 (left) or +1 (right)
-let _lastRotateTs = 0
-const _rotationSpeedTurnsPerSecond = 0.25 // 0.25 turn = 90° per second
+// Check if variables are already declared to prevent re-declaration errors
+if (typeof window._isRotating === 'undefined') {
+  window._isRotating = false
+  window._rotateDir = 0 // -1 (left) or +1 (right)
+  window._lastRotateTs = 0
+  window._rotationSpeedTurnsPerSecond = 0.25 // 0.25 turn = 90° per second
+}
 
 function _rotationLoop(ts) {
-  if (!_isRotating) return
-  if (!_lastRotateTs) _lastRotateTs = ts
-  const dt = (ts - _lastRotateTs) / 1000
-  _lastRotateTs = ts
+  if (!window._isRotating) return
+  if (!window._lastRotateTs) window._lastRotateTs = ts
+  const dt = (ts - window._lastRotateTs) / 1000
+  window._lastRotateTs = ts
   if (window.camera) {
     const cam = window.camera
     cam.rotate = (cam.rotate + _rotateDir * _rotationSpeedTurnsPerSecond * dt + 1) % 1
@@ -422,27 +520,31 @@ function _rotationLoop(ts) {
 }
 
 function startRotation(dir) {
-  if (!_isRotating) {
-    _isRotating = true
-    _rotateDir = dir
-    _lastRotateTs = 0
+  if (!window._isRotating) {
+    window._isRotating = true
+    window._rotateDir = dir
+    window._lastRotateTs = 0
     requestAnimationFrame(_rotationLoop)
   } else {
-    _rotateDir = dir // allow switching direction while holding different button
+    window._rotateDir = dir // allow switching direction while holding different button
   }
 }
 
 function stopRotation() {
-  _isRotating = false
-  _rotateDir = 0
-  _lastRotateTs = 0
+  window._isRotating = false
+  window._rotateDir = 0
+  window._lastRotateTs = 0
 }
 
 // Safety: stop rotation if pointer released outside button or window loses focus
-window.addEventListener('pointerup', stopRotation)
-window.addEventListener('pointercancel', stopRotation)
-window.addEventListener('blur', stopRotation)
-window.addEventListener('visibilitychange', () => { if (document.hidden) stopRotation() })
+// Only add event listeners once
+if (!window._rotationListenersAdded) {
+  window.addEventListener('pointerup', stopRotation)
+  window.addEventListener('pointercancel', stopRotation)
+  window.addEventListener('blur', stopRotation)
+  window.addEventListener('visibilitychange', () => { if (document.hidden) stopRotation() })
+  window._rotationListenersAdded = true
+}
 
 window.setupEditorUI = setupEditorUI
 
@@ -497,6 +599,11 @@ let select_next_image = db.prepare<
   inner join image on image.id = image_label.image_id
   where answer = 1
     and image_label.label_id = :label_id
+    and image_id not in (
+      select image_id
+      from image_bounding_box_confirmation
+      where label_id = :label_id
+    )
 `)
 
 let insert_bounding_box = db.prepare<
@@ -541,6 +648,25 @@ let ensure_image_label = db.prepare<
   INSERT INTO image_label (image_id, user_id, label_id, answer)
   VALUES (:image_id, :user_id, :label_id, 1)
   RETURNING id
+`)
+
+let get_bounding_boxes = db.prepare<
+  { image_id: number; label_id: number },
+  {
+    id: number
+    image_id: number
+    x: number
+    y: number
+    width: number
+    height: number
+    rotate: number
+    label_id: number
+  }
+>(/* sql */ `
+  SELECT id, image_id, x, y, width, height, rotate, label_id
+  FROM image_bounding_box
+  WHERE image_id = :image_id AND label_id = :label_id
+  ORDER BY id
 `)
 
 function Main(attrs: {}, context: any) {
@@ -626,19 +752,19 @@ function Main(attrs: {}, context: any) {
             hidden={!!image}
           ></div>
         </div>
-        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
           <div style="display: flex; justify-content: space-between; gap: 1rem;">
-          <ion-button
+            <ion-button
               color="secondary"
-            style="flex: 1;"
+              style="flex: 1;"
               onclick="zoomInImage()"
               title={<Locale en="Zoom In" zh_hk="放大" zh_cn="放大" />}
-          >
+            >
               <ion-icon name="expand" slot="icon-only"></ion-icon>
-          </ion-button>
-          <ion-button
+            </ion-button>
+            <ion-button
               color="tertiary"
-            style="flex: 1;"
+              style="flex: 1;"
               onclick="zoomOutImage()"
               title={<Locale en="Zoom Out" zh_hk="縮小" zh_cn="缩小" />}
             >
@@ -653,39 +779,39 @@ function Main(attrs: {}, context: any) {
               ontouchstart="startRotation(-1)"
               ontouchend="stopRotation()"
               ontouchcancel="stopRotation()"
-            title={
+              title={
                 <Locale en="Rotate Left" zh_hk="向左旋轉" zh_cn="向左旋转" />
-            }
-          >
+              }
+            >
               <ion-icon
                 name="refresh-circle"
                 style="transform: scaleX(-1);"
                 slot="icon-only"
               ></ion-icon>
-          </ion-button>
-          <ion-button
+            </ion-button>
+            <ion-button
               color="medium"
-            style="flex: 1;"
+              style="flex: 1;"
               onmousedown="startRotation(1)"
               onmouseup="stopRotation()"
               onmouseleave="stopRotation()"
               ontouchstart="startRotation(1)"
               ontouchend="stopRotation()"
               ontouchcancel="stopRotation()"
-            title={
+              title={
                 <Locale en="Rotate Right" zh_hk="向右旋轉" zh_cn="向右旋转" />
-            }
-          >
+              }
+            >
               <ion-icon name="refresh-circle" slot="icon-only"></ion-icon>
-          </ion-button>
-          <ion-button
-            color="warning"
-            style="flex: 1;"
-            onclick="resetZoom()"
+            </ion-button>
+            <ion-button
+              color="warning"
+              style="flex: 1;"
+              onclick="resetZoom()"
               title={<Locale en="Reset" zh_hk="重設" zh_cn="重置" />}
-          >
-            <ion-icon name="refresh" slot="icon-only"></ion-icon>
-          </ion-button>
+            >
+              <ion-icon name="refresh" slot="icon-only"></ion-icon>
+            </ion-button>
           </div>
           <div style="display: flex; justify-content: space-between; gap: 1rem;">
             <ion-button
@@ -702,13 +828,13 @@ function Main(attrs: {}, context: any) {
             >
               <ion-icon name="add" slot="icon-only"></ion-icon>
             </ion-button>
-          <ion-button color="success" style="flex: 1;">
-            <Locale
-              en="Submit bounding box"
-              zh_hk="提交標註"
-              zh_cn="提交标注"
-            />
-          </ion-button>
+            <ion-button color="success" style="flex: 1;">
+              <Locale
+                en="Submit bounding box"
+                zh_hk="提交標註"
+                zh_cn="提交标注"
+              />
+            </ion-button>
           </div>
         </div>
       </div>
@@ -728,6 +854,11 @@ let addBoundingBoxParser = object({
   width: number(),
   height: number(),
   rotate: number(),
+})
+
+let getBoundingBoxesParser = object({
+  image_id: id(),
+  label_id: id(),
 })
 
 // Displays the next image for annotation based on the selected label
@@ -934,6 +1065,68 @@ function AddBoundingBox(attrs: {}, context: WsContext) {
       `Bounding box added successfully! ID: ${result!.id}`,
     ])
 
+    // Trigger re-render to show the new bounding box on minimap
+    context.ws.send([
+      'eval',
+      'if (typeof setupEditorUI === "function") setupEditorUI();',
+    ])
+
+    // Terminate execution to prevent further processing
+    throw EarlyTerminate
+  } catch (error) {
+    // Handle non-termination errors by logging and sending error message to client
+    if (error !== EarlyTerminate) {
+      console.error(error)
+      context.ws.send(showError(error))
+    }
+    // Ensure termination of the function
+    throw EarlyTerminate
+  }
+}
+
+// Get bounding boxes for a specific image and label
+function GetBoundingBoxes(attrs: {}, context: WsContext) {
+  try {
+    let throws = makeThrows(context)
+    let user_id = getAuthUserId(context)!
+    if (!user_id)
+      throws({
+        en: 'You must be logged in to get bounding boxes',
+        zh_hk: '您必須登入才能獲取邊界框',
+        zh_cn: '您必须登录才能获取边界框',
+      })
+
+    let body = getContextFormBody(context)
+    let input = getBoundingBoxesParser.parse(body)
+
+    console.log('GetBoundingBoxes: Processing input:', input)
+
+    // Get bounding boxes from database
+    let boxes = get_bounding_boxes.all({
+      image_id: input.image_id,
+      label_id: input.label_id,
+    })
+
+    console.log('GetBoundingBoxes: Found', boxes.length, 'boxes')
+
+    // Send bounding boxes data to client
+    context.ws.send([
+      'eval',
+      `window.boundingBoxesData = ${JSON.stringify(
+        boxes.map(box => ({
+          image_id: box.image_id,
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+          rotate: box.rotate,
+          rotate_angle: box.rotate * 2 * Math.PI,
+          id: box.id,
+          label_id: box.label_id,
+        })),
+      )};`,
+    ])
+
     // Terminate execution to prevent further processing
     throw EarlyTerminate
   } catch (error) {
@@ -962,6 +1155,11 @@ let routes = {
     title: <Title t={pageTitle} />,
     description: 'Annotate bounding boxes on images',
     node: <AddBoundingBox />,
+  },
+  '/annotate-bounding-box/getBoundingBoxes': {
+    title: <Title t={pageTitle} />,
+    description: 'Get bounding boxes for image and label',
+    node: <GetBoundingBoxes />,
   },
   // '/annotate-bounding-box/submitBoundingBox': {
   //   title: <Title t={pageTitle} />,
