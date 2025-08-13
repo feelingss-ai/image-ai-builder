@@ -99,7 +99,7 @@ async function fetchBoundingBoxes(image_id, label_id) {
   try {
     console.log('fetchBoundingBoxes: Fetching for image_id:', image_id, 'label_id:', label_id)
     
-    // Clear previous data
+    // Clear previous data to ensure fresh fetch
     window.boundingBoxesData = null
     
     // Wait for WebSocket to be ready
@@ -256,6 +256,12 @@ async function setupEditorUI() {
     previewCanvas = document.getElementById('previewCanvas')
   }
   
+  // Clear selected bounding box when re-initializing
+  window.selectedBoundingBoxId = undefined
+  if (typeof window.updateDeleteButton === 'function') {
+    window.updateDeleteButton()
+  }
+  
   // Get bounding boxes from database
   let image_id = parseInt(label_image.dataset.imageId)
   let label_id = parseInt(document.getElementById('label_select').value)
@@ -266,6 +272,18 @@ async function setupEditorUI() {
     // Fetch existing bounding boxes from database using client-side function
     bounding_boxes = await fetchBoundingBoxes(image_id, label_id)
     console.log('setupEditorUI: Found', bounding_boxes.length, 'bounding boxes')
+    
+    // Check if currently selected bounding box still exists
+    if (window.selectedBoundingBoxId != null) {
+      const selectedExists = bounding_boxes.find(box => box.id === window.selectedBoundingBoxId)
+      if (!selectedExists) {
+        console.log('setupEditorUI: Selected bounding box no longer exists, clearing selection')
+        window.selectedBoundingBoxId = undefined
+        if (typeof window.updateDeleteButton === 'function') {
+          window.updateDeleteButton()
+        }
+      }
+    }
   }
   
   setupDragUI({
@@ -284,6 +302,11 @@ async function setupEditorUI() {
   
   // Camera reset is now handled in setupDragUI with resetCamera: true
   console.log('setupEditorUI: Camera reset handled by setupDragUI')
+  
+  // Set up periodic update of delete button state
+  if (!window._deleteButtonUpdateInterval) {
+    window._deleteButtonUpdateInterval = setInterval(updateDeleteButton, 500)
+  }
 }
 
 function updateSelectOptionText(selector, text) {
@@ -329,6 +352,91 @@ if (!window._ionChangeListenerAdded) {
     emit('/annotate-bounding-box/showImage', { label_id });
   });
   window._ionChangeListenerAdded = true;
+}
+
+// Function to update delete button state based on selection
+function updateDeleteButton() {
+  const deleteBtn = document.getElementById('delete-bounding-box-btn')
+  const hasSelection = window.selectedBoundingBoxId != null
+
+  // Double check: if we have a selected ID, verify it exists in current data
+  if (hasSelection && window.boundingBoxesData) {
+    const selectedExists = window.boundingBoxesData.find(box => box.id === window.selectedBoundingBoxId)
+    if (!selectedExists) {
+      console.log('updateDeleteButton: Selected box does not exist in current data, clearing selection')
+      window.selectedBoundingBoxId = undefined
+      // Re-call this function with corrected state
+      updateDeleteButton()
+      return
+    }
+  }
+  
+  if (deleteBtn) {
+    const actualHasSelection = window.selectedBoundingBoxId != null
+    deleteBtn.disabled = !actualHasSelection
+    if (actualHasSelection) {
+      deleteBtn.style.opacity = '1'
+      deleteBtn.style.cursor = 'pointer'
+    } else {
+      deleteBtn.style.opacity = '0.5'
+      deleteBtn.style.cursor = 'not-allowed'
+    }
+  }
+}
+
+// Function to delete the selected bounding box
+async function deleteBoundingBox() {
+  console.log('deleteBoundingBox called, selectedBoundingBoxId =', window.selectedBoundingBoxId)
+  
+  if (!window.selectedBoundingBoxId) {
+    console.error('No bounding box selected for deletion')
+    alert('Please select a bounding box first by clicking on it')
+    return
+  }
+  
+  let image = document.getElementById('label_image')
+  let image_id = image.dataset.imageId
+  let label_id = document.getElementById('label_select').value
+  
+  console.log('deleteBoundingBox: box_id =', window.selectedBoundingBoxId)
+  console.log('deleteBoundingBox: image_id =', image_id, 'label_id =', label_id)
+  
+  // Validate data before sending
+  if (!image_id || image_id === 'undefined' || image_id === 'null') {
+    console.error('deleteBoundingBox: Invalid image_id:', image_id)
+    return
+  }
+  
+  if (!label_id || label_id === 'undefined' || label_id === 'null') {
+    console.error('deleteBoundingBox: Invalid label_id:', label_id)
+    return
+  }
+  
+  // Convert to numbers
+  image_id = parseInt(image_id)
+  label_id = parseInt(label_id)
+  
+  let data = {
+    box_id: window.selectedBoundingBoxId,
+    image_id: image_id,
+    label_id: label_id
+  }
+  
+  console.log('deleteBoundingBox: Sending data:', data)
+  
+  // Clear selection immediately before sending request
+  window.selectedBoundingBoxId = undefined
+  if (typeof window.updateDeleteButton === 'function') {
+    window.updateDeleteButton()
+  }
+  
+  // Wait for WebSocket to be ready
+  if (!(await waitForWebSocket())) {
+    console.error('deleteBoundingBox: WebSocket not ready')
+    return
+  }
+  
+  emit('/annotate-bounding-box/deleteBoundingBox', data)
 }
 
 // Function to zoom in the image by reducing camera width and height
@@ -547,6 +655,7 @@ if (!window._rotationListenersAdded) {
 }
 
 window.setupEditorUI = setupEditorUI
+window.updateDeleteButton = updateDeleteButton
 
 `)
 
@@ -622,6 +731,22 @@ let insert_bounding_box = db.prepare<
   INSERT INTO image_bounding_box (image_id, user_id, label_id, x, y, width, height, rotate)
   VALUES (:image_id, :user_id, :label_id, :x, :y, :width, :height, :rotate)
   RETURNING id
+`)
+
+let delete_bounding_box = db.prepare<
+  {
+    box_id: number
+    user_id: number
+    image_id: number
+    label_id: number
+  },
+  { changes: number }
+>(/* sql */ `
+  DELETE FROM image_bounding_box 
+  WHERE id = :box_id 
+    AND user_id = :user_id 
+    AND image_id = :image_id 
+    AND label_id = :label_id
 `)
 
 let check_image_label = db.prepare<
@@ -826,14 +951,35 @@ function Main(attrs: {}, context: any) {
                 />
               }
             >
-              <ion-icon name="add" slot="icon-only"></ion-icon>
+              <ion-icon name="camera-outline" slot="icon-only"></ion-icon>
             </ion-button>
-            <ion-button color="success" style="flex: 1;">
-              <Locale
-                en="Submit bounding box"
-                zh_hk="提交標註"
-                zh_cn="提交标注"
-              />
+            <ion-button
+              color="danger"
+              style="flex: 1;"
+              onclick="deleteBoundingBox()"
+              id="delete-bounding-box-btn"
+              title={
+                <Locale
+                  en="Delete Selected Box"
+                  zh_hk="刪除選中標註框"
+                  zh_cn="删除选中标注框"
+                />
+              }
+            >
+              <ion-icon name="trash" slot="icon-only"></ion-icon>
+            </ion-button>
+            <ion-button
+              color="success"
+              style="flex: 1;"
+              title={
+                <Locale
+                  en="Submit bounding box"
+                  zh_hk="提交標註"
+                  zh_cn="提交标注"
+                />
+              }
+            >
+              <ion-icon name="cloud-upload-outline" slot="icon-only"></ion-icon>
             </ion-button>
           </div>
         </div>
@@ -854,6 +1000,12 @@ let addBoundingBoxParser = object({
   width: number(),
   height: number(),
   rotate: number(),
+})
+
+let deleteBoundingBoxParser = object({
+  box_id: id(),
+  image_id: id(),
+  label_id: id(),
 })
 
 let getBoundingBoxesParser = object({
@@ -1084,6 +1236,85 @@ function AddBoundingBox(attrs: {}, context: WsContext) {
   }
 }
 
+function DeleteBoundingBox(attrs: {}, context: WsContext) {
+  try {
+    let throws = makeThrows(context)
+    let user_id = getAuthUserId(context)!
+    if (!user_id)
+      throws({
+        en: 'You must be logged in to delete bounding box',
+        zh_hk: '您必須登入才能刪除邊界框',
+        zh_cn: '您必须登录才能删除边界框',
+      })
+
+    let body = getContextFormBody(context)
+    let input = deleteBoundingBoxParser.parse(body)
+
+    console.log('DeleteBoundingBox: Processing input:', input)
+    console.log(`DeleteBoundingBox: user_id=${user_id}`)
+
+    // Delete bounding box from database
+    let result = delete_bounding_box.run({
+      box_id: input.box_id,
+      user_id: user_id,
+      image_id: input.image_id,
+      label_id: input.label_id,
+    })
+
+    if (result.changes === 0) {
+      throws({
+        en: 'Bounding box not found or permission denied',
+        zh_hk: '找不到邊界框或權限不足',
+        zh_cn: '找不到边界框或权限不足',
+      })
+    }
+
+    console.log(`DeleteBoundingBox: Deleted ${result.changes} bounding box(es)`)
+
+    // Send success message first
+    context.ws.send([
+      'update-text',
+      '#debugMessage',
+      `Bounding box deleted successfully!`,
+    ])
+
+    // Clear selected bounding box immediately and refresh the entire UI
+    context.ws.send([
+      'eval',
+      `
+      console.log('Server: Clearing selectedBoundingBoxId, was:', window.selectedBoundingBoxId);
+      window.selectedBoundingBoxId = undefined; 
+      console.log('Server: selectedBoundingBoxId now:', window.selectedBoundingBoxId);
+      
+      // Update delete button immediately
+      if (typeof window.updateDeleteButton === 'function') {
+        window.updateDeleteButton();
+      }
+      
+      // Clear any cached bounding box data to force fresh fetch
+      window.boundingBoxesData = null;
+      
+      // Force complete refresh of bounding boxes by re-running setupEditorUI
+      if (typeof setupEditorUI === 'function') {
+        console.log('Server: Calling setupEditorUI to refresh bounding boxes');
+        setupEditorUI();
+      }
+      `,
+    ])
+
+    // Terminate execution to prevent further processing
+    throw EarlyTerminate
+  } catch (error) {
+    // Handle non-termination errors by logging and sending error message to client
+    if (error !== EarlyTerminate) {
+      console.error(error)
+      context.ws.send(showError(error))
+    }
+    // Ensure termination of the function
+    throw EarlyTerminate
+  }
+}
+
 // Get bounding boxes for a specific image and label
 function GetBoundingBoxes(attrs: {}, context: WsContext) {
   try {
@@ -1155,6 +1386,11 @@ let routes = {
     title: <Title t={pageTitle} />,
     description: 'Annotate bounding boxes on images',
     node: <AddBoundingBox />,
+  },
+  '/annotate-bounding-box/deleteBoundingBox': {
+    title: <Title t={pageTitle} />,
+    description: 'Delete bounding box',
+    node: <DeleteBoundingBox />,
   },
   '/annotate-bounding-box/getBoundingBoxes': {
     title: <Title t={pageTitle} />,

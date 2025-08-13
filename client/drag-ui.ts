@@ -16,6 +16,8 @@ declare global {
     _dragUICamera: BoundingBox
     render: () => void
     selectedBoundingBoxId?: number
+    updateDeleteButton?: () => void
+    boundingBoxesData?: BoundingBox[]
   }
 }
 
@@ -85,6 +87,11 @@ function setupDragUI(options: {
   } else {
     console.log('setupDragUI: Using existing camera object:', camera)
   }
+
+  // Always clear selected bounding box when setting up new drag UI
+  // This ensures fresh state when switching images or refreshing data
+  console.log('setupDragUI: Clearing selected bounding box for fresh state')
+  window.selectedBoundingBoxId = undefined
 
   // Expose the internal camera object for external access
   // Always point to the current camera object being used
@@ -411,13 +418,16 @@ function setupDragUI(options: {
   }
 
   function drawBoundingBoxes() {
-    if (!options.bounding_boxes || options.bounding_boxes.length === 0) {
+    // Use the most current bounding box data from window.boundingBoxesData if available
+    const currentBoundingBoxes: BoundingBox[] =
+      window.boundingBoxesData || options.bounding_boxes
+    if (!currentBoundingBoxes || currentBoundingBoxes.length === 0) {
       return
     }
 
     const selectedId = window.selectedBoundingBoxId
 
-    options.bounding_boxes.forEach((box, index) => {
+    currentBoundingBoxes.forEach((box: BoundingBox, index: number) => {
       // Calculate box position and size on minimap
       let boxWidth = box.width * mapCanvas.width
       let boxHeight = box.height * mapCanvas.height
@@ -531,8 +541,24 @@ function setupDragUI(options: {
 
     // Check all bounding boxes and ensure same image/label.
     // Be tolerant of boxes missing image_id/label_id (treat missing as matching).
-    let foundBox = options.bounding_boxes.find(box => {
-      if (!isPointInBox(box, clickX, clickY)) return false
+    // Use the most current bounding box data from window.boundingBoxesData if available
+    const currentBoundingBoxes: BoundingBox[] =
+      window.boundingBoxesData || options.bounding_boxes
+    console.log(
+      'Looking for clicked box. Available boxes:',
+      currentBoundingBoxes.map((b: BoundingBox) => ({
+        id: b.id,
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+      })),
+    )
+    console.log('Click coordinates:', { clickX, clickY })
+    console.log('Current IDs:', { currentImageId, currentLabelId })
+
+    let foundBox = currentBoundingBoxes.find((box: BoundingBox) => {
+      const hit = isPointInBox(box, clickX, clickY)
       const labelMatches =
         box.label_id == null ||
         currentLabelId == null ||
@@ -541,8 +567,13 @@ function setupDragUI(options: {
         box.image_id == null ||
         currentImageId == null ||
         box.image_id === currentImageId
-      return labelMatches && imageMatches
+      console.log(
+        `Box ${box.id}: hit=${hit}, labelMatches=${labelMatches}, imageMatches=${imageMatches}`,
+      )
+      return hit && labelMatches && imageMatches
     })
+
+    console.log('Found box:', foundBox)
 
     if (foundBox) {
       // Jump to the bounding box
@@ -556,8 +587,20 @@ function setupDragUI(options: {
       // Set selected bounding box id (if available)
       if (foundBox.id != null) {
         window.selectedBoundingBoxId = foundBox.id
+        console.log(
+          'Set selectedBoundingBoxId to:',
+          window.selectedBoundingBoxId,
+        )
+        // Update delete button state if function exists
+        if (typeof window.updateDeleteButton === 'function') {
+          window.updateDeleteButton()
+        }
+      } else {
+        console.warn('Found box has no id:', foundBox)
       }
       render()
+    } else {
+      console.log('No box found at click position')
     }
   })
 
