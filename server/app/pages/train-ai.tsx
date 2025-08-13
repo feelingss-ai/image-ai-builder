@@ -529,7 +529,7 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
   if (!user) throw 'You must be logged in to train AI'
   let body = getContextFormBody(context)
   let input = submitTrainParser.parse(body)
-  let labels = pick(proxy.label, ['id', 'title', 'dependency_id'])
+  let labels = pick(proxy.label, ['id', 'title', 'dependency_id', 'project_id'])
 
   if (input.training_mode === 'scratch') {
     del(proxy.training_stats, { id: notNull })

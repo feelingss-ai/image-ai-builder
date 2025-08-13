@@ -12,20 +12,25 @@ seedRow(proxy.method, { method: 'ws' })
 proxy.label[1] = {
   title: '🦞',
   dependency_id: null,
+  project_id: null,
 }
 proxy.label[2] = {
   title: '🍜',
   dependency_id: null,
+  project_id: null,
 }
 proxy.label[3] = {
   title: '💩',
   dependency_id: null,
+  project_id: null,
 }
 proxy.label[4] = {
   title: '開尾',
   dependency_id: 1,
+  project_id: null,
 }
 proxy.label[5] = {
   title: '舉鉗',
   dependency_id: 1,
+  project_id: null,
 }

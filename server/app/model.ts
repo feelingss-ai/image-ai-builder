@@ -28,7 +28,7 @@ export async function getClassifierModel(label: Label) {
   if (!classifierModelPromise) {
     classifierModelPromise = loadImageClassifierModel({
       baseModel,
-      modelDir: `saved_models/label-${label.id}`,
+      modelDir: `saved_models/latest/label-${label.id}`,
       datasetDir: `datasets/label-${label.id}`,
       classNames: ['yes', 'no'],
       hiddenLayers: [
@@ -50,7 +50,7 @@ export async function getClassifierModel(label: Label) {
 export async function getBestClassifierModel(label: Label) {
   let bestClassifierModelPromise = loadImageClassifierModel({
     baseModel,
-    modelDir: `saved_models/label-${label.id}/best`,
+    modelDir: `saved_models/best/label-${label.id}`,
     datasetDir: `datasets/label-${label.id}`,
     classNames: ['yes', 'no'],
     hiddenLayers: [
@@ -91,7 +91,7 @@ export async function modelCheckpoint(
     console.log(
       `Latest Model ${label.title} Loss: ${latestModelLoss}, Best Model ${label.title} Loss: ${bestModelLoss}`,
     )
-    await latestModel.save(`saved_models/label-${label.id}/best`)
+    await latestModel.save(`saved_models/best/label-${label.id}`)
     delete classifierModelCache[label.title + '-best']
   } else {
     console.log(`Model ${label.title} no improve`)

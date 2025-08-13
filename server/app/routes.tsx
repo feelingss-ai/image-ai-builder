@@ -5,7 +5,7 @@ import AnnotateImage from './pages/annotate-image.js'
 import UploadImage from './pages/upload-image.js'
 import ReportContent from './pages/report-content.js'
 import AppNotice from './pages/app-notice.js'
-import AppChat from './pages/app-chat.js'
+import AppProject from './pages/app-project.js'
 import AppSettings from './pages/app-settings.js'
 import AppMore from './pages/app-more.js'
 import { capitalize } from '@beenotung/tslib/string.js'
@@ -102,7 +102,7 @@ let routeDict = {
   ...AppHome.routes,
   ...AppCharacter.routes,
   ...AppAbout.routes,
-  ...AppChat.routes,
+  ...AppProject.routes,
   ...AppNotice.routes,
   ...AppMore.routes,
   ...AppSettings.routes,
