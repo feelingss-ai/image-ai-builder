@@ -501,10 +501,97 @@ function setupDragUI(options: {
   // Added: minimapCanvas click to jump to bounding box
   minimap_canvas.addEventListener('click', function (event) {
     const rect = minimap_canvas.getBoundingClientRect()
+
+    // Calculate click position relative to displayed canvas
+    const displayClickX = event.clientX - rect.left
+    const displayClickY = event.clientY - rect.top
+
+    // Get the actual image dimensions
+    const imageNaturalWidth = image.naturalWidth
+    const imageNaturalHeight = image.naturalHeight
+    const imageAspectRatio = imageNaturalWidth / imageNaturalHeight
+
+    // Calculate the displayed canvas size
+    const displayWidth = rect.width
+    const displayHeight = rect.height
+    const displayAspectRatio = displayWidth / displayHeight
+
+    // Calculate the actual displayed image area within the canvas
+    // The image is scaled to fit within the canvas while maintaining aspect ratio
+    let actualImageWidth, actualImageHeight, imageOffsetX, imageOffsetY
+
+    if (imageAspectRatio > displayAspectRatio) {
+      // Image is wider relative to display, so width fills display and height is centered
+      actualImageWidth = displayWidth
+      actualImageHeight = displayWidth / imageAspectRatio
+      imageOffsetX = 0
+      imageOffsetY = (displayHeight - actualImageHeight) / 2
+    } else {
+      // Image is taller relative to display, so height fills display and width is centered
+      actualImageHeight = displayHeight
+      actualImageWidth = displayHeight * imageAspectRatio
+      imageOffsetX = (displayWidth - actualImageWidth) / 2
+      imageOffsetY = 0
+    }
+
+    console.log('Image area calculation:', {
+      imageNatural: {
+        width: imageNaturalWidth,
+        height: imageNaturalHeight,
+        aspectRatio: imageAspectRatio,
+      },
+      display: {
+        width: displayWidth,
+        height: displayHeight,
+        aspectRatio: displayAspectRatio,
+      },
+      actualImage: { width: actualImageWidth, height: actualImageHeight },
+      offset: { x: imageOffsetX, y: imageOffsetY },
+    })
+
+    // Check if click is within the actual image area (with small tolerance for floating point precision)
+    const boundaryTolerance = 2 // 2 pixel tolerance for boundary detection
+    if (
+      displayClickX < imageOffsetX - boundaryTolerance ||
+      displayClickX > imageOffsetX + actualImageWidth + boundaryTolerance ||
+      displayClickY < imageOffsetY - boundaryTolerance ||
+      displayClickY > imageOffsetY + actualImageHeight + boundaryTolerance
+    ) {
+      console.log('Click outside image area, ignoring', {
+        // clickPos: { x: displayClickX, y: displayClickY },
+        // imageArea: {
+        //   left: imageOffsetX,
+        //   right: imageOffsetX + actualImageWidth,
+        //   top: imageOffsetY,
+        //   bottom: imageOffsetY + actualImageHeight,
+        // },
+        // boundaryTolerance,
+      })
+      return
+    }
+
+    // Convert from display coordinates to actual canvas coordinates
     const clickX =
-      ((event.clientX - rect.left) / rect.width) * minimap_canvas.width
+      ((displayClickX - imageOffsetX) / actualImageWidth) * minimap_canvas.width
     const clickY =
-      ((event.clientY - rect.top) / rect.height) * minimap_canvas.height
+      ((displayClickY - imageOffsetY) / actualImageHeight) *
+      minimap_canvas.height
+
+    console.log('Minimap click:', {
+      displayClick: { x: displayClickX, y: displayClickY },
+      imageDisplay: {
+        width: actualImageWidth,
+        height: actualImageHeight,
+        offsetX: imageOffsetX,
+        offsetY: imageOffsetY,
+      },
+      canvasClick: { x: clickX, y: clickY },
+      canvasSize: {
+        width: minimap_canvas.width,
+        height: minimap_canvas.height,
+      },
+      displaySize: { width: rect.width, height: rect.height },
+    })
 
     const { image_id: currentImageId, label_id: currentLabelId } =
       getCurrentImageAndLabelIds()
@@ -531,12 +618,13 @@ function setupDragUI(options: {
       )
 
       // Determine if the point is within the box boundaries (with tolerance)
-      return (
+      const isInside =
         rx >= -boxWidth / 2 - tolerance &&
         rx <= boxWidth / 2 + tolerance &&
         ry >= -boxHeight / 2 - tolerance &&
         ry <= boxHeight / 2 + tolerance
-      )
+
+      return isInside
     }
 
     // Check all bounding boxes and ensure same image/label.
