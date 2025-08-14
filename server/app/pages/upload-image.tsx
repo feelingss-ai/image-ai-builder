@@ -374,7 +374,17 @@ async function RemoveImage(context: ExpressContext) {
     if (typeof filename !== 'string') throw 'filename is required'
     let image = find(proxy.image, { filename })
     if (image) {
+      // Delete related records in the correct order (child tables first)
+      // Delete bounding box confirmations
+      del(proxy.image_bounding_box_confirmation, { image_id: image.id! })
+
+      // Delete bounding boxes
+      del(proxy.image_bounding_box, { image_id: image.id! })
+
+      // Delete image labels
       del(proxy.image_label, { image_id: image.id! })
+
+      // Finally delete the image
       del(proxy.image, { filename })
     }
     let file = join(env.UPLOAD_DIR, filename)

@@ -758,13 +758,16 @@ and answer = 1
   )
   .pluck()
 
-// let has_previous_annotation = db
-//   .prepare<{ label_id: number }, number>(
-//     /* sql */ `
-// select count(*) from image_label where label_id = :label_id
-// `,
-//   )
-//   .pluck()
+let count_confirmed_bounding_box_images = db
+  .prepare<{ label_id: number; user_id: number }, number>(
+    /* sql */ `
+select count(distinct image_id)
+from image_bounding_box_confirmation
+where label_id = :label_id
+and user_id = :user_id
+`,
+  )
+  .pluck()
 
 let select_next_image = db.prepare<
   { label_id: number },
@@ -922,9 +925,13 @@ function Main(attrs: {}, context: any) {
               let label_images = count_label_images.get({
                 label_id: label.id!,
               })
+              let confirmed_images = count_confirmed_bounding_box_images.get({
+                label_id: label.id!,
+                user_id: user.id!,
+              })
               return (
                 <ion-select-option value={label.id}>
-                  {label.title} (0/{label_images})
+                  {label.title} ({confirmed_images}/{label_images})
                 </ion-select-option>
               )
             })}
