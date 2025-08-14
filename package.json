@@ -42,6 +42,7 @@
   "dependencies": {
     "@beenotung/tslib": "^24.9.0",
     "@ionic/core": "^8.5.5",
+    "adm-zip": "^0.5.16",
     "argon2": "^0.41.1",
     "better-sqlite3-proxy": "^2.11.1",
     "better-sqlite3-schema": "^3.1.8",
@@ -71,6 +72,7 @@
     "ws": "^8.18.1"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.13",
     "@types/canvas-confetti": "^1.9.0",
     "@types/chai": "^4.3.20",
