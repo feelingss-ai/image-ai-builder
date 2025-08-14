@@ -11,7 +11,7 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
-import { id, number, object, values } from 'cast.ts'
+import { id, number, object, values, optional } from 'cast.ts'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, makeThrows, Title } from '../components/locale.js'
@@ -40,16 +40,41 @@ let style = Style(/* css */ `
 `)
 
 let script = Script(/* js */ `
+//for getting URL query parameters
+function getQueryParam(name) {
+  const urlParams = new URLSearchParams(window.location.search)
+  return urlParams.get(name)
+}
+
+// Loads the last state
+function loadLastState() {
+  const urlLabelId = getQueryParam('label')
+  const urlImageId = getQueryParam('image')
+  let labelId = urlLabelId && !isNaN(Number(urlLabelId)) ? Number(urlLabelId) : 1;
+  let imageId = urlImageId && !isNaN(Number(urlImageId)) ? Number(urlImageId) : 1;
+
+  if (!proxy.label[labelId]) {
+    labelId = Object.keys(proxy.label)[0] || 1
+  }
+
+  const labelSelect = document.getElementById('label_select')
+  if (labelSelect) {
+    labelSelect.value = labelId
+    labelSelect.dispatchEvent(new CustomEvent('ionChange', { detail: { value: labelId } }))
+  }
+  emit('/annotate-image/showImage', {
+    label_id: labelId,
+    image_id: imageId,
+  })
+}
+
 // Displays the next image for annotation based on selected label
 function showImage(){
   const labelId = label_select.value;
-  if (!labelId) {
-    console.error('No label_id selected');
-    return;
-  }
-  console.log('showImage called with label_id:', labelId);
+  const imageId = getQueryParam('image') || '1'
   emit('/annotate-image/showImage', {
     label_id: labelId,
+    image_id: imageId && !isNaN(Number(imageId)) ? Number(imageId) : 1,
   })
 }
 
@@ -58,24 +83,18 @@ function submitAnnotation(answer) {
   let image = document.getElementById('label_image')
   let image_id = image.dataset.imageId
   let rotation = image.dataset.rotation || 0
+  let label_id = document.getElementById('label_select').value
   emit('/annotate-image/submit', {
-    label: document.getElementById('label_select').value,
+    label: label_id,
     image: image_id,
     answer,
     rotation,
-  });
-}
-
-label_select.addEventListener('ionChange', function(event) {
-  console.log('label_select changed ', label_select.value)
-  emit('/annotate-image/showImage', {
-    label_id: label_select.value,
   })
-})
+}
 
 // Sends undo annotation request
 function undoAnnotation() {
-  let label_id = document.getElementById('label_select').value;
+  let label_id = document.getElementById('label_select')?.value;
   emit('/annotate-image/undo', { label_id })
 }
 
@@ -100,53 +119,20 @@ function initAnnotationImage(image) {
   check()
 }
 
-function updateSelectOptionText(selector, text) {
-  let option = document.querySelector(selector)
-  if (option) {
-    console.log('Updating option text:', selector, text)
-    option.textContent = text
-    let ionSelect = document.querySelector('ion-select#label_select')
-    if (ionSelect) {
-      ionSelect.forceUpdate?.()
-      console.log('Triggered ion-select update and ionChange event')
-    } else {
-      console.error('ion-select#label_select not found')
-    }
-  } else {
-    console.error('Option not found:', selector)
-  }
-}
+label_select.addEventListener('ionChange', function(event) {
+  const labelId = event.detail.value;
+  const imageId = getQueryParam('image') || '1';
 
-window.onServerMessage = window.onServerMessage || function(message) {
-  console.log('Received server message:', message);
-  if (message[0] === 'update-props' && message[1].includes('ion-select-option')) {
-    console.log('Received update-props for select option:', message);
-    updateSelectOptionText(message[1], message[2].text);
-  }
-  if (message[0] === 'update-text' && message[1].includes('ion-select-option')) {
-    console.log('Received update-text for select option:', message);
-    updateSelectOptionText(message[1], message[2]);
-  }
-  if (message[0] === 'update-attrs' && message[1] === '#label_image') {
-    console.log('Updating label_image:', message[2]);
-  }
-}
+  emit('/annotate-image/showImage', {
+    label_id: labelId,
+    image_id: imageId && !isNaN(Number(imageId)) ? Number(imageId) : 1,
+  })
+})
 
-document.addEventListener('DOMContentLoaded', () => {
-  const labelSelect = document.getElementById('label_select');
-  if (!labelSelect) {
-    console.error('label_select not found');
-    return;
-  }
-  labelSelect.addEventListener('ionChange', function(event) {
-    const labelId = labelSelect.value;
-    console.log('label_select changed ', labelId);
-    if (!labelId) {
-      console.error('No label_id selected');
-      return;
-    }
-    emit('/annotate-image/showImage', { label_id: labelId });
-  });
+// Save state before leaving the page
+window.addEventListener('beforeunload', function() {
+  const labelId = document.getElementById('label_select')?.value;
+  const imageId = document.getElementById('label_image')?.dataset.imageId;
 })
 `)
 
@@ -188,7 +174,6 @@ select count(*) from image_label where label_id = :label_id
   )
   .pluck()
 
-// Renders the main UI for image annotation, including label selection and image display
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   if (!user) {
@@ -211,10 +196,37 @@ function Main(attrs: {}, context: DynamicContext) {
   }
   let params = new URLSearchParams(context.routerMatch?.search)
   let label_id = +params.get('label')! || 1
-  let image = select_next_image.get({ label_id })
+  let image_id = +params.get('image')! || undefined
+  let fromReview = params.get('from') === 'review'
+  let image
+  if (image_id) {
+    image = db
+      .prepare<
+        { id: number; label_id: number },
+        { id: number; filename: string; rotation: number | null }
+      >(
+        /* sql */ `
+      select id, filename, rotation
+      from image
+      where id = :id
+    `,
+      )
+      .get({ id: image_id, label_id })
+  }
+
+  if (!image) {
+    image = select_next_image.get({ label_id })
+  }
   let total_images = proxy.image.length
   let count = has_previous_annotation.get({ label_id }) as number
-  let has_undo = count > 0
+  let has_undo = fromReview ? false : count > 0
+
+  //loadLastState
+  const loadScript = Script(/* js */ `
+    (function() {
+      loadLastState()
+    })()
+  `)
 
   return (
     <>
@@ -337,6 +349,7 @@ function Main(attrs: {}, context: DynamicContext) {
           </ion-button>
         </div>
       </div>
+      {loadScript}
     </>
   )
 }
@@ -376,12 +389,13 @@ let select_previous_image_label = db.prepare<
 select id, image_id
 from image_label
 where user_id = :user_id and label_id = :label_id
-order by created_at desc
+order by created_at desc, id desc
 limit 1
 `)
 
 let showImageParser = object({
   label_id: id(),
+  image_id: optional(number()),
 })
 
 // Displays the next image for annotation based on the selected label
@@ -399,38 +413,76 @@ function ShowImage(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = showImageParser.parse(body)
     let label_id = input.label_id
+    let image_id = input.image_id
     console.log(
-      `ShowImage: Processing label_id=${label_id}, user_id=${user_id}`,
+      `ShowImage: Processing label_id=${label_id}, user_id=${user_id}, image_id=${image_id}`,
     )
 
-    // clear current image
-    context.ws.send([
-      'update-attrs',
-      '#label_image',
-      {
-        'src': '',
-        'data-image-id': '',
-        'data-rotation': 0,
-        'hidden': true,
-      },
-    ])
+    let image
+    let annotated_count = count_annotated_images.get({ label_id })
+    if (annotated_count === 0 && (!image_id || image_id !== 1)) {
+      image_id = 1
+    }
+    if (image_id != null) {
+      image = db
+        .prepare<
+          { id: number; label_id: number },
+          { id: number; filename: string; rotation: number | null }
+        >(
+          /* sql */ `
+        select id, filename, rotation
+        from image
+        where id = :id
+        and id not in (
+          select image_id from image_label
+          where label_id = :label_id
+        )
+      `,
+        )
+        .get({ id: image_id, label_id })
+    }
 
-    // check if label exists
-    let next_image = select_next_image.get({ label_id })
-    console.log(`ShowImage: next_image for label_id=${label_id}:`, next_image)
+    if (!image) {
+      image = select_next_image.get({ label_id })
+    }
+    console.log(`ShowImage: Selected image for label_id:${label_id}`, image)
 
-    // if no image found, return error
-    if (!next_image) {
-      // if no image found, disable submit AGREE & REJECT button
+    if (!image) {
+      context.ws.send([
+        'update-attrs',
+        '#label_image',
+        {
+          'src': '',
+          'data-image-id': null,
+          'data-rotation': 0,
+          'hidden': true,
+        },
+      ])
+      context.ws.send(['update-attrs', '#no-image-message', { hidden: false }])
       context.ws.send(['update-attrs', '#btn_submit_agree', { disabled: true }])
       context.ws.send([
         'update-attrs',
         '#btn_submit_reject',
         { disabled: true },
       ])
-      context.ws.send(['update-attrs', '#no-image-message', { hidden: false }])
+      context.ws.send(['update-attrs', '#btn_undo', { disabled: true }])
+      context.ws.send([
+        'update-attrs',
+        '#btn_submit_reject',
+        { disabled: true },
+      ])
     } else {
-      // if image found, enable submit AGREE & REJECT button
+      context.ws.send([
+        'update-attrs',
+        '#label_image',
+        {
+          'src': `/Uploads/${image.filename}`,
+          'data-image-id': image.id,
+          'data-rotation': image.rotation || 0,
+          'hidden': false,
+        },
+      ])
+      context.ws.send(['update-attrs', '#no-image-message', { hidden: true }])
       context.ws.send([
         'update-attrs',
         '#btn_submit_agree',
@@ -441,10 +493,19 @@ function ShowImage(attrs: {}, context: WsContext) {
         '#btn_submit_reject',
         { disabled: false },
       ])
-      context.ws.send(['update-attrs', '#no-image-message', { hidden: true }])
+      context.ws.send([
+        'update-attrs',
+        '#btn_undo',
+        {
+          disabled: !select_previous_image_label.get({ user_id, label_id }),
+        },
+      ])
+      context.ws.send([
+        'eval',
+        `document.getElementById('label_image').onload = () => initAnnotationImage(document.getElementById('label_image'));`,
+      ])
     }
 
-    // if found previous image on current label & user > enable undo button
     let last_annotation = select_previous_image_label.get({
       user_id,
       label_id,
@@ -454,25 +515,6 @@ function ShowImage(attrs: {}, context: WsContext) {
       '#btn_undo',
       { disabled: !last_annotation },
     ])
-
-    context.ws.send([
-      'update-attrs',
-      '#label_image',
-      {
-        'src': next_image ? `/uploads/${next_image.filename}` : '',
-        'data-image-id': next_image ? next_image.id : '',
-        'data-rotation': next_image ? next_image.rotation || 0 : 0,
-        'hidden': !next_image,
-      },
-    ])
-
-    // enable undo button
-    if (next_image) {
-      context.ws.send([
-        'eval',
-        `label_image.onload = () => initAnnotationImage(label_image)`,
-      ])
-    }
 
     throw EarlyTerminate
   } catch (error) {
@@ -488,14 +530,10 @@ let undoAnnotationParser = object({
   label_id: id(),
 })
 
-// Reverts the last annotation for a label and updates the UI
 function UndoAnnotation(attrs: {}, context: WsContext) {
   try {
-    // Initialize error handling utility for throwing localized errors
     let throws = makeThrows(context)
-    // Retrieve authenticated user ID from WebSocket context
     let user_id = getAuthUserId(context)!
-    // Check if user is logged in; throw error if not
     if (!user_id)
       throws({
         en: 'You must be logged in to undo annotation',
@@ -503,15 +541,12 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
         zh_cn: '您必须登录才能还原标注',
       })
 
-    // Extract request body from WebSocket context
     let body = getContextFormBody(context)
-    // Parse and validate input to extract label_id
     let input = undoAnnotationParser.parse(body)
     let label_id = input.label_id
 
     // Query the database for the most recent annotation for the label and user
     let last_annotation = select_previous_image_label.get({ user_id, label_id })
-    // Throw error if no previous annotation exists
     if (!last_annotation) {
       // if no previous image > disable undo button
       context.ws.send(['update-attrs', '#btn_undo', { disabled: true }])
@@ -524,39 +559,22 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
 
     // Retrieve the image associated with the last annotation
     let image = proxy.image[last_annotation!.image_id]
-    // Delete the last annotation from the database
     delete proxy.image_label[last_annotation!.id]
-    // Log the deletion of the annotation
     console.log(`UndoAnnotation: Deleted image_label id=${last_annotation!.id}`)
 
     // Calculate the updated count of annotated images
     let new_count = count_annotated_images.get({ label_id })
-    // Log the new annotation count for debugging
     console.log(`UndoAnnotation: new_count=${new_count}, label_id=${label_id}`)
-    // Get total number of images
     let total_images = proxy.image.length
-    // Retrieve label details
     let label = proxy.label[label_id]
-    // Throw error if label is not found
     if (!label) throw 'Label not found'
-    // Construct new text for the label select option
     let newText = `${label.title} (${new_count}/${total_images})`
-    // Update the select option text via WebSocket
     context.ws.send([
       'update-text',
       `#label_select ion-select-option[value="${label_id}"]`,
       newText,
     ])
-    // Trigger UI refresh for the ion-select component
-    context.ws.send([
-      'eval',
-      `let ionSelect = document.querySelector('ion-select#label_select');
-       if (ionSelect) {
-         ionSelect.forceUpdate?.()
-       }`,
-    ])
 
-    // Send batch WebSocket messages to update UI elements
     context.ws.send([
       'batch',
       [
@@ -571,42 +589,33 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
             'hidden': false,
           },
         ],
-        // Hide the "no image" message
         ['update-attrs', '#no-image-message', { hidden: true }],
-        // Enable the "agree" button
         ['update-attrs', '#btn_submit_agree', { disabled: false }],
-        // Enable the "reject" button
         ['update-attrs', '#btn_submit_reject', { disabled: false }],
       ],
     ])
 
-    // Check if there are remaining annotations for the undo button state
     let new_last_annotation = select_previous_image_label.get({
       user_id,
       label_id,
     })
-    // Update the "undo" button's disabled state
     context.ws.send([
       'update-attrs',
       '#btn_undo',
       { disabled: !new_last_annotation },
     ])
 
-    // Set up client-side image rotation on load
     context.ws.send([
       'eval',
       `label_image.onload = () => initAnnotationImage(label_image)`,
     ])
 
-    // Terminate execution to prevent further processing
     throw EarlyTerminate
   } catch (error) {
-    // Handle non-termination errors by logging and sending error message to client
     if (error !== EarlyTerminate) {
       console.error(error)
       context.ws.send(showError(error))
     }
-    // Ensure termination of the function
     throw EarlyTerminate
   }
 }
@@ -625,20 +634,15 @@ let submitAnnotationParser = object({
 // Submits an image annotation and updates the UI with the new count
 function SubmitAnnotation(attrs: {}, context: WsContext) {
   try {
-    // Retrieve authenticated user from WebSocket context
     let user = getAuthUser(context)
-    // Throw error if user is not logged in
     if (!user) throw 'You must be logged in to annotate image'
 
-    // Parse and validate input to extract annotation details
     let {
       args: { 0: input },
     } = submitAnnotationParser.parse(context)
-    // Retrieve label and image from database proxy
     let label = proxy.label[input.label]
     let image = proxy.image[input.image]
 
-    // Throw errors if label or image is not found
     if (!label) throw 'label not found'
     if (!image) throw 'image not found'
 
@@ -647,7 +651,6 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
       image.rotation = input.rotation
     }
 
-    // Insert new annotation record into the database
     seedRow(
       proxy.image_label,
       {
@@ -664,39 +667,24 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
     let new_count = count_annotated_images.get({
       label_id: input.label,
     })
-    // Log the new annotation count for debugging
     console.log(
       `SubmitAnnotation: new_count=${new_count}, label_id=${input.label}`,
     )
-    // Get total number of images
     let total_images = proxy.image.length
     // Construct new text for the label select option
     let newText = `${label.title} (${new_count}/${total_images})`
-    // Update the select option text via WebSocket
     context.ws.send([
       'update-text',
       `#label_select ion-select-option[value="${input.label}"]`,
       newText,
     ])
-    // Trigger UI refresh for the ion-select component
-    context.ws.send([
-      'eval',
-      `let ionSelect = document.querySelector('ion-select#label_select')
-       if (ionSelect) {
-         ionSelect.forceUpdate?.()
-         console.log('Triggered ion-select update and ionChange event')
-       }`,
-    ])
 
-    // Query the database for the next unannotated image
     let next_image = select_next_image.get({
       label_id: input.label,
     })
-    // Send batch WebSocket messages to update UI elements
     context.ws.send([
       'batch',
       [
-        // Update image element attributes to show the next image
         [
           'update-attrs',
           '#label_image',
@@ -707,13 +695,9 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
             'hidden': !next_image,
           },
         ],
-        // Show or hide "no image" message based on image availability
         ['update-attrs', '#no-image-message', { hidden: !!next_image }],
-        // Enable or disable "agree" button based on image availability
         ['update-attrs', '#btn_submit_agree', { disabled: !next_image }],
-        // Enable or disable "reject" button based on image availability
         ['update-attrs', '#btn_submit_reject', { disabled: !next_image }],
-        // Enable the "undo" button after annotation
         ['update-attrs', '#btn_undo', { disabled: false }],
       ],
     ])
@@ -726,45 +710,36 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
       ])
     }
 
-    // Terminate execution to prevent further processing
     throw EarlyTerminate
   } catch (error) {
-    // Handle non-termination errors by logging and sending error message to client
     if (error !== EarlyTerminate) {
       console.error(error)
       context.ws.send(showError(error))
     }
-    // Ensure termination of the function
     throw EarlyTerminate
   }
 }
 
-// Defines routes for the image annotation application
 let routes = {
-  // Route for rendering the main annotation page
   '/annotate-image': {
     title: <Title t={pageTitle} />,
     description: 'TODO',
     node: page,
   },
-  // Route for fetching the next image to annotate via AJAX
   '/annotate-image/image': ajaxRoute({
     description: 'get next image to be annotated',
     api: getNextImage,
   }),
-  // Route for submitting an image annotation via WebSocket
   '/annotate-image/submit': {
     title: apiEndpointTitle,
     description: 'submit image annotation',
     node: <SubmitAnnotation />,
   },
-  // Route for undoing the last image annotation via WebSocket
   '/annotate-image/undo': {
     title: apiEndpointTitle,
     description: 'undo image annotation',
     node: <UndoAnnotation />,
   },
-  // Route for displaying an image for the selected label via WebSocket
   '/annotate-image/showImage': {
     title: apiEndpointTitle,
     description: 'show image for selected label',
@@ -772,5 +747,4 @@ let routes = {
   },
 } satisfies Routes
 
-// Export the routes configuration
 export default { routes }
