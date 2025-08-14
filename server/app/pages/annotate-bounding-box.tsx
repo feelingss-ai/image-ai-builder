@@ -141,6 +141,7 @@ async function addBoundingBox() {
   console.log('addBoundingBox: image_id =', image_id, 'type:', typeof image_id)
   console.log('addBoundingBox: label_id =', label_id, 'type:', typeof label_id)
   console.log('addBoundingBox: camera =', window.camera)
+  console.log('addBoundingBox: editMode =', window._editMode)
   
   // Validate data before sending
   if (!image_id || image_id === 'undefined' || image_id === 'null') {
@@ -206,7 +207,20 @@ async function addBoundingBox() {
       return
     }
     
-    emit('/annotate-bounding-box/addBoundingBox', data);
+    // Check if we're in edit mode
+    if (window._editMode && window._editingBoundingBox) {
+      // Update existing bounding box
+      data.box_id = window._editingBoundingBox.id
+      console.log('addBoundingBox: Updating existing box with ID:', data.box_id)
+      emit('/annotate-bounding-box/updateBoundingBox', data)
+      
+      // Exit edit mode after saving
+      exitEditMode()
+    } else {
+      // Add new bounding box
+      console.log('addBoundingBox: Adding new bounding box')
+      emit('/annotate-bounding-box/addBoundingBox', data)
+    }
   } else {
     console.error('Camera not initialized')
   }
@@ -439,6 +453,57 @@ async function deleteBoundingBox() {
   emit('/annotate-bounding-box/deleteBoundingBox', data)
 }
 
+// Function to enter edit mode for a bounding box
+function enterEditMode(boundingBox) {
+  console.log('Entering edit mode for bounding box:', boundingBox)
+  window._editMode = true
+  window._editingBoundingBox = { ...boundingBox } // Copy the bounding box data
+  window.selectedBoundingBoxId = boundingBox.id
+  
+  // Set camera to the bounding box position for editing
+  if (window.camera) {
+    window.camera.x = boundingBox.x
+    window.camera.y = boundingBox.y
+    window.camera.width = boundingBox.width
+    window.camera.height = boundingBox.height
+    window.camera.rotate = boundingBox.rotate
+    window.camera.rotate_angle = boundingBox.rotate_angle || (boundingBox.rotate * 2 * Math.PI)
+  }
+  
+  updateAddButton()
+  if (typeof window.render === 'function') {
+    window.render()
+  }
+}
+
+// Function to exit edit mode
+function exitEditMode() {
+  console.log('Exiting edit mode')
+  window._editMode = false
+  window._editingBoundingBox = null
+  window.selectedBoundingBoxId = undefined
+  updateAddButton()
+  if (typeof window.updateDeleteButton === 'function') {
+    window.updateDeleteButton()
+  }
+}
+
+// Function to update add button text based on mode
+function updateAddButton() {
+  const addBtn = document.getElementById('add-bounding-box-btn')
+  if (addBtn) {
+    if (window._editMode) {
+      addBtn.querySelector('ion-icon').setAttribute('name', 'save')
+      addBtn.setAttribute('title', 'Save Changes')
+      addBtn.style.backgroundColor = '#28a745' // Green for save
+    } else {
+      addBtn.querySelector('ion-icon').setAttribute('name', 'add')
+      addBtn.setAttribute('title', 'Add Bounding Box')
+      addBtn.style.backgroundColor = '' // Reset to default
+    }
+  }
+}
+
 // Function to zoom in the image by reducing camera width and height
 function zoomInImage() {
   console.log('zoomInImage called')
@@ -611,6 +676,8 @@ if (typeof window._isRotating === 'undefined') {
   window._rotateDir = 0 // -1 (left) or +1 (right)
   window._lastRotateTs = 0
   window._rotationSpeedTurnsPerSecond = 0.25 // 0.25 turn = 90° per second
+  window._editMode = false // Track if we're in edit mode
+  window._editingBoundingBox = null // Store the bounding box being edited
 }
 
 function _rotationLoop(ts) {
@@ -794,6 +861,25 @@ let get_bounding_boxes = db.prepare<
   ORDER BY id
 `)
 
+let update_bounding_box = db.prepare<
+  {
+    box_id: number
+    user_id: number
+    image_id: number
+    label_id: number
+    x: number
+    y: number
+    width: number
+    height: number
+    rotate: number
+  },
+  { changes: number }
+>(/* sql */ `
+  UPDATE image_bounding_box
+  SET x = :x, y = :y, width = :width, height = :height, rotate = :rotate
+  WHERE id = :box_id AND user_id = :user_id AND image_id = :image_id AND label_id = :label_id
+`)
+
 function Main(attrs: {}, context: any) {
   let user = getAuthUser(context)
   if (!user) {
@@ -942,6 +1028,7 @@ function Main(attrs: {}, context: any) {
             <ion-button
               color="primary"
               style="flex: 1;"
+              id="add-bounding-box-btn"
               onclick="addBoundingBox()"
               title={
                 <Locale
@@ -1011,6 +1098,17 @@ let deleteBoundingBoxParser = object({
 let getBoundingBoxesParser = object({
   image_id: id(),
   label_id: id(),
+})
+
+let updateBoundingBoxParser = object({
+  box_id: id(),
+  image_id: id(),
+  label_id: id(),
+  x: number(),
+  y: number(),
+  width: number(),
+  height: number(),
+  rotate: number(),
 })
 
 // Displays the next image for annotation based on the selected label
@@ -1371,6 +1469,104 @@ function GetBoundingBoxes(attrs: {}, context: WsContext) {
   }
 }
 
+// Update an existing bounding box
+function UpdateBoundingBox(attrs: {}, context: WsContext) {
+  try {
+    let throws = makeThrows(context)
+    let user_id = getAuthUserId(context)!
+    if (!user_id)
+      throws({
+        en: 'You must be logged in to update bounding box',
+        zh_hk: '您必須登入才能更新邊界框',
+        zh_cn: '您必须登录才能更新边界框',
+      })
+
+    let body = getContextFormBody(context)
+    let input = updateBoundingBoxParser.parse(body)
+
+    console.log('UpdateBoundingBox: Processing input:', input)
+    console.log(`UpdateBoundingBox: user_id=${user_id}`)
+
+    // Verify that the label exists
+    let label = proxy.label[input.label_id]
+    if (!label) {
+      throws({
+        en: 'Label not found',
+        zh_hk: '找不到標籤',
+        zh_cn: '找不到标签',
+      })
+    }
+
+    // Verify that the image exists
+    let image = proxy.image[input.image_id]
+    if (!image) {
+      throws({
+        en: 'Image not found',
+        zh_hk: '找不到圖片',
+        zh_cn: '找不到图片',
+      })
+    }
+
+    // Update bounding box in database
+    let result = update_bounding_box.run({
+      box_id: input.box_id,
+      user_id: user_id,
+      image_id: input.image_id,
+      label_id: input.label_id,
+      x: input.x,
+      y: input.y,
+      width: input.width,
+      height: input.height,
+      rotate: input.rotate,
+    })
+
+    if (result.changes === 0) {
+      throws({
+        en: 'Bounding box not found or permission denied',
+        zh_hk: '找不到邊界框或權限不足',
+        zh_cn: '找不到边界框或权限不足',
+      })
+    }
+
+    console.log(`UpdateBoundingBox: Updated ${result.changes} bounding box(es)`)
+
+    // Send success message
+    context.ws.send([
+      'update-text',
+      '#debugMessage',
+      `Bounding box updated successfully!`,
+    ])
+
+    // Clear cached bounding box data and refresh UI
+    context.ws.send([
+      'eval',
+      `
+      console.log('Server: Bounding box updated, refreshing data');
+      
+      // Clear cached data to force fresh fetch
+      window.boundingBoxesData = null;
+      
+      // Force complete refresh of bounding boxes
+      if (typeof setupEditorUI === 'function') {
+        console.log('Server: Calling setupEditorUI to refresh bounding boxes');
+        setupEditorUI();
+      }
+      `,
+    ])
+
+    // Terminate execution to prevent further processing
+    throw EarlyTerminate
+  } catch (error) {
+    // Handle non-termination errors by logging and sending error message to client
+    if (error !== EarlyTerminate) {
+      console.error(error)
+      context.ws.send(showError(error))
+    }
+    // Ensure termination of the function
+    throw EarlyTerminate
+  }
+}
+
 let routes = {
   '/annotate-bounding-box': {
     title: <Title t={pageTitle} />,
@@ -1396,6 +1592,11 @@ let routes = {
     title: <Title t={pageTitle} />,
     description: 'Get bounding boxes for image and label',
     node: <GetBoundingBoxes />,
+  },
+  '/annotate-bounding-box/updateBoundingBox': {
+    title: <Title t={pageTitle} />,
+    description: 'Update bounding box',
+    node: <UpdateBoundingBox />,
   },
   // '/annotate-bounding-box/submitBoundingBox': {
   //   title: <Title t={pageTitle} />,

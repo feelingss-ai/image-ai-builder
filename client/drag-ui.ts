@@ -584,6 +584,7 @@ function setupDragUI(options: {
       camera.rotate = foundBox.rotate
       camera.rotate_angle =
         foundBox.rotate_angle || foundBox.rotate * 2 * Math.PI
+
       // Set selected bounding box id (if available)
       if (foundBox.id != null) {
         window.selectedBoundingBoxId = foundBox.id
@@ -591,9 +592,19 @@ function setupDragUI(options: {
           'Set selectedBoundingBoxId to:',
           window.selectedBoundingBoxId,
         )
+
         // Update delete button state if function exists
         if (typeof window.updateDeleteButton === 'function') {
           window.updateDeleteButton()
+        }
+
+        // Check if enterEditMode function exists and call it to enter edit mode
+        if (typeof (window as any).enterEditMode === 'function') {
+          console.log(
+            'Minimap click: Entering edit mode for box ID:',
+            foundBox.id,
+          )
+          ;(window as any).enterEditMode(foundBox)
         }
       } else {
         console.warn('Found box has no id:', foundBox)
