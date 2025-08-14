@@ -4,6 +4,7 @@ import TrainAI from './pages/train-ai.js'
 import AnnotateImage from './pages/annotate-image.js'
 import UploadImage from './pages/upload-image.js'
 import ReportContent from './pages/report-content.js'
+import ManageDataset from './pages/manage-dataset.js'
 import AppNotice from './pages/app-notice.js'
 import AppChat from './pages/app-chat.js'
 import AppSettings from './pages/app-settings.js'
@@ -91,6 +92,7 @@ let routeDict = {
   ...AnnotateImage.routes,
   ...UploadImage.routes,
   ...ReportContent.routes,
+  ...ManageDataset.routes,
   ...Home.routes,
   ...DemoPlugin.routes,
   ...UILanguage.routes,

@@ -90,6 +90,10 @@ let homePage = (
           <Link tagName="ion-item" href={'/stats'}>
             5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
           </Link>
+          <Link tagName="ion-item" href={'/manage-dataset'}>
+            6.{' '}
+            <Locale en="Manage Dataset" zh_hk="管理數據集" zh_cn="管理数据集" />
+          </Link>
         </ion-list>
         {wsStatus.safeArea}
       </ion-content>
