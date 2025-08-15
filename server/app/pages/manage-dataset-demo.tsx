@@ -313,33 +313,33 @@ function Main(attrs: {}, context: Context) {
   // TODO query with filters
   let images = proxy.image
   let labels = count_labels.all()
-  let labelNodes = mapArray(labels, label => (
-    <ion-item
-      class="label-item"
-      onclick="toggleLabelFilter(this)"
-      data-filter="any"
-    >
-      <div class="label-checkbox" shape="round" slot="start">
-        <ion-icon name="checkmark-outline"></ion-icon>
-        <ion-icon name="close-outline"></ion-icon>
-      </div>
-      <ion-label>
-        {label.title}
-        <ion-progress-bar
-          value={label.image_count / total_images}
-        ></ion-progress-bar>
-      </ion-label>
-    </ion-item>
-  ))
   return (
     <>
-      <div style="width: 10rem">{labelNodes}</div>
       <ion-popover trigger="labelsButton" trigger-action="click">
         <ion-content>
-          <ion-list>{labelNodes}</ion-list>
+          <ion-list>
+            {mapArray(labels, label => (
+              <ion-item
+                class="label-item"
+                onclick="toggleLabelFilter(this)"
+                data-filter="any"
+              >
+                <div class="label-checkbox" shape="round" slot="start">
+                  <ion-icon name="checkmark-outline"></ion-icon>
+                  <ion-icon name="close-outline"></ion-icon>
+                </div>
+                <ion-label>
+                  {label.title}
+                  <ion-progress-bar
+                    value={label.image_count / total_images}
+                  ></ion-progress-bar>
+                </ion-label>
+              </ion-item>
+            ))}
+          </ion-list>
         </ion-content>
       </ion-popover>
-      <di className="image-list">
+      <div className="image-list">
         {mapArray(images, image => (
           <div class="image-item">
             <ion-checkbox class="image-checkbox" />
@@ -348,7 +348,7 @@ function Main(attrs: {}, context: Context) {
             </ion-thumbnail>
           </div>
         ))}
-      </di>
+      </div>
     </>
   )
   return (
