@@ -21,7 +21,7 @@ import path from 'path'
 import { promises as fsPromises } from 'fs'
 import { join, basename } from 'path'
 import fs from 'fs'
-import { v4 as uuid } from 'uuid'
+import { randomUUID } from 'crypto'
 
 let imagePlugin = loadClientPlugin({
   entryFile: 'dist/client/image.js',
@@ -2188,7 +2188,7 @@ function ImportZip(attrs: {}, context: WsContext) {
 
       if (['jpg', 'png', 'webp', 'heic', 'gif', 'jpeg'].includes(ext!)) {
         try {
-          let filename = `${uuid()}.${ext}`
+          let filename = `${randomUUID()}.${ext}`
           let filepath = join(uploadDir, filename)
           let original_filename = basename(name)
 
