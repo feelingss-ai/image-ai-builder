@@ -2233,6 +2233,14 @@ function ImportZip(attrs: {}, context: WsContext) {
       }
     }
 
+    let allImages = proxy.image
+      .filter(item => item.filename && !item.filename.startsWith('data:image'))
+      .map(item => ({
+        image_id: item.id!,
+        filename: item.filename,
+        rotation: item.rotation || 0,
+      }))
+
     context.ws.send([
       'batch',
       [
@@ -2241,25 +2249,23 @@ function ImportZip(attrs: {}, context: WsContext) {
           '.image-grid',
           nodeToVNode(
             <>
-              {processedImages.length > 0
-                ? mapArray(processedImages, item => (
-                    <div class="image-item" key={`image-${item.image_id}`}>
-                      <input
-                        type="checkbox"
-                        class="image-checkbox"
-                        style="display: none;"
-                        data-image-id={item.image_id}
-                      />
-                      <img
-                        src={`/uploads/${item.filename}`}
-                        alt="image"
-                        data-rotation="0"
-                        onload="initAnnotationImage(this)"
-                        onclick={`handleImageClick('${item.filename}', 0, ${item.image_id})`}
-                      />
-                    </div>
-                  ))
-                : null}
+              {mapArray(allImages, item => (
+                <div class="image-item" key={`image-${item.image_id}`}>
+                  <input
+                    type="checkbox"
+                    class="image-checkbox"
+                    style="display: none;"
+                    data-image-id={item.image_id}
+                  />
+                  <img
+                    src={`/Uploads/${item.filename}`}
+                    alt="image"
+                    data-rotation={item.rotation}
+                    onload="initAnnotationImage(this)"
+                    onclick={`handleImageClick('${item.filename}', ${item.rotation}, ${item.image_id})`}
+                  />
+                </div>
+              ))}
             </>,
             context,
           ),
