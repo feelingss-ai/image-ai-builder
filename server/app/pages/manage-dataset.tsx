@@ -18,6 +18,10 @@ import { IonButton } from '../components/ion-button.js'
 import { nodeToVNode } from '../jsx/vnode.js'
 import AdmZip from 'adm-zip'
 import path from 'path'
+import { promises as fsPromises } from 'fs'
+import { join, basename } from 'path'
+import fs from 'fs'
+import { v4 as uuid } from 'uuid'
 
 let imagePlugin = loadClientPlugin({
   entryFile: 'dist/client/image.js',
@@ -340,6 +344,20 @@ let style = Style(/* css */ `
   font-size: 0.9rem;
   margin: 0.5rem 0;
 }
+#ManageDataset .import-button {
+  width: 12rem;
+  height: 3rem;
+  font-size: 0.5rem;
+  --background: #e4e4e4b0;
+  border-radius: 0.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#ManageDataset .import-button span {
+  color: #ffffffe4;
+  font-size: 0.1rem;
+}
 `)
 
 let script = Script(/* js */ `
@@ -511,6 +529,35 @@ function exportImages() {
   toggleSelectionMode()
 }
 
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  let bytes = new Uint8Array(buffer);
+  let len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+function handleImport() {
+  let input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.zip';
+  input.onchange = function(e) {
+    let file = e.target.files[0];
+    if (file) {
+      let reader = new FileReader();
+      reader.onload = function(e) {
+        let arrayBuffer = e.target.result;
+        let base64 = arrayBufferToBase64(arrayBuffer);
+        emit('/manage-dataset/import-zip', { zipData: base64 });
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  };
+  input.click();
+}
+
 function updateButtonStates() {
   const img = document.getElementById('enlargedImage')
   const prevButton = document.getElementById('btn_previous')
@@ -571,7 +618,7 @@ function showPreviousImage() {
   if (currentIndex > 0) {
     const prevImage = filteredImagesData[currentIndex - 1]
     if (prevImage.filename && !prevImage.filename.startsWith('data:image')) {
-      showEnlargedImage('/Uploads/' + prevImage.filename, prevImage.rotation || 0, prevImage.image_id)
+      showEnlargedImage('/uploads/' + prevImage.filename, prevImage.rotation || 0, prevImage.image_id)
     }
   }
   updateButtonStates()
@@ -584,7 +631,7 @@ function showNextImage() {
   if (currentIndex < filteredImagesData.length - 1) {
     const nextImage = filteredImagesData[currentIndex + 1]
     if (nextImage.filename && !nextImage.filename.startsWith('data:image')) {
-      showEnlargedImage('/Uploads/' + nextImage.filename, nextImage.rotation || 0, nextImage.image_id)
+      showEnlargedImage('/uploads/' + nextImage.filename, nextImage.rotation || 0, nextImage.image_id)
     }
   }
   updateButtonStates()
@@ -594,7 +641,7 @@ function handleImageClick(filename, rotation, image_id) {
   if (isSelectionMode) {
     toggleImageSelection(image_id)
   } else {
-    showEnlargedImage('/Uploads/' + filename, rotation || 0, image_id)
+    showEnlargedImage('/uploads/' + filename, rotation || 0, image_id)
   }
 }
 
@@ -1486,7 +1533,7 @@ function Main(
                     checked={selectedImages.includes(item.image_id)}
                   />
                   <img
-                    src={`/Uploads/${item.filename}`}
+                    src={`/uploads/${item.filename}`}
                     alt="Image"
                     data-rotation={item.rotation}
                     onload="initAnnotationImage(this)"
@@ -1503,6 +1550,18 @@ function Main(
                   zh_cn="数据集中没有图像。"
                 />
               </p>
+            </div>
+            <div style="display: flex; justify-content: center; margin: 1rem 0;">
+              <ion-button
+                id="import-button"
+                class="import-button"
+                color="primary"
+                onclick="handleImport()"
+              >
+                <span>
+                  <Locale en="Import" zh_hk="匯入" zh_cn="导入" />
+                </span>
+              </ion-button>
             </div>
           </div>
         </div>
@@ -1842,48 +1901,81 @@ function BatchDelete(attrs: {}, context: WsContext) {
       throw new Error('Login required')
     }
 
-    input.image_ids.forEach(image_id => {
-      db.prepare(
-        /* sql */ `
-        DELETE FROM image_label
-        WHERE image_id = :image_id
-      `,
-      ).run({ image_id })
-      db.prepare(
-        /* sql */ `
-        DELETE FROM image
-        WHERE id = :image_id
-      `,
-      ).run({ image_id })
-    })
+    let deletedCount = 0
+    let errors: string[] = []
+
+    db.transaction(() => {
+      input.image_ids.forEach(image_id => {
+        const image = db
+          .prepare<{ image_id: number }, { filename: string }>(
+            /* sql */ `
+            SELECT filename
+            FROM image
+            WHERE id = :image_id
+          `,
+          )
+          .get({ image_id })
+
+        if (!image) {
+          errors.push(`Image ID ${image_id}: Not found in database`)
+          return
+        }
+
+        db.prepare(
+          /* sql */ `
+          DELETE FROM image_label
+          WHERE image_id = :image_id
+        `,
+        ).run({ image_id })
+
+        db.prepare(
+          /* sql */ `
+          DELETE FROM image
+          WHERE id = :image_id
+        `,
+        ).run({ image_id })
+
+        try {
+          const filePath = join(process.cwd(), 'uploads', image.filename)
+          fsPromises.rm(filePath, { force: true })
+          deletedCount++
+          console.log(`Deleted file: ${filePath}`)
+        } catch (err) {
+          errors.push(
+            `Image ID ${image_id} (${image.filename}): Failed to delete file: ${err}`,
+          )
+          console.error(`Failed to delete file ${image.filename}:`, err)
+        }
+      })
+    })()
 
     context.ws.send([
       'eval',
       `
-      const deletedIds = ${JSON.stringify(input.image_ids)};
-      imagesData = imagesData.filter(img => !deletedIds.includes(img.image_id));
-      filteredImagesData = filteredImagesData.filter(img => !deletedIds.includes(img.image_id));
-      selectedImages = [];
-      isSelectionMode = false;
-      const imageGrid = document.querySelector('.image-grid');
-      if (imageGrid) {
-        imageGrid.innerHTML = '';
-        imagesData.forEach(item => {
-          const div = document.createElement('div');
-          div.className = 'image-item';
-          div.innerHTML = \`
-            <input type="checkbox" class="image-checkbox" style="display: none;" data-image-id="\${item.image_id}" />
-            <img src="/Uploads/\${item.filename}" alt="Image" data-rotation="\${item.rotation}" onclick="handleImageClick('\${item.filename}', \${item.rotation}, \${item.image_id})" />
-          \`;
-          imageGrid.appendChild(div);
-        });
-      }
-      const selectionToolbar = document.getElementById('selection-toolbar');
-      if (selectionToolbar) selectionToolbar.style.display = 'none';
-      const noImagesMsg = document.querySelector('.no-images-message');
-      if (noImagesMsg) noImagesMsg.hidden = imagesData.length > 0;
-      updateSelectAllButton && updateSelectAllButton();
-      `,
+          const deletedIds = ${JSON.stringify(input.image_ids)};
+          imagesData = imagesData.filter(img => !deletedIds.includes(img.image_id));
+          filteredImagesData = filteredImagesData.filter(img => !deletedIds.includes(img.image_id));
+          selectedImages = [];
+          isSelectionMode = false;
+          const imageGrid = document.querySelector('.image-grid');
+          if (imageGrid) {
+            imageGrid.innerHTML = '';
+            imagesData.forEach(item => {
+              const div = document.createElement('div');
+              div.className = 'image-item';
+              div.innerHTML = \`
+                <input type="checkbox" class="image-checkbox" style="display: none;" data-image-id="\${item.image_id}" />
+                <img src="/uploads/\${item.filename}" alt="Image" data-rotation="\${item.rotation}" onload="initAnnotationImage(this)" onclick="handleImageClick('\${item.filename}', \${item.rotation}, \${item.image_id})" />
+              \`;
+              imageGrid.appendChild(div);
+            });
+          }
+          const selectionToolbar = document.getElementById('selection-toolbar');
+          if (selectionToolbar) selectionToolbar.style.display = 'none';
+          const noImagesMsg = document.querySelector('.no-images-message');
+          if (noImagesMsg) noImagesMsg.hidden = imagesData.length > 0;
+          updateSelectAllButton && updateSelectAllButton();
+          `,
     ])
 
     throw EarlyTerminate
@@ -1914,10 +2006,15 @@ function BatchExport(attrs: {}, context: WsContext) {
     const images = db
       .prepare<
         { image_ids: number[] },
-        { image_id: number; filename: string; rotation: number | null }
+        {
+          image_id: number
+          filename: string
+          original_filename: string | null
+          rotation: number | null
+        }
       >(
         /* sql */ `
-        SELECT id AS image_id, filename, rotation
+        SELECT id AS image_id, filename, original_filename, rotation
         FROM image
         WHERE id IN (${input.image_ids.join(',')})
       `,
@@ -1925,7 +2022,12 @@ function BatchExport(attrs: {}, context: WsContext) {
       .all({ image_ids: input.image_ids })
       .filter(item => item.filename && !item.filename.startsWith('data:image'))
 
-    const imageMap = new Map(images.map(img => [img.image_id, img.filename]))
+    const imageMap = new Map(
+      images.map(img => [
+        img.image_id,
+        { filename: img.filename, original_filename: img.original_filename },
+      ]),
+    )
 
     const labels =
       input.label_ids.length > 0
@@ -1958,7 +2060,9 @@ function BatchExport(attrs: {}, context: WsContext) {
 
     const exportData = images.map(image => ({
       image_id: image.image_id,
-      filename: `${image.image_id}_${image.filename}`,
+      filename: image.original_filename
+        ? `${image.image_id}_${image.original_filename}`
+        : `${image.image_id}_${image.filename}`,
       rotation: image.rotation || 0,
       labels: labels
         .filter(label => label.image_id === image.image_id)
@@ -1973,30 +2077,34 @@ function BatchExport(attrs: {}, context: WsContext) {
     const zip = new AdmZip()
     if (input.organizeByLabel) {
       exportData.forEach(data => {
-        const originalFilename = imageMap.get(data.image_id)
-        if (!originalFilename) {
-          console.warn(`Skipping image ${data.image_id}: Filename not found`)
+        const imageInfo = imageMap.get(data.image_id)
+        if (!imageInfo) {
+          console.warn(`Skipping image ${data.image_id}: Image info not found`)
           return
         }
-        const filePath = path.join(process.cwd(), 'Uploads', originalFilename)
+        const originalFilename = imageInfo.filename
+        const exportFilename = data.filename
+        const filePath = path.join(process.cwd(), 'uploads', originalFilename)
         data.labels.forEach(label => {
           const folder = `${label.label_title}/${label.answer === 1 ? 'correct' : 'incorrect'}`
-          zip.addLocalFile(filePath, folder, data.filename)
+          zip.addLocalFile(filePath, folder, exportFilename)
         })
         if (data.labels.length === 0 && input.label_ids.length === 0) {
-          zip.addLocalFile(filePath, '', data.filename)
+          zip.addLocalFile(filePath, '', exportFilename)
         }
       })
     } else {
       exportData.forEach(data => {
-        const originalFilename = imageMap.get(data.image_id)
-        if (!originalFilename) {
-          console.warn(`Skipping image ${data.image_id}: Filename not found`)
+        const imageInfo = imageMap.get(data.image_id)
+        if (!imageInfo) {
+          console.warn(`Skipping image ${data.image_id}: Image info not found`)
           return
         }
-        const filePath = path.join(process.cwd(), 'Uploads', originalFilename)
+        const originalFilename = imageInfo.filename
+        const exportFilename = data.filename
+        const filePath = path.join(process.cwd(), 'uploads', originalFilename)
         if (data.labels.length > 0 || input.label_ids.length === 0) {
-          zip.addLocalFile(filePath, '', data.filename)
+          zip.addLocalFile(filePath, '', exportFilename)
         }
       })
     }
@@ -2025,6 +2133,11 @@ function BatchExport(attrs: {}, context: WsContext) {
       a.download = 'exported_images_${new Date().toISOString()}.zip';
       a.click();
       URL.revokeObjectURL(url);
+      const toast = document.createElement('ion-toast');
+      toast.message = 'Exported ${exportData.length} images.';
+      toast.duration = 5000;
+      document.body.appendChild(toast);
+      toast.present();
       `,
     ])
 
@@ -2037,6 +2150,185 @@ function BatchExport(attrs: {}, context: WsContext) {
       context.ws.send(showError(error))
     }
     throw EarlyTerminate
+  }
+}
+
+let importZipParser = object({
+  zipData: string(),
+})
+
+async function ImportZip(attrs: {}, context: WsContext) {
+  try {
+    let body = getContextFormBody(context)
+    let input = importZipParser.parse(body)
+    let user_id = getAuthUserId(context)!
+    if (!user_id) {
+      throw new Error('User not authenticated')
+    }
+
+    const uploadDir = join(process.cwd(), 'uploads')
+    await fsPromises.mkdir(uploadDir, { recursive: true })
+
+    let buffer = Buffer.from(input.zipData, 'base64')
+    let zip = new AdmZip(buffer)
+    let entries = zip.getEntries()
+
+    let processedImages: {
+      filename: string
+      image_id: number
+      original_filename: string
+    }[] = []
+    let errors: string[] = []
+
+    for (const entry of entries) {
+      if (entry.isDirectory) continue
+
+      let name = entry.entryName
+      let ext = basename(name).toLowerCase().split('.').pop()
+
+      if (['jpg', 'png', 'webp', 'heic', 'gif', 'jpeg'].includes(ext!)) {
+        try {
+          let filename = `${uuid()}.${ext}`
+          let filepath = join(uploadDir, filename)
+          let original_filename = basename(name)
+
+          let existingImage = db
+            .prepare(
+              /* sql */ `
+              SELECT id FROM image WHERE filename = :filename OR original_filename = :original_filename
+            `,
+            )
+            .get({ filename, original_filename })
+
+          if (existingImage) {
+            console.log(`Skipped existing image: ${name}`)
+            continue
+          }
+
+          await fsPromises.writeFile(filepath, entry.getData())
+          console.log(`Imported file: ${filepath}`)
+
+          let image_id: number | undefined
+          db.transaction(() => {
+            let result = db
+              .prepare(
+                /* sql */ `
+                INSERT INTO image (filename, user_id, original_filename)
+                VALUES (:filename, :user_id, :original_filename)
+              `,
+              )
+              .run({ filename, user_id, original_filename })
+            image_id = Number(result.lastInsertRowid)
+          })()
+
+          if (image_id === undefined) {
+            throw new Error(`Cannot assign image_id for ${name}`)
+          }
+
+          processedImages.push({ filename, image_id, original_filename })
+        } catch (err) {
+          errors.push(`Failed to process ${name}: ${err}`)
+          console.error(`Failed to process ${name}:`, err)
+        }
+      }
+    }
+
+    context.ws.send([
+      'batch',
+      [
+        [
+          'update-in',
+          '.image-grid',
+          nodeToVNode(
+            <>
+              {processedImages.length > 0
+                ? mapArray(processedImages, item => (
+                    <div class="image-item" key={`image-${item.image_id}`}>
+                      <input
+                        type="checkbox"
+                        class="image-checkbox"
+                        style="display: none;"
+                        data-image-id={item.image_id}
+                      />
+                      <img
+                        src={`/uploads/${item.filename}`}
+                        alt="image"
+                        data-rotation="0"
+                        onload="initAnnotationImage(this)"
+                        onclick={`handleImageClick('${item.filename}', 0, ${item.image_id})`}
+                      />
+                    </div>
+                  ))
+                : null}
+            </>,
+            context,
+          ),
+        ],
+        [
+          'update-in',
+          '.no-images-message',
+          nodeToVNode(
+            <div class="no-images-message" hidden={processedImages.length > 0}>
+              <p>
+                <Locale
+                  en="No images in dataset."
+                  zh_hk="數據集中沒有圖片。"
+                  zh_cn="数据集中没有图像。"
+                />
+              </p>
+            </div>,
+            context,
+          ),
+        ],
+        [
+          'eval',
+          `
+          imagesData = imagesData.concat(${JSON.stringify(
+            processedImages.map(item => ({
+              image_id: item.image_id,
+              filename: item.filename,
+              rotation: 0,
+            })),
+          )});
+          filteredImagesData = filteredImagesData.concat(${JSON.stringify(
+            processedImages.map(item => ({
+              image_id: item.image_id,
+              filename: item.filename,
+              rotation: 0,
+            })),
+          )});
+          const noImagesMsg = document.querySelector('.no-images-message');
+          if (noImagesMsg) noImagesMsg.hidden = imagesData.length > 0;
+          const toast = document.createElement('ion-toast');
+          toast.message = 'Successfully imported ${processedImages.length} images.${errors.length > 0 ? ' Errors: ' + errors.length : ''}';
+          toast.duration = 5000;
+          document.body.appendChild(toast);
+          toast.present();
+          `,
+        ],
+      ],
+    ])
+
+    if (errors.length > 0) {
+      console.warn('ImportZip errors:', errors)
+      context.ws.send([
+        'eval',
+        `
+        const toast = document.createElement('ion-toast');
+        toast.message = 'Import errors: ${errors.join('; ')}';
+        toast.duration = 7000;
+        toast.color = 'warning';
+        document.body.appendChild(toast);
+        toast.present();
+        `,
+      ])
+    }
+
+    return
+  } catch (error) {
+    console.error('ImportZip errors:', error)
+    context.ws.send(showError(error))
+    return
   }
 }
 
@@ -2095,6 +2387,11 @@ let routes = {
     title: apiEndpointTitle,
     description: 'Batch export selected images as ZIP',
     node: <BatchExport />,
+  },
+  '/manage-dataset/import-zip': {
+    title: apiEndpointTitle,
+    description: 'Import ZIP file and add images to dataset',
+    node: <ImportZip />,
   },
 } satisfies Routes
 
