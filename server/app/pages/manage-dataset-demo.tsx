@@ -40,6 +40,27 @@ let style = Style(/* css */ `
 
 }
 
+
+body[data-display-mode="view"] #viewModeButton,
+body[data-display-mode="view"] #selectAllButton,
+body[data-display-mode="view"] #deselectAllButton,
+body[data-display-mode="view"] #ionFooter {
+  display: none;
+}
+
+body[data-display-mode="select"] #selectModeButton {
+  display: none;
+}
+
+body[data-any-selected="true"] #selectAllButton {
+  display: none;
+}
+
+body[data-any-selected="false"] #deselectAllButton,
+body[data-any-selected="false"] #ionFooter {
+  display: none;
+}
+
 .label-checkbox {
   padding: 0.5rem;
   --size: 1.5rem;
@@ -60,6 +81,7 @@ let style = Style(/* css */ `
 
 .label-item {
   --background-alpha: 0.3;
+  cursor: pointer;
 }
 .label-item[data-filter="yes"] {
   --ion-background-color: rgba(var(--ion-color-success-rgb), var(--background-alpha));
@@ -97,7 +119,7 @@ let style = Style(/* css */ `
   transition: transform 0.1s ease;
 }
 
-#ManageDataset[data-display-mode='select']
+body[data-display-mode='select']
 .image-item.selected ion-thumbnail {
   transform: scale(0.9);
   outline: 0.25rem solid var(--ion-color-light);
@@ -111,7 +133,7 @@ let style = Style(/* css */ `
   margin: 0.5rem;
 }
 
-#ManageDataset[data-display-mode='view'] .image-item ion-checkbox {
+body[data-display-mode='view'] .image-item ion-checkbox {
   display: none;
 }
 
@@ -143,18 +165,11 @@ function toggleLabelFilter(item) {
   }
 }
 
+document.body.dataset.displayMode = 'view'
+document.body.dataset.anySelected = false
+
 function switchDisplayMode(mode) {
-  ManageDataset.dataset.displayMode = mode
-  selectModeButton.hidden = mode === 'select'
-  viewModeButton.hidden = mode === 'view'
-  if (mode != 'select') {
-    selectAllButton.hidden = true
-    deselectAllButton.hidden = true
-  } else {
-    let selected = hasAnySelected()
-    selectAllButton.hidden = selected
-    deselectAllButton.hidden = !selected
-  }
+  document.body.dataset.displayMode = mode
 }
 
 function hasAnySelected() {
@@ -169,8 +184,7 @@ function selectAll() {
     checkbox.checked = true
     item.classList.add('selected')
   }
-  deselectAllButton.hidden = false
-  selectAllButton.hidden = true
+  document.body.dataset.anySelected = true
 }
 
 function deselectAll() {
@@ -180,12 +194,11 @@ function deselectAll() {
     checkbox.checked = false
     item.classList.remove('selected')
   }
-  deselectAllButton.hidden = true
-  selectAllButton.hidden = false
+  document.body.dataset.anySelected = false
 }
 
 function toggleImage(image) {
-  let mode = ManageDataset.dataset.displayMode
+  let mode = document.body.dataset.displayMode
   if (mode != 'select') {
     return
   }
@@ -197,10 +210,7 @@ function toggleImage(image) {
   } else {
     item.classList.remove('selected')
   }
-
-  let selected = hasAnySelected()
-  selectAllButton.hidden = selected
-  deselectAllButton.hidden = !selected
+  document.body.dataset.anySelected = hasAnySelected()
 }
 `)
 
@@ -218,17 +228,13 @@ let page = (
         <ion-button id="selectModeButton" onclick="switchDisplayMode('select')">
           <Locale en="Select" zh_hk="選擇" zh_cn="选择" />
         </ion-button>
-        <ion-button
-          id="viewModeButton"
-          onclick="switchDisplayMode('view')"
-          hidden
-        >
+        <ion-button id="viewModeButton" onclick="switchDisplayMode('view')">
           <Locale en="View" zh_hk="查看" zh_cn="查看" />
         </ion-button>
-        <ion-button id="selectAllButton" onclick="selectAll()" hidden>
+        <ion-button id="selectAllButton" onclick="selectAll()">
           <Locale en="Select All" zh_hk="全選" zh_cn="全选" />
         </ion-button>
-        <ion-button id="deselectAllButton" onclick="deselectAll()" hidden>
+        <ion-button id="deselectAllButton" onclick="deselectAll()">
           <Locale en="Deselect All" zh_hk="取消全選" zh_cn="取消全选" />
         </ion-button>
         <div style="flex-grow: 1"></div>
@@ -244,7 +250,7 @@ let page = (
     >
       <Main />
     </ion-content>
-    <ion-footer>
+    <ion-footer id="ionFooter">
       <ion-button size="large" color="warning" fill="clear">
         <ion-icon name="close-circle" slot="start"></ion-icon>
         <Locale en="Unlabel" zh_hk="取消標籤" zh_cn="取消标签" />
