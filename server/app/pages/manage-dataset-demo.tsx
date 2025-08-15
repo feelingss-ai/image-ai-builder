@@ -91,6 +91,41 @@ function switchDisplayMode(mode) {
   ManageDataset.dataset.displayMode = mode
   selectModeButton.hidden = mode === 'select'
   viewModeButton.hidden = mode === 'view'
+  if (mode != 'select') {
+    selectAllButton.hidden = true
+    deselectAllButton.hidden = true
+  } else {
+    let selected = hasAnySelected()
+    selectAllButton.hidden = selected
+    deselectAllButton.hidden = !selected
+  }
+}
+
+function hasAnySelected() {
+  let item = document.querySelector('.image-item.selected')
+  return !!item
+}
+
+function selectAll() {
+  let items = document.querySelectorAll('.image-item')
+  for (let item of items) {
+    let checkbox = item.querySelector('.image-checkbox')
+    checkbox.checked = true
+    item.classList.add('selected')
+  }
+  deselectAllButton.hidden = false
+  selectAllButton.hidden = true
+}
+
+function deselectAll() {
+  let items = document.querySelectorAll('.image-item.selected')
+  for (let item of items) {
+    let checkbox = item.querySelector('.image-checkbox')
+    checkbox.checked = false
+    item.classList.remove('selected')
+  }
+  deselectAllButton.hidden = true
+  selectAllButton.hidden = false
 }
 
 function toggleImage(image) {
@@ -106,6 +141,10 @@ function toggleImage(image) {
   } else {
     item.classList.remove('selected')
   }
+
+  let selected = hasAnySelected()
+  selectAllButton.hidden = selected
+  deselectAllButton.hidden = !selected
 }
 `)
 
@@ -119,7 +158,7 @@ let page = (
           {pageTitle}
         </ion-title>
       </ion-toolbar>
-      <div class="ion-padding-horizontal">
+      <div class="ion-padding-horizontal" style="display: flex">
         <ion-button id="selectModeButton" onclick="switchDisplayMode('select')">
           <Locale en="Select" zh_hk="選擇" zh_cn="选择" />
         </ion-button>
@@ -129,6 +168,16 @@ let page = (
           hidden
         >
           <Locale en="View" zh_hk="查看" zh_cn="查看" />
+        </ion-button>
+        <ion-button id="selectAllButton" onclick="selectAll()" hidden>
+          <Locale en="Select All" zh_hk="全選" zh_cn="全选" />
+        </ion-button>
+        <ion-button id="deselectAllButton" onclick="deselectAll()" hidden>
+          <Locale en="Deselect All" zh_hk="取消全選" zh_cn="取消全选" />
+        </ion-button>
+        <div style="flex-grow: 1"></div>
+        <ion-button>
+          <Locale en="Labels" zh_hk="標籤" zh_cn="标签" />
         </ion-button>
       </div>
     </ion-header>
