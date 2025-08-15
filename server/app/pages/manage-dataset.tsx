@@ -2157,7 +2157,7 @@ let importZipParser = object({
   zipData: string(),
 })
 
-async function ImportZip(attrs: {}, context: WsContext) {
+function ImportZip(attrs: {}, context: WsContext) {
   try {
     let body = getContextFormBody(context)
     let input = importZipParser.parse(body)
@@ -2167,7 +2167,7 @@ async function ImportZip(attrs: {}, context: WsContext) {
     }
 
     const uploadDir = join(process.cwd(), 'uploads')
-    await fsPromises.mkdir(uploadDir, { recursive: true })
+    fs.mkdirSync(uploadDir, { recursive: true })
 
     let buffer = Buffer.from(input.zipData, 'base64')
     let zip = new AdmZip(buffer)
@@ -2205,7 +2205,7 @@ async function ImportZip(attrs: {}, context: WsContext) {
             continue
           }
 
-          await fsPromises.writeFile(filepath, entry.getData())
+          fs.writeFileSync(filepath, entry.getData())
           console.log(`Imported file: ${filepath}`)
 
           let image_id: number | undefined
@@ -2324,11 +2324,13 @@ async function ImportZip(attrs: {}, context: WsContext) {
       ])
     }
 
-    return
+    throw EarlyTerminate
   } catch (error) {
-    console.error('ImportZip errors:', error)
-    context.ws.send(showError(error))
-    return
+    if (error !== EarlyTerminate) {
+      console.error('BatchExport Error:', error)
+      context.ws.send(showError(error))
+    }
+    throw EarlyTerminate
   }
 }
 
