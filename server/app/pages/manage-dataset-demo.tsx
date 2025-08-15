@@ -18,6 +18,7 @@ import { Locale, Title } from '../components/locale.js'
 import { IonButton } from '../components/ion-button.js'
 import { proxy } from '../../../db/proxy.js'
 import { Script } from '../components/script.js'
+import { db } from '../../../db/db.js'
 
 let pageTitle = (
   <Locale
@@ -37,6 +38,44 @@ let addPageTitle = (
 let style = Style(/* css */ `
 #ManageDataset {
 
+}
+
+.label-checkbox {
+  padding: 0.5rem;
+  --size: 1.5rem;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--ion-color-primary);
+}
+.label-checkbox ion-icon {
+  color: var(--ion-color-primary-contrast);
+  --ionicon-stroke-width: 10rem;
+  display: none;
+  transform: scale(1.5);
+}
+
+.label-item {
+  --background-alpha: 0.3;
+}
+.label-item[data-filter="yes"] {
+  --ion-background-color: rgba(var(--ion-color-success-rgb), var(--background-alpha));
+}
+.label-item[data-filter="no"] {
+  --ion-background-color: rgba(var(--ion-color-danger-rgb), var(--background-alpha));
+}
+.label-item[data-filter="any"] {
+  --ion-background-color: rgba(var(--ion-color-light-rgb), var(--background-alpha));
+}
+
+.label-item[data-filter="yes"] .label-checkbox ion-icon[name="checkmark-outline"] {
+  display: block;
+}
+.label-item[data-filter="no"] .label-checkbox ion-icon[name="close-outline"] {
+  display: block;
 }
 
 .image-list {
@@ -87,6 +126,23 @@ ion-footer ion-button {
 `)
 
 let script = Script(/* js */ `
+
+function toggleLabelFilter(item) {
+  console.log(item)
+  let filter = item.dataset.filter
+  switch (filter) {
+    case 'yes':
+      item.dataset.filter = 'no'
+      break
+    case 'no':
+      item.dataset.filter = 'any'
+      break
+    case 'any':
+      item.dataset.filter = 'yes'
+      break
+  }
+}
+
 function switchDisplayMode(mode) {
   ManageDataset.dataset.displayMode = mode
   selectModeButton.hidden = mode === 'select'
@@ -176,7 +232,7 @@ let page = (
           <Locale en="Deselect All" zh_hk="取消全選" zh_cn="取消全选" />
         </ion-button>
         <div style="flex-grow: 1"></div>
-        <ion-button>
+        <ion-button id="labelsButton">
           <Locale en="Labels" zh_hk="標籤" zh_cn="标签" />
         </ion-button>
       </div>
@@ -211,6 +267,24 @@ let items = [
   { title: 'iOS', slug: 'ios' },
 ]
 
+let count_labels = db.prepare<
+  void[],
+  {
+    id: number
+    title: string
+    image_count: number
+  }
+>(/* sql */ `
+select
+  label.id
+, label.title
+, ifnull(count(distinct image_label.image_id), 0) as image_count
+from label
+left join image_label on label.id = image_label.label_id
+group by label.id
+order by label.title
+`)
+
 function Main(attrs: {}, context: Context) {
   let user = getAuthUser(context)
   if (!user) {
@@ -229,10 +303,37 @@ function Main(attrs: {}, context: Context) {
       </div>
     )
   }
+  let total_images = proxy.image.length
+  // TODO query with filters
   let images = proxy.image
+  let labels = count_labels.all()
+  let labelNodes = mapArray(labels, label => (
+    <ion-item
+      class="label-item"
+      onclick="toggleLabelFilter(this)"
+      data-filter="any"
+    >
+      <div class="label-checkbox" shape="round" slot="start">
+        <ion-icon name="checkmark-outline"></ion-icon>
+        <ion-icon name="close-outline"></ion-icon>
+      </div>
+      <ion-label>
+        {label.title}
+        <ion-progress-bar
+          value={label.image_count / total_images}
+        ></ion-progress-bar>
+      </ion-label>
+    </ion-item>
+  ))
   return (
     <>
-      <div className="image-list">
+      <div style="width: 10rem">{labelNodes}</div>
+      <ion-popover trigger="labelsButton" trigger-action="click">
+        <ion-content>
+          <ion-list>{labelNodes}</ion-list>
+        </ion-content>
+      </ion-popover>
+      <di className="image-list">
         {mapArray(images, image => (
           <div class="image-item">
             <ion-checkbox class="image-checkbox" />
@@ -241,7 +342,7 @@ function Main(attrs: {}, context: Context) {
             </ion-thumbnail>
           </div>
         ))}
-      </div>
+      </di>
     </>
   )
   return (
