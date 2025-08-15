@@ -185,10 +185,10 @@ let style = Style(/* css */ `
   width: 5rem;
   font-size: 0.5rem;
   padding: 0rem;
-  background-color: #e4e4e4b0;
+  background-color: #d9d5d5b0;
   border-radius: 0.1rem;
   text-align: center;
-  --background: #e4e4e4b0;
+  --background: #d9d5d5b0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -226,10 +226,10 @@ let style = Style(/* css */ `
   width: 5rem;
   font-size: 0.5rem;
   padding: 0rem;
-  background-color: #e4e4e4b0;
+  background-color: #d9d5d5b0;
   border-radius: 0.1rem;
   text-align: center;
-  --background: #e4e4e4b0;
+  --background: #d9d5d5b0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -248,10 +248,10 @@ let style = Style(/* css */ `
   height: 1.2rem;
   font-size: 0.1rem;
   padding: 0rem;
-  background-color: #e4e4e4b0;
+  background-color: #d9d5d5b0;
   border-radius: 0.1rem;
   text-align: center;
-  --background: #e4e4e4b0;
+  --background: #d9d5d5b0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -348,7 +348,7 @@ let style = Style(/* css */ `
   width: 12rem;
   height: 3rem;
   font-size: 0.5rem;
-  --background: #e4e4e4b0;
+  --background: #d9d5d5b0;
   border-radius: 0.1rem;
   display: flex;
   align-items: center;
@@ -734,7 +734,7 @@ let page = (
         </ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content id="ManageDataset" class="ion-no-padding">
+    <ion-content id="ManageDataset" class="ion-padding">
       <Main />
     </ion-content>
     {imagePlugin.node}
