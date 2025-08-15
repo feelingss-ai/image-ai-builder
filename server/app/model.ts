@@ -6,7 +6,7 @@ import {
   loadImageModel,
   PreTrainedImageModels,
 } from 'tensorflow-helpers'
-import { Label } from '../../db/proxy'
+import { Label, Project } from '../../db/proxy.js'
 import * as tf from '@tensorflow/tfjs'
 
 // label -> model
@@ -23,12 +23,12 @@ export let baseModel = await loadImageModel({
   cache: embeddingCache,
 })
 
-export async function getClassifierModel(label: Label) {
+export async function getClassifierModel(label: Label, project_id: number) {
   let classifierModelPromise = classifierModelCache[label.title]
   if (!classifierModelPromise) {
     classifierModelPromise = loadImageClassifierModel({
       baseModel,
-      modelDir: `saved_models/latest/label-${label.id}`,
+      modelDir: `saved_models/project-${project_id}/latest/label-${label.id}`,
       datasetDir: `datasets/label-${label.id}`,
       classNames: ['yes', 'no'],
       hiddenLayers: [
@@ -42,15 +42,16 @@ export async function getClassifierModel(label: Label) {
         }),
       ],
     })
-    classifierModelCache[label.title] = classifierModelPromise
+    classifierModelCache[`project-${project_id}-${label.title}`] =
+      classifierModelPromise
   }
   return classifierModelPromise
 }
 
-export async function getBestClassifierModel(label: Label) {
+export async function getBestClassifierModel(label: Label, project_id: number) {
   let bestClassifierModelPromise = loadImageClassifierModel({
     baseModel,
-    modelDir: `saved_models/best/label-${label.id}`,
+    modelDir: `saved_models/project-${project_id}/best/label-${label.id}`,
     datasetDir: `datasets/label-${label.id}`,
     classNames: ['yes', 'no'],
     hiddenLayers: [
@@ -64,17 +65,20 @@ export async function getBestClassifierModel(label: Label) {
       }),
     ],
   })
-  classifierModelCache[label.title + `best`] = bestClassifierModelPromise
+  classifierModelCache[`project-${project_id}-${label.title}-best`] =
+    bestClassifierModelPromise
   return bestClassifierModelPromise
 }
 
-export async function modelCheckpoint(
-  label: Label,
-  x: tf.Tensor,
-  y: tf.Tensor,
-) {
-  let latestModel = await getClassifierModel(label)
-  let bestModel = await getBestClassifierModel(label)
+export async function modelCheckpoint(option: {
+  label: Label
+  x: tf.Tensor
+  y: tf.Tensor
+  project_id: number
+}) {
+  let { label, x, y, project_id } = option
+  let latestModel = await getClassifierModel(label, project_id)
+  let bestModel = await getBestClassifierModel(label, project_id)
 
   latestModel.compile()
   bestModel.compile()
@@ -91,7 +95,10 @@ export async function modelCheckpoint(
     console.log(
       `Latest Model ${label.title} Loss: ${latestModelLoss}, Best Model ${label.title} Loss: ${bestModelLoss}`,
     )
-    await latestModel.save(`saved_models/best/label-${label.id}`)
+    await latestModel.save(
+      `saved_models/project-${project_id}/best/label-${label.id}`,
+    )
+    await latestModel.save()
     delete classifierModelCache[label.title + '-best']
   } else {
     console.log(`Model ${label.title} no improve`)

@@ -7,6 +7,7 @@ import {
   DynamicContext,
   getContextFormBody,
   throwIfInAPI,
+  getContextUrl,
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
@@ -23,7 +24,7 @@ import { sessions } from '../session.js'
 import { ServerMessage } from '../../../client/types.js'
 import { sleep } from '@beenotung/tslib/async/wait.js'
 import { del, filter, notNull, pick } from 'better-sqlite3-proxy'
-import { Label, proxy } from '../../../db/proxy.js'
+import { Label, Project, proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import {
   baseModel,
@@ -55,7 +56,7 @@ ion-range::part(pin) { /*always show pin number*/
   top: -20px;
 }
 `)
-
+let project_id: number
 let script = Script(/* js */ `
 // Learning Rate Elements
 learning_rate = document.querySelector('#learning_rate'); 
@@ -201,6 +202,7 @@ const count_model = () => {
 const MODEL_NO = count_model()
 
 function Main(attrs: {}, context: Context) {
+  project_id = getProjectIDFromURL(context) as number
   let user = getAuthUser(context)
   //get data from training_stats table on database and group by label_id (support multiple models)
   let statsByModel: Record<
@@ -215,7 +217,7 @@ function Main(attrs: {}, context: Context) {
       val_accuracy: number[]
     }
   > = {}
-  let labels = pick(proxy.label, ['id', 'title'])
+  let labels = select_label_by_project.all({ project_id })
   for (let label of labels) {
     let rows = pick(
       proxy.training_stats,
@@ -535,7 +537,7 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
     del(proxy.training_stats, { id: notNull })
 
     for (let i = 0; i < labels.length; i++) {
-      retrainModel(labels[i]!)
+      retrainModel(labels[i]!, project_id)
     }
 
     let code = /* javascript */ `
@@ -566,11 +568,26 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
       learning_rate: input.learning_rate,
       batchSize: input.batch_size,
       cross_validation_ratio: input.cross_validation_ratio / 100,
+      project_id: project_id,
     })
   }
 
   throw EarlyTerminate
 }
+
+let select_label_by_project = db.prepare<
+  { project_id: number },
+  {
+    id: number
+    title: string
+  }
+>(/*sql*/ `
+  select
+    label.id, 
+    label.title
+  from label
+  where label.project_id = :project_id
+  `)
 
 let select_image_filename_by_label = db.prepare<
   { label_id: number },
@@ -619,19 +636,28 @@ function formatNumber(x: number) {
 }
 
 //Just delete the model to retrain
-async function retrainModel(label: Label) {
-  if (!existsSync(`saved_models/label-${label.id}`)) {
+async function retrainModel(label: Label, project_id: number) {
+  console.log(label)
+  if (
+    !existsSync(`saved_models/project-${project_id}/latest/label-${label.id}`)
+  ) {
     return
   } else {
-    rmSync(`saved_models/label-${label.id}`, { recursive: true })
-    delete classifierModelCache[label.title]
+    rmSync(`saved_models/project-${project_id}/latest/label-${label.id}`, {
+      recursive: true,
+    })
+    delete classifierModelCache[`project-${project_id}-${label.title}`]
   }
 
-  if (!existsSync(`saved_models/label-${label.id}/best`)) {
+  if (
+    !existsSync(`saved_models/project-${project_id}/best/label-${label.id}`)
+  ) {
     return
   } else {
-    rmSync(`saved_models/label-${label.id}/best`, { recursive: true })
-    delete classifierModelCache[label.title + `best`]
+    rmSync(`saved_models/project-${project_id}/best/label-${label.id}`, {
+      recursive: true,
+    })
+    delete classifierModelCache[`project-${project_id}-${label.title}-best`]
   }
 }
 
@@ -643,6 +669,7 @@ async function trainModel(options: {
   learning_rate: number
   batchSize: number
   cross_validation_ratio: number
+  project_id: number
 }) {
   let {
     label,
@@ -651,6 +678,7 @@ async function trainModel(options: {
     batchSize,
     cross_validation_ratio,
     learning_rate,
+    project_id,
   } = options
   let label_id = label.id!
   let rows = select_image_filename_by_label.all({ label_id })
@@ -659,7 +687,7 @@ async function trainModel(options: {
   let classCounts = [0, 0]
   let initialEpoch = count_epoch_by_label.get({ label_id }) || 0
 
-  let classifierModel = await getClassifierModel(label) //The latest model
+  let classifierModel = await getClassifierModel(label, project_id) //The latest model
 
   for (let row of rows) {
     let file = join(env.UPLOAD_DIR, row.filename)
@@ -714,7 +742,7 @@ async function trainModel(options: {
             })
             broadcast([
               'eval',
-              /* javascript */ `    
+              /* javascript */ ` 
                 train_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
                 train_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${loss};
 
@@ -739,7 +767,7 @@ async function trainModel(options: {
       ],
     })
     await classifierModel.save()
-    await modelCheckpoint(label, valX, valY)
+    await modelCheckpoint({ label, x: valX, y: valY, project_id })
   }
   x.dispose()
   y.dispose()
@@ -751,6 +779,12 @@ function shuffleInUnison(a: any, b: any) {
     ;[a[i], a[j]] = [a[j], a[i]]
     ;[b[i], b[j]] = [b[j], b[i]]
   }
+}
+
+function getProjectIDFromURL(context: Context): number {
+  let url = getContextUrl(context)
+  const project_id = Number(url.split('project=')[1])
+  return project_id
 }
 
 let routes = {

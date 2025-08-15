@@ -24,6 +24,7 @@ import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
 import { pick, del, filter, find } from 'better-sqlite3-proxy'
+import fs from 'fs'
 
 let pageTitle = <Locale en="Project List" zh_hk="項目列表" zh_cn="项目列表" />
 let manageMemberTitle = (
@@ -79,9 +80,9 @@ function create_project() {
   if (new_project_name.trim() === '') {
     document.querySelector('#project-name-empty-alert').present()
   } else {
-  emit('/project/add-project', {project_name: new_project_name})
-  document.querySelector('#new-project-name').value = ''
-}
+    emit('/project/add-project', {project_name: new_project_name})
+    document.querySelector('#new-project-name').value = ''
+  }
 }
 
   //send delete project id to server
@@ -370,6 +371,13 @@ function AddProject(attrs: {}, context: WsContext) {
         />
       )
 
+      fs.mkdirSync(`saved_models/project-${project_id}`, { recursive: true })
+      fs.mkdirSync(`saved_models/project-${project_id}/latest`, {
+        recursive: true,
+      })
+      fs.mkdirSync(`saved_models/project-${project_id}/best`, {
+        recursive: true,
+      })
       context.ws.send([
         'append',
         'ion-list',
@@ -419,6 +427,11 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
     delete proxy.project[input.project_id]
 
     broadcast(['remove', 'ion-list #project-item-' + input.project_id])
+
+    fs.rmSync(`saved_models/project-${input.project_id}`, {
+      recursive: true,
+      force: true,
+    })
   } catch (error) {
     console.error(error)
   }

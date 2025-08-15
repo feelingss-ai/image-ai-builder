@@ -1,5 +1,5 @@
 import { proxySchema } from 'better-sqlite3-proxy'
-import { db } from './db'
+import { db } from './db.js'
 
 export type Method = {
   id?: null | number
@@ -119,7 +119,6 @@ export type Label = {
   dependency_id: null | number
   dependency?: Label
   project_id: null | number
-  project?: Project
 }
 
 export type ProjectMember = {
