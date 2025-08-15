@@ -14,11 +14,16 @@ import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
-import { Locale, Title } from '../components/locale.js'
+import { Locale, makeText, Title } from '../components/locale.js'
 import { IonButton } from '../components/ion-button.js'
 import { proxy } from '../../../db/proxy.js'
 import { Script } from '../components/script.js'
 import { db } from '../../../db/db.js'
+import { loadClientPlugin } from '../../client-plugin.js'
+
+let sweetAlertPlugin = loadClientPlugin({
+  entryFile: 'dist/client/sweetalert.js',
+})
 
 let pageTitle = (
   <Locale
@@ -212,6 +217,24 @@ function toggleImage(image) {
   }
   document.body.dataset.anySelected = hasAnySelected()
 }
+
+async function deleteLabels(button) {
+  let title = button.dataset.title
+  let text = button.dataset.message
+  let confirmButtonText = button.dataset.confirmButtonText
+  let cancelButtonText = button.dataset.cancelButtonText
+  let result = await showConfirm({
+    title,
+    text,
+    icon: 'warning',
+    confirmButtonText,
+    cancelButtonText,
+  })
+  console.log(result)
+  if (result.isConfirmed) {
+    console.log('delete labels')
+  }
+}
 `)
 
 let page = (
@@ -250,23 +273,84 @@ let page = (
     >
       <Main />
     </ion-content>
+    <Footer />
+    <ion-modal id="exportModal">
+      <ion-header>
+        <ion-toolbar>
+          <ion-buttons slot="start">
+            <ion-button onclick="exportModal.dismiss()">
+              <Locale en="Close" zh_hk="關閉" zh_cn="关闭" />
+            </ion-button>
+          </ion-buttons>
+          <ion-title>
+            <Locale en="Export Dataset" zh_hk="匯出數據集" zh_cn="导出数据集" />
+          </ion-title>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content>
+        <ion-list>
+          <ion-item>
+            <ion-label>
+              <Locale en="Export Format" zh_hk="匯出格式" zh_cn="导出格式" />
+            </ion-label>
+          </ion-item>
+        </ion-list>
+      </ion-content>
+    </ion-modal>
+    {sweetAlertPlugin.node}
+    {script}
+  </>
+)
+
+function Footer(attrs: {}, context: DynamicContext) {
+  let t = makeText(context)
+  return (
     <ion-footer id="ionFooter">
       <ion-button size="large" color="warning" fill="clear">
         <ion-icon name="close-circle" slot="start"></ion-icon>
         <Locale en="Unlabel" zh_hk="取消標籤" zh_cn="取消标签" />
       </ion-button>
-      <ion-button size="large" color="danger" fill="clear">
+      <ion-button
+        size="large"
+        color="danger"
+        fill="clear"
+        onclick="deleteLabels(this)"
+        data-title={t({
+          en: 'Delete Labels',
+          zh_hk: '刪除標籤',
+          zh_cn: '删除标签',
+        })}
+        data-message={t({
+          en: 'This action cannot be undone.',
+          zh_hk: '此操作無法撤銷。',
+          zh_cn: '此操作无法撤销。',
+        })}
+        data-confirm-button-text={t({
+          en: 'Confirm Delete',
+          zh_hk: '確認刪除',
+          zh_cn: '确认删除',
+        })}
+        data-cancel-button-text={t({
+          en: 'Cancel',
+          zh_hk: '取消',
+          zh_cn: '取消',
+        })}
+      >
         <ion-icon name="trash" slot="start"></ion-icon>
         <Locale en="Delete" zh_hk="刪除" zh_cn="删除" />
       </ion-button>
-      <ion-button size="large" color="primary" fill="clear">
+      <ion-button
+        size="large"
+        color="primary"
+        fill="clear"
+        onclick="exportModal.present()"
+      >
         <ion-icon name="download" slot="start"></ion-icon>
         <Locale en="Export" zh_hk="匯出" zh_cn="导出" />
       </ion-button>
     </ion-footer>
-    {script}
-  </>
-)
+  )
+}
 
 let items = [
   { title: 'Android', slug: 'md' },
