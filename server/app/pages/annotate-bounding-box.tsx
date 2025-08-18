@@ -280,6 +280,11 @@ async function setupEditorUI() {
     window.updateDeleteButton()
   }
   
+  // Initialize cancel edit button visibility
+  if (typeof window.updateCancelEditButtonVisibility === 'function') {
+    window.updateCancelEditButtonVisibility()
+  }
+  
   // Get bounding boxes from database
   let image_id = parseInt(label_image.dataset.imageId)
   let label_id = parseInt(document.getElementById('label_select').value)
@@ -538,6 +543,14 @@ function enterEditMode(boundingBox) {
     window.camera.rotate_angle = boundingBox.rotate_angle || (boundingBox.rotate * 2 * Math.PI)
   }
   
+  // Update the bounding box select dropdown to match the selected box
+  if (typeof window.updateBoundingBoxSelectValue === 'function' && boundingBox.id) {
+    window.updateBoundingBoxSelectValue(boundingBox.id)
+  }
+  
+  // Show cancel edit button
+  updateCancelEditButtonVisibility()
+  
   updateAddButton()
   if (typeof window.render === 'function') {
     window.render()
@@ -553,6 +566,51 @@ function exitEditMode() {
   updateAddButton()
   if (typeof window.updateDeleteButton === 'function') {
     window.updateDeleteButton()
+  }
+}
+
+// Function to cancel edit mode (same as exitEditMode but for UI clarity)
+function cancelEdit() {
+  console.log('Canceling edit mode')
+  
+  // Reset camera to show full image
+  if (window.camera) {
+    window.camera.x = 0.5
+    window.camera.y = 0.5
+    window.camera.width = 1.0
+    window.camera.height = 1.0
+    window.camera.rotate = 0
+    window.camera.rotate_angle = 0
+    
+    console.log('cancelEdit: Reset camera to full view')
+    
+    // Force render to show the camera change
+    if (typeof window.render === 'function') {
+      window.render()
+    }
+  }
+  
+  // Exit edit mode
+  exitEditMode()
+  
+  // Restore minimap bounding box state by refreshing the UI
+  console.log('cancelEdit: Refreshing bounding boxes to restore minimap state')
+  if (typeof window.setupEditorUI === 'function') {
+    window.setupEditorUI()
+  }
+}
+
+// Function to update cancel edit button visibility based on edit mode
+function updateCancelEditButtonVisibility() {
+  const cancelBtn = document.getElementById('cancel-edit-button')
+  if (cancelBtn) {
+    if (window._editMode) {
+      cancelBtn.style.display = 'flex'
+      // console.log('Showing cancel edit button')
+    } else {
+      cancelBtn.style.display = 'none'
+      // console.log('Hiding cancel edit button')
+    }
   }
 }
 
@@ -791,6 +849,11 @@ if (!window._rotationListenersAdded) {
 
 window.setupEditorUI = setupEditorUI
 window.updateDeleteButton = updateDeleteButton
+window.updateBoundingBoxSelect = updateBoundingBoxSelect
+window.updateBoundingBoxSelectValue = updateBoundingBoxSelectValue
+window.selectBoundingBox = selectBoundingBox
+window.cancelEdit = cancelEdit
+window.updateCancelEditButtonVisibility = updateCancelEditButtonVisibility
 
 // Initialize the page with the default label when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
@@ -1073,7 +1136,19 @@ function Main(attrs: {}, context: any) {
         <div style="flex-grow: 1; overflow: hidden">
           <div id="editorContainer">
             <canvas id="minimapCanvas"></canvas>
-            <canvas id="previewCanvas"></canvas>
+            <div id="preview-container">
+              <canvas id="previewCanvas"></canvas>
+              <button
+                id="cancel-edit-button"
+                onclick="cancelEdit()"
+                title={Locale(
+                  { en: 'Cancel Edit', zh_hk: '取消編輯', zh_cn: '取消编辑' },
+                  context,
+                )}
+              >
+                <ion-icon name="close"></ion-icon>
+              </button>
+            </div>
           </div>
           <div id="debugMessage">
             <div id="debugStartMessage"></div>
@@ -1353,6 +1428,11 @@ function ShowImage(attrs: {}, context: WsContext) {
         
         // Clear cached data to force fresh fetch
         window.boundingBoxesData = null;
+        
+        // Clear bounding box select options
+        if (typeof window.updateBoundingBoxSelect === 'function') {
+          window.updateBoundingBoxSelect([]);
+        }
         `,
       ])
 
@@ -1387,6 +1467,11 @@ function ShowImage(attrs: {}, context: WsContext) {
         
         // Clear cached data
         window.boundingBoxesData = null;
+        
+        // Clear bounding box select options
+        if (typeof window.updateBoundingBoxSelect === 'function') {
+          window.updateBoundingBoxSelect([]);
+        }
         
         // Hide canvases
         document.getElementById('minimapCanvas').style.display = 'none';
@@ -1624,6 +1709,12 @@ function DeleteBoundingBox(attrs: {}, context: WsContext) {
       console.log('Server: Clearing selectedBoundingBoxId, was:', window.selectedBoundingBoxId);
       window.selectedBoundingBoxId = undefined; 
       console.log('Server: selectedBoundingBoxId now:', window.selectedBoundingBoxId);
+      
+      // Exit edit mode since the bounding box is deleted
+      if (typeof window.exitEditMode === 'function') {
+        console.log('Server: Exiting edit mode after deletion');
+        window.exitEditMode();
+      }
       
       // Update delete button immediately
       if (typeof window.updateDeleteButton === 'function') {
