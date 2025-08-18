@@ -159,8 +159,16 @@ width real
 rotate real
 
 
+image_bounding_box_confirmation
+-------------------------------
+id integer PK
+image_id integer FK >0- image.id
+user_id integer FK >0- user.id
+label_id integer FK >0- label.id
+
+
 # zoom: 1.000
-# view: (253, 509)
+# view: (445, 664)
 # text-bg: #6495ed
 # text-color: #000000
 # diagram-bg: #f5f5f5
@@ -180,5 +188,7 @@ rotate real
 # verification_attempt (50, 372)
 # content_report (515, 948)
 # image (1251, 636)
-# label (1255, 869)
+# label (1268, 843)
 # image_label (921, 771)
+# image_bounding_box (1126, 979)
+# image_bounding_box_confirmation (1022, 1297)

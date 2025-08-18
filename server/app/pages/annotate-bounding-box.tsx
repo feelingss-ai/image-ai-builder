@@ -24,6 +24,10 @@ let dragUIPlugin = loadClientPlugin({
   entryFile: 'dist/client/drag-ui.js',
 })
 
+let sweetAlertPlugin = loadClientPlugin({
+  entryFile: 'dist/client/sweetalert.js',
+})
+
 let pageTitle = (
   <Locale en="Annotate Bounding Box" zh_hk="標註邊界框" zh_cn="标注边界框" />
 )
@@ -353,6 +357,14 @@ if (!window._ionChangeListenerAdded) {
       return;
     }
     
+    // Immediately clear data-image-id when switching labels
+    let image = document.getElementById('label_image')
+    if (image) {
+      image.dataset.imageId = ''
+      image.src = ''
+      image.hidden = true
+    }
+    
     // Clear previous bounding box data when switching labels
     window.boundingBoxesData = null
     console.log('Cleared bounding box data for new label')
@@ -451,6 +463,62 @@ async function deleteBoundingBox() {
   }
   
   emit('/annotate-bounding-box/deleteBoundingBox', data)
+}
+
+// Function to submit all bounding boxes for current image
+async function submitBoundingBoxes() {
+  let image = document.getElementById('label_image')
+  let image_id = image.dataset.imageId
+  let label_id = document.getElementById('label_select').value
+  
+  console.log('submitBoundingBoxes: image_id =', image_id, 'label_id =', label_id)
+  
+  // Validate data
+  if (!image_id || image_id === 'undefined' || image_id === 'null') {
+    console.error('submitBoundingBoxes: Invalid image_id:', image_id)
+    return
+  }
+  
+  if (!label_id || label_id === 'undefined' || label_id === 'null') {
+    console.error('submitBoundingBoxes: Invalid label_id:', label_id)
+    return
+  }
+  
+  // Get current bounding boxes count
+  const currentBoundingBoxes = window.boundingBoxesData || []
+  const totalBoxes = currentBoundingBoxes.length
+  
+  // Show confirmation dialog using showConfirm
+  let message = 
+    (totalBoxes > 0
+      ? 'Are you sure you want to submit {count} bounding box(es) for this image?'
+      : 'Are you sure you want to submit this image without any bounding boxes?')
+    .replace('{count}', totalBoxes)
+  
+  let ans = await showConfirm({
+    title: message,
+    confirmButtonText: 'Yes, Submit',
+    cancelButtonText: 'Cancel',
+  })
+  
+  if (!ans) {
+    console.log('submitBoundingBoxes: User cancelled submission')
+    return
+  }
+  
+  // Wait for WebSocket to be ready
+  if (!(await waitForWebSocket())) {
+    console.error('submitBoundingBoxes: WebSocket not ready')
+    return
+  }
+  
+  const data = {
+    image_id: parseInt(image_id),
+    label_id: parseInt(label_id)
+  }
+  
+  console.log('submitBoundingBoxes: Submitting data:', data)
+  emit('/annotate-bounding-box/submitBoundingBox', data)
 }
 
 // Function to enter edit mode for a bounding box
@@ -724,6 +792,19 @@ if (!window._rotationListenersAdded) {
 window.setupEditorUI = setupEditorUI
 window.updateDeleteButton = updateDeleteButton
 
+// Initialize the page with the default label when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('Page loaded, initializing with default label');
+  // Small delay to ensure WebSocket is ready
+  setTimeout(() => {
+    const label_select = document.getElementById('label_select');
+    if (label_select && label_select.value) {
+      console.log('Calling showImage for initial label:', label_select.value);
+      showImage();
+    }
+  }, 500);
+});
+
 `)
 
 let page = (
@@ -741,6 +822,7 @@ let page = (
     </ion-header>
     <ion-content id="AnnotateBoundingBox" class="ion-no-padding">
       {dragUIPlugin.node}
+      {sweetAlertPlugin.node}
       {script}
       <Main />
     </ion-content>
@@ -883,6 +965,54 @@ let update_bounding_box = db.prepare<
   WHERE id = :box_id AND user_id = :user_id AND image_id = :image_id AND label_id = :label_id
 `)
 
+let submit_bounding_box_confirmation = db.prepare<
+  {
+    image_id: number
+    user_id: number
+    label_id: number
+  },
+  { id: number }
+>(/* sql */ `
+  INSERT INTO image_bounding_box_confirmation (image_id, user_id, label_id)
+  VALUES (:image_id, :user_id, :label_id)
+  RETURNING id
+`)
+
+let check_bounding_box_confirmation = db.prepare<
+  {
+    image_id: number
+    user_id: number
+    label_id: number
+  },
+  { id: number } | null
+>(/* sql */ `
+  SELECT id FROM image_bounding_box_confirmation 
+  WHERE image_id = :image_id AND user_id = :user_id AND label_id = :label_id
+  LIMIT 1
+`)
+
+let select_next_unconfirmed_image = db.prepare<
+  { label_id: number; user_id: number },
+  {
+    id: number
+    filename: string
+    rotation: number | null
+  } | null
+>(/* sql */ `
+  SELECT i.id, i.filename, i.rotation
+  FROM image i
+  INNER JOIN image_label il ON il.image_id = i.id
+  WHERE il.label_id = :label_id 
+    AND il.answer = 1
+    AND i.id NOT IN (
+      SELECT ibc.image_id 
+      FROM image_bounding_box_confirmation ibc 
+      WHERE ibc.label_id = :label_id AND ibc.user_id = :user_id
+    )
+  ORDER BY i.id
+  LIMIT 1
+`)
+
 function Main(attrs: {}, context: any) {
   let user = getAuthUser(context)
   if (!user) {
@@ -907,7 +1037,10 @@ function Main(attrs: {}, context: any) {
   let label_id = 1
   // let image = proxy.image[0]
   let total_images = proxy.image.length
-  let image = select_next_image.get({ label_id })
+  let image = select_next_unconfirmed_image.get({
+    label_id: label_id,
+    user_id: user.id!,
+  })
 
   return (
     <>
@@ -967,8 +1100,36 @@ function Main(attrs: {}, context: any) {
           <div
             id="no-image-message"
             style="display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 2rem;"
-            hidden={!!image}
-          ></div>
+            hidden
+          >
+            <div>
+              <ion-icon
+                name="checkmark-circle"
+                style="font-size: 4rem; color: var(--ion-color-success);"
+              ></ion-icon>
+              <h2>
+                <Locale
+                  en="All images annotated!"
+                  zh_hk="所有圖片已標註完成！"
+                  zh_cn="所有图像已注释完成！"
+                />
+              </h2>
+              <p>
+                <Locale
+                  en="You have completed annotating all images for this label."
+                  zh_hk="您已完成此標籤的所有圖片標註。"
+                  zh_cn="您已完成此标签的所有图像注释。"
+                />
+              </p>
+              <p>
+                <Locale
+                  en="Please select another label to continue."
+                  zh_hk="請選擇另一個標籤繼續。"
+                  zh_cn="请选择另一个标签继续。"
+                />
+              </p>
+            </div>
+          </div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 0.5rem;">
           <div style="display: flex; justify-content: space-between; gap: 1rem;">
@@ -1065,6 +1226,7 @@ function Main(attrs: {}, context: any) {
             <ion-button
               color="success"
               style="flex: 1;"
+              onclick="submitBoundingBoxes()"
               title={
                 <Locale
                   en="Submit bounding box"
@@ -1118,6 +1280,11 @@ let updateBoundingBoxParser = object({
   rotate: number(),
 })
 
+let submitBoundingBoxParser = object({
+  image_id: id(),
+  label_id: id(),
+})
+
 // Displays the next image for annotation based on the selected label
 function ShowImage(attrs: {}, context: WsContext) {
   try {
@@ -1133,14 +1300,20 @@ function ShowImage(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = showImageParser.parse(body)
     let label_id = input.label_id
-    console.log('label_id lol', label_id)
+    console.log('label_id', label_id)
     console.log(
       `ShowImage: Processing label_id=${label_id}, user_id=${user_id}`,
     )
 
-    // check if label exists
-    let next_image = select_next_image.get({ label_id })
-    console.log(`ShowImage: next_image for label_id=${label_id}:`, next_image)
+    // check if label exists and get next unconfirmed image for current user
+    let next_image = select_next_unconfirmed_image.get({
+      label_id: label_id,
+      user_id: user_id,
+    })
+    console.log(
+      `ShowImage: next_image for label_id=${label_id}, user_id=${user_id}:`,
+      next_image,
+    )
 
     if (next_image) {
       // Update image attributes and trigger setupEditorUI after load
@@ -1151,15 +1324,42 @@ function ShowImage(attrs: {}, context: WsContext) {
           'src': `/uploads/${next_image.filename}`,
           'data-image-id': next_image.id,
           'data-rotation': next_image.rotation || 0,
-          // 'hidden': false,
-          // 'onload': 'setupEditorUI()',
+          // Keep image element hidden always; canvases handle rendering
+          'hidden': true,
         },
+      ])
+
+      // Ensure UI elements are visible when we have an image
+      context.ws.send([
+        'eval',
+        `
+        console.log('ShowImage: Found image, ensuring UI elements are visible');
+        
+        // Show canvases
+        document.getElementById('minimapCanvas').style.display = 'block';
+        document.getElementById('previewCanvas').style.display = 'block';
+        
+        // Hide the no-image message
+        document.getElementById('no-image-message').hidden = true;
+        // Don't clear innerHTML to preserve the content for future use
+        
+        // Clear any edit mode from previous label
+        if (typeof window.exitEditMode === 'function') {
+          window.exitEditMode();
+        }
+        
+        // Clear selected bounding box from previous label
+        window.selectedBoundingBoxId = undefined;
+        
+        // Clear cached data to force fresh fetch
+        window.boundingBoxesData = null;
+        `,
       ])
 
       // NOTE: Do not trigger setupEditorUI here; the <img onLoad> already calls it
       // to avoid double-registration of touch listeners
     } else {
-      // Hide image if no image found
+      // No image found - show empty state and clear all UI elements
       context.ws.send([
         'update-attrs',
         '#label_image',
@@ -1169,6 +1369,40 @@ function ShowImage(attrs: {}, context: WsContext) {
           'data-rotation': 0,
           'hidden': true,
         },
+      ])
+
+      // Clear all UI states and show empty page
+      context.ws.send([
+        'eval',
+        `
+        console.log('ShowImage: No more images for this label, showing empty state');
+        
+        // Clear any edit mode
+        if (typeof window.exitEditMode === 'function') {
+          window.exitEditMode();
+        }
+        
+        // Clear selected bounding box
+        window.selectedBoundingBoxId = undefined;
+        
+        // Clear cached data
+        window.boundingBoxesData = null;
+        
+        // Hide canvases
+        document.getElementById('minimapCanvas').style.display = 'none';
+        document.getElementById('previewCanvas').style.display = 'none';
+        
+        // Clear debug messages
+        document.getElementById('debugMessage').innerHTML = '';
+        
+        // Show completion message (already rendered in Main function)
+        document.getElementById('no-image-message').hidden = false;
+        
+        // Update delete button state
+        if (typeof window.updateDeleteButton === 'function') {
+          window.updateDeleteButton();
+        }
+        `,
       ])
     }
 
@@ -1574,6 +1808,174 @@ function UpdateBoundingBox(attrs: {}, context: WsContext) {
   }
 }
 
+// Submit bounding box confirmation and move to next image
+function SubmitBoundingBox(attrs: {}, context: WsContext) {
+  try {
+    let throws = makeThrows(context)
+    let user_id = getAuthUserId(context)!
+    if (!user_id)
+      throws({
+        en: 'You must be logged in to submit bounding box',
+        zh_hk: '您必須登入才能提交邊界框',
+        zh_cn: '您必须登录才能提交边界框',
+      })
+
+    let body = getContextFormBody(context)
+    let input = submitBoundingBoxParser.parse(body)
+
+    console.log('SubmitBoundingBox: Processing input:', input)
+    console.log(`SubmitBoundingBox: user_id=${user_id}`)
+
+    // Check if already confirmed
+    let existing_confirmation = check_bounding_box_confirmation.get({
+      image_id: input.image_id,
+      user_id: user_id,
+      label_id: input.label_id,
+    })
+
+    if (existing_confirmation) {
+      throws({
+        en: 'This image has already been confirmed',
+        zh_hk: '此圖片已經確認過了',
+        zh_cn: '此图片已经确认过了',
+      })
+    }
+
+    // Insert confirmation record
+    let result = submit_bounding_box_confirmation.get({
+      image_id: input.image_id,
+      user_id: user_id,
+      label_id: input.label_id,
+    })
+
+    console.log('SubmitBoundingBox: Created confirmation with ID:', result?.id)
+
+    // Calculate updated counts for the current label
+    let updated_confirmed = count_confirmed_bounding_box_images.get({
+      label_id: input.label_id,
+      user_id: user_id,
+    })
+    let total_images = count_label_images.get({
+      label_id: input.label_id,
+    })
+
+    // Send success message and update label count
+    context.ws.send([
+      'eval',
+      `
+      console.log('Bounding boxes submitted successfully!');
+      // Show brief success message
+      document.getElementById('debugMessage').textContent = 'Submitted successfully!';
+      setTimeout(() => {
+        document.getElementById('debugMessage').textContent = '';
+      }, 3000);
+      
+      // Update the label option text with new count
+      const labelOption = document.querySelector('ion-select-option[value="${input.label_id}"]');
+      if (labelOption) {
+        const labelTitle = labelOption.textContent.split(' (')[0]; // Get title without count
+        labelOption.textContent = labelTitle + ' (${updated_confirmed}/${total_images})';
+        console.log('Updated label count: ${updated_confirmed}/${total_images}');
+      }
+      `,
+    ])
+
+    // Find next unconfirmed image
+    let next_image = select_next_unconfirmed_image.get({
+      label_id: input.label_id,
+      user_id: user_id,
+    })
+
+    if (next_image) {
+      // Load next image
+      context.ws.send([
+        'update-attrs',
+        '#label_image',
+        {
+          'src': `/uploads/${next_image.filename}`,
+          'data-image-id': next_image.id,
+          'data-rotation': next_image.rotation || 0,
+        },
+      ])
+
+      // Clear cached bounding box data and refresh UI
+      context.ws.send([
+        'eval',
+        `
+        console.log('Server: Loading next image after submission');
+        
+        // Hide the no-image message when we have a next image
+        document.getElementById('no-image-message').hidden = true;
+        
+        // Show canvases for the next image
+        document.getElementById('minimapCanvas').style.display = 'block';
+        document.getElementById('previewCanvas').style.display = 'block';
+        
+        // Clear any edit mode
+        if (typeof window.exitEditMode === 'function') {
+          window.exitEditMode();
+        }
+        
+        // Clear selected bounding box
+        window.selectedBoundingBoxId = undefined;
+        
+        // Clear cached data to force fresh fetch
+        window.boundingBoxesData = null;
+        
+        // Force complete refresh of editor UI
+        if (typeof setupEditorUI === 'function') {
+          console.log('Server: Calling setupEditorUI for next image');
+          setupEditorUI();
+        }
+        `,
+      ])
+    } else {
+      // No more images to confirm - show empty page
+      context.ws.send([
+        'eval',
+        `
+        console.log('All images completed for this label');
+        
+        // Hide the image
+        document.getElementById('label_image').hidden = true;
+        document.getElementById('label_image').src = '';
+        document.getElementById('label_image').dataset.imageId = '';
+        
+        // Hide canvases
+        document.getElementById('minimapCanvas').style.display = 'none';
+        document.getElementById('previewCanvas').style.display = 'none';
+        
+        // Clear debug messages
+        document.getElementById('debugMessage').innerHTML = '';
+        
+        // Show completion message (already rendered in Main function)
+        document.getElementById('no-image-message').hidden = false;
+        
+        // Clear any selected bounding box
+        window.selectedBoundingBoxId = undefined;
+        window.boundingBoxesData = null;
+        
+        // Update delete button state
+        if (typeof window.updateDeleteButton === 'function') {
+          window.updateDeleteButton();
+        }
+        `,
+      ])
+    }
+
+    // Terminate execution to prevent further processing
+    throw EarlyTerminate
+  } catch (error) {
+    // Handle non-termination errors by logging and sending error message to client
+    if (error !== EarlyTerminate) {
+      console.error(error)
+      context.ws.send(showError(error))
+    }
+    // Ensure termination of the function
+    throw EarlyTerminate
+  }
+}
+
 let routes = {
   '/annotate-bounding-box': {
     title: <Title t={pageTitle} />,
@@ -1605,11 +2007,11 @@ let routes = {
     description: 'Update bounding box',
     node: <UpdateBoundingBox />,
   },
-  // '/annotate-bounding-box/submitBoundingBox': {
-  //   title: <Title t={pageTitle} />,
-  //   description: 'Annotate bounding boxes on images',
-  //   node: <SubmitBoundingBox />,
-  // },
+  '/annotate-bounding-box/submitBoundingBox': {
+    title: <Title t={pageTitle} />,
+    description: 'Submit bounding box confirmation',
+    node: <SubmitBoundingBox />,
+  },
 } satisfies Routes
 
 export default { routes }

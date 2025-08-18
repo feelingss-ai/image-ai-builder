@@ -148,6 +148,16 @@ export type ImageBoundingBox = {
   rotate: number
 }
 
+export type ImageBoundingBoxConfirmation = {
+  id?: null | number
+  image_id: number
+  image?: Image
+  user_id: number
+  user?: User
+  label_id: number
+  label?: Label
+}
+
 export type DBProxy = {
   method: Method[]
   url: Url[]
@@ -165,6 +175,7 @@ export type DBProxy = {
   label: Label[]
   image_label: ImageLabel[]
   image_bounding_box: ImageBoundingBox[]
+  image_bounding_box_confirmation: ImageBoundingBoxConfirmation[]
 }
 
 export let proxy = proxySchema<DBProxy>({
@@ -216,6 +227,12 @@ export let proxy = proxySchema<DBProxy>({
       ['user', { field: 'user_id', table: 'user' }],
     ],
     image_bounding_box: [
+      /* foreign references */
+      ['image', { field: 'image_id', table: 'image' }],
+      ['user', { field: 'user_id', table: 'user' }],
+      ['label', { field: 'label_id', table: 'label' }],
+    ],
+    image_bounding_box_confirmation: [
       /* foreign references */
       ['image', { field: 'image_id', table: 'image' }],
       ['user', { field: 'user_id', table: 'user' }],
