@@ -49,6 +49,9 @@ let style = Style(/* css */ `
   font-family: monospace;
 }
 
+#editorContainer {
+  position: relative;
+}
 #editorContainer canvas {
   width: 100%;
 }
@@ -57,12 +60,155 @@ let style = Style(/* css */ `
   object-fit: contain;
 }
 #previewCanvas {
-  height: calc(70dvh - 6rem);
+  height: calc(68dvh - 6rem);
   object-fit: fill;
 }
+#bounding-box-select {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  padding: 5px;
+  max-height: 30px;
+  min-width: 100px;
+  max-width: 280px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Override Ionic's default ion-select styles */
+#bounding-box-select ion-select {
+  height: 20px !important;
+  min-height: 20px !important;
+  max-height: 20px !important;
+  padding: 0 !important;
+  font-size: 12px !important;
+  --min-width: 200px;
+  --max-width: 280px;
+}
+
+/* Ensure popover options have enough width */
+ion-popover.select-popover {
+  --min-width: 260px !important;
+  --max-width: 420px !important;
+}
+
+ion-popover.select-popover ion-radio-group ion-item {
+  --min-height: 32px;
+  font-size: 12px;
+  overflow: visible !important;
+}
+
+ion-popover.select-popover ion-radio-group ion-item ion-label {
+  white-space: nowrap;
+  overflow: visible !important;
+  text-overflow: ellipsis;
+}
+
+#bounding-box-select ion-select.select-expanded,
+#bounding-box-select ion-select.select-label-placement-start,
+#bounding-box-select ion-select.has-placeholder,
+#bounding-box-select ion-select.ion-focusable,
+#bounding-box-select ion-select.select-ltr {
+  height: 20px !important;
+  min-height: 20px !important;
+  max-height: 20px !important;
+  line-height: 20px !important;
+}
+
+#preview-container {
+  position: relative;
+}
+
+#cancel-edit-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  width: 25px;
+  height: 25px;
+  background: #dc3545;
+  border: none;
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+#cancel-edit-button:hover {
+  background: #c82333;
+  transform: scale(1.1);
+}
+
+#cancel-edit-button:active {
+  transform: scale(0.95);
+}
+
+#cancel-edit-button ion-icon {
+  font-size: 18px;
+}
+
 `)
 
 let script = Script(/* js */ `
+// Create a thumbnail canvas for a bounding box cropped from the original image.
+// box: { x, y, width, height } in normalized [0,1] units (center-based).
+// scale: pixels per original image pixel (uniform for all boxes in the popover).
+function createBoundingBoxThumbnail(box, scale) {
+  try {
+    const img = document.getElementById('label_image')
+    if (!img || !img.naturalWidth || !img.naturalHeight) return null
+
+    // Convert normalized center-based box into pixel-based source rect
+    const imgW = img.naturalWidth
+    const imgH = img.naturalHeight
+    const srcW = Math.max(1, Math.round(box.width * imgW))
+    const srcH = Math.max(1, Math.round(box.height * imgH))
+    const srcX = Math.round(box.x * imgW - srcW / 2)
+    const srcY = Math.round(box.y * imgH - srcH / 2)
+
+    // Clamp source rect within image bounds
+    const clampedSrcX = Math.max(0, Math.min(srcX, imgW - 1))
+    const clampedSrcY = Math.max(0, Math.min(srcY, imgH - 1))
+    const clampedSrcW = Math.max(1, Math.min(srcW, imgW - clampedSrcX))
+    const clampedSrcH = Math.max(1, Math.min(srcH, imgH - clampedSrcY))
+
+    // Destination (thumbnail) size using uniform scale (preserves relative sizes across boxes)
+    const dstW = Math.max(1, Math.round(clampedSrcW * scale))
+    const dstH = Math.max(1, Math.round(clampedSrcH * scale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = dstW
+    canvas.height = dstH
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(
+      img,
+      clampedSrcX,
+      clampedSrcY,
+      clampedSrcW,
+      clampedSrcH,
+      0,
+      0,
+      dstW,
+      dstH,
+    )
+
+    return canvas
+  } catch (e) {
+    console.error('createBoundingBoxThumbnail error:', e)
+    return null
+  }
+}
+
 // Helper function to wait for WebSocket to be ready
 async function waitForWebSocket(maxAttempts = 50) {
   let attempts = 0
@@ -330,6 +476,158 @@ async function setupEditorUI() {
   if (!window._deleteButtonUpdateInterval) {
     window._deleteButtonUpdateInterval = setInterval(updateDeleteButton, 500)
   }
+  
+  // Update bounding box select options
+  updateBoundingBoxSelect(bounding_boxes)
+}
+
+// Function to update bounding box select dropdown options
+function updateBoundingBoxSelect(boundingBoxes) {
+  console.log('updateBoundingBoxSelect: Updating with', boundingBoxes.length, 'bounding boxes')
+  
+  let select = document.getElementById('bounding_box_select')
+  if (!select) {
+    console.error('updateBoundingBoxSelect: bounding_box_select not found')
+    return
+  }
+  
+  // Clear existing options
+  select.innerHTML = ''
+  
+  if (boundingBoxes.length === 0) {
+    // Add placeholder option when no bounding boxes
+    let option = document.createElement('ion-select-option')
+    option.value = ''
+    option.disabled = true
+    option.textContent = 'No bounding boxes'
+    select.appendChild(option)
+  } else {
+    // Add option for each bounding box with coordinates
+    boundingBoxes.forEach((box, index) => {
+      let option = document.createElement('ion-select-option')
+      option.value = box.id
+      
+      // Format coordinates to show position only
+      let coords = ''
+      if (box.x !== undefined && box.y !== undefined) {
+        // Round coordinates to 2 decimal places for better readability
+        let x = Math.round(box.x * 100) / 100
+        let y = Math.round(box.y * 100) / 100
+        coords = ' (' + x + ',' + y + ')'
+      }
+      
+      // Add sequence number before ID
+      let sequenceNumber = index + 1
+      option.textContent = sequenceNumber + '. ID:' + box.id + coords
+      select.appendChild(option)
+    })
+  }
+  
+  // Force ion-select to update
+  if (select.forceUpdate) {
+    select.forceUpdate()
+  }
+}
+
+// Function to update the bounding box select value to match the selected box
+function updateBoundingBoxSelectValue(boxId) {
+  console.log('updateBoundingBoxSelectValue: Setting select value to:', boxId)
+  
+  let select = document.getElementById('bounding_box_select')
+  if (!select) {
+    console.error('updateBoundingBoxSelectValue: bounding_box_select not found')
+    return
+  }
+  
+  // Set the value of the ion-select
+  // Suppress change handling while setting programmatically to avoid recursion
+  window._suppressBoundingBoxSelectChange = true
+  select.value = boxId
+  
+  // Trigger a manual update to ensure the UI reflects the change
+  if (select.forceUpdate) {
+    select.forceUpdate()
+  }
+  
+  // Re-enable change handling on next tick
+  setTimeout(() => { window._suppressBoundingBoxSelectChange = false }, 0)
+  
+}
+
+// Function to handle bounding box selection
+function selectBoundingBox(event) {
+  console.log('selectBoundingBox called with event:', event);
+  
+  let selectedBoxId = parseInt(event.detail.value)
+  console.log('selectBoundingBox: Selected box ID:', selectedBoxId, 'type:', typeof selectedBoxId)
+  
+  if (!selectedBoxId || !window.boundingBoxesData) {
+    console.log('selectBoundingBox: No valid selection or no bounding box data')
+    console.log('- selectedBoxId:', selectedBoxId)
+    console.log('- window.boundingBoxesData:', window.boundingBoxesData)
+    return
+  }
+  
+  console.log('selectBoundingBox: Available bounding boxes:', window.boundingBoxesData)
+  
+  // Find the selected bounding box
+  let selectedBox = window.boundingBoxesData.find(box => box.id === selectedBoxId)
+  if (!selectedBox) {
+    console.error('selectBoundingBox: Selected box not found in data')
+    console.error('- Looking for ID:', selectedBoxId)
+    console.error('- Available IDs:', window.boundingBoxesData.map(box => box.id))
+    return
+  }
+  
+  console.log('selectBoundingBox: Found box:', selectedBox)
+  
+  // Enter edit mode immediately for the selected bounding box
+  if (typeof window.enterEditMode === 'function') {
+    console.log('selectBoundingBox: Entering edit mode for selected box')
+    window.enterEditMode(selectedBox)
+  } else {
+    console.error('selectBoundingBox: enterEditMode function not available')
+    
+    // Fallback: manually set the state
+    window._editMode = true
+    window._editingBoundingBox = { ...selectedBox }
+    window.selectedBoundingBoxId = selectedBoxId
+    
+    console.log('selectBoundingBox: Manually set edit mode state')
+    
+    // Update camera position to focus on the selected bounding box
+    if (window.camera) {
+      console.log('selectBoundingBox: Updating camera from:', window.camera)
+      window.camera.x = selectedBox.x
+      window.camera.y = selectedBox.y
+      window.camera.width = selectedBox.width
+      window.camera.height = selectedBox.height
+      window.camera.rotate = selectedBox.rotate
+      window.camera.rotate_angle = selectedBox.rotate_angle || (selectedBox.rotate * 2 * Math.PI)
+      
+      console.log('selectBoundingBox: Updated camera to:', window.camera)
+      
+      // Force render to show the camera change
+      if (typeof window.render === 'function') {
+        console.log('selectBoundingBox: Calling render function')
+        window.render()
+      } else {
+        console.error('selectBoundingBox: render function not available')
+      }
+    } else {
+      console.error('selectBoundingBox: window.camera not available')
+    }
+    
+    // Update add button to show save mode
+    if (typeof window.updateAddButton === 'function') {
+      window.updateAddButton()
+    }
+  }
+  
+  // Update delete button state
+  if (typeof window.updateDeleteButton === 'function') {
+    window.updateDeleteButton()
+  }
 }
 
 function updateSelectOptionText(selector, text) {
@@ -383,6 +681,127 @@ if (!window._ionChangeListenerAdded) {
     emit('/annotate-bounding-box/showImage', { label_id });
   });
   window._ionChangeListenerAdded = true;
+}
+
+// Add event listener for bounding box select changes
+if (!window._boundingBoxSelectListenerAdded) {
+  document.addEventListener('ionChange', function(event) {
+    if (event.target.id === 'bounding_box_select') {
+      if (window._suppressBoundingBoxSelectChange) {
+        console.log('Bounding box select change suppressed (programmatic set).')
+        return
+      }
+      console.log('Bounding box select changed:', event.detail.value);
+      selectBoundingBox(event);
+    }
+  });
+  window._boundingBoxSelectListenerAdded = true;
+}
+
+// Enhance the ion-select popover by injecting thumbnails next to each option
+function enhanceBoundingBoxPopoverWithThumbnails() {
+  try {
+    const popover = document.querySelector('ion-popover.select-popover')
+    if (!popover) {
+      // Not our select popover
+      return
+    }
+
+    // Locate list items within the popover
+    const items = popover.querySelectorAll('ion-radio-group ion-item')
+    if (!items || items.length === 0) {
+      console.log('enhancePopover: no items found')
+      return
+    }
+
+    // Use current bounding boxes data for thumbnails
+    const boxes = Array.isArray(window.boundingBoxesData) ? window.boundingBoxesData : []
+    if (boxes.length === 0) {
+      console.log('enhancePopover: no boundingBoxesData to render thumbnails')
+    }
+
+    // Compute a uniform scale so thumbnails fit within both height and width caps
+    const imgEl = document.getElementById('label_image')
+    const imgW = imgEl?.naturalWidth || 0
+    const imgH = imgEl?.naturalHeight || 0
+    let maxBoxPixelHeight = 0
+    let maxBoxPixelWidth = 0
+    for (const b of boxes) {
+      if (b && typeof b.height === 'number' && typeof b.width === 'number') {
+        const h = Math.abs(b.height * imgH)
+        const w = Math.abs(b.width * imgW)
+        if (h > maxBoxPixelHeight) maxBoxPixelHeight = h
+        if (w > maxBoxPixelWidth) maxBoxPixelWidth = w
+      }
+    }
+  // 50% larger thumbnails
+  const targetMaxThumbHeight = 48 // px (was 32)
+  const targetMaxThumbWidth = 210 // px (was 140), to avoid clipping in popover
+    const heightScale = maxBoxPixelHeight > 0 ? (targetMaxThumbHeight / maxBoxPixelHeight) : Infinity
+    const widthScale = maxBoxPixelWidth > 0 ? (targetMaxThumbWidth / maxBoxPixelWidth) : Infinity
+    let scale = Math.min(heightScale, widthScale)
+    if (!isFinite(scale) || scale <= 0) scale = 0.03
+
+    // For safety, only render up to the min count
+    const count = Math.min(items.length, boxes.length)
+    for (let i = 0; i < count; i++) {
+      const item = items[i]
+      const box = boxes[i]
+
+      // Skip if already enhanced
+      if (item.getAttribute('data-has-thumb') === '1') continue
+
+      const label = item.querySelector('ion-label')
+      // Generate thumbnail
+      const thumbCanvas = (box && box.width != null && box.height != null) ? createBoundingBoxThumbnail(box, scale) : null
+      if (!thumbCanvas) {
+        item.setAttribute('data-has-thumb', '1')
+        continue
+      }
+
+      // Convert to image
+      const img = new Image()
+      img.src = thumbCanvas.toDataURL('image/png')
+  img.style.cssText = 'height:auto;width:auto;max-width:240px;margin-left:8px;vertical-align:middle;border:1px solid #ccc;border-radius:2px;display:inline-block;image-rendering:auto;'
+
+      // Append image next to the label content
+      // Prefer to append inside label; fallback to item if label not found
+      if (label) {
+        // Use a container span to keep text + image on one line
+        // Preserve existing text but arrange with a small gap to the thumbnail
+        const wrapper = document.createElement('span')
+        wrapper.style.display = 'inline-flex'
+        wrapper.style.alignItems = 'center'
+        wrapper.style.gap = '8px'
+
+        const textNode = document.createElement('span')
+        textNode.textContent = label.textContent || ''
+        wrapper.appendChild(textNode)
+        wrapper.appendChild(img)
+
+        // Replace label content
+        label.innerHTML = ''
+        label.appendChild(wrapper)
+      } else {
+        item.appendChild(img)
+      }
+
+      item.setAttribute('data-has-thumb', '1')
+    }
+
+    console.log('enhancePopover: injected thumbnails into', count, 'items')
+  } catch (err) {
+    console.error('enhancePopover error:', err)
+  }
+}
+
+// Listen for popover presentation to enhance options with thumbnails
+if (!window._popoverEnhancerAdded) {
+  window.addEventListener('ionPopoverDidPresent', () => {
+    // Defer slightly to ensure DOM is ready
+    setTimeout(() => enhanceBoundingBoxPopoverWithThumbnails(), 10)
+  })
+  window._popoverEnhancerAdded = true
 }
 
 // Function to update delete button state based on selection
@@ -457,6 +876,12 @@ async function deleteBoundingBox() {
   
   // Clear selection immediately before sending request
   window.selectedBoundingBoxId = undefined
+  
+  // Exit edit mode since the selected bounding box is being deleted
+  if (typeof window.exitEditMode === 'function') {
+    window.exitEditMode()
+  }
+  
   if (typeof window.updateDeleteButton === 'function') {
     window.updateDeleteButton()
   }
@@ -563,6 +988,15 @@ function exitEditMode() {
   window._editMode = false
   window._editingBoundingBox = null
   window.selectedBoundingBoxId = undefined
+  
+  // Clear the bounding box select value when exiting edit mode
+  if (typeof window.updateBoundingBoxSelectValue === 'function') {
+    window.updateBoundingBoxSelectValue('')
+  }
+  
+  // Hide cancel edit button
+  updateCancelEditButtonVisibility()
+  
   updateAddButton()
   if (typeof window.updateDeleteButton === 'function') {
     window.updateDeleteButton()
@@ -1135,6 +1569,22 @@ function Main(attrs: {}, context: any) {
         </ion-item>
         <div style="flex-grow: 1; overflow: hidden">
           <div id="editorContainer">
+            <div id="bounding-box-select">
+              <ion-select
+                id="bounding_box_select"
+                placeholder={Locale(
+                  {
+                    en: 'Check Bounding Box',
+                    zh_hk: '檢查邊界框',
+                    zh_cn: '检查边界框',
+                  },
+                  context,
+                )}
+                interface="popover"
+              >
+                {/* Options will be populated dynamically */}
+              </ion-select>
+            </div>
             <canvas id="minimapCanvas"></canvas>
             <div id="preview-container">
               <canvas id="previewCanvas"></canvas>

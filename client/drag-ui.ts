@@ -300,25 +300,6 @@ function setupDragUI(options: {
           rotate: camera.rotate,
           rotate_angle: camera.rotate_angle,
         })
-
-        options.debugMessage.textContent =
-          'scale: ' +
-          JSON.stringify(
-            {
-              rotate: camera.rotate,
-              rotate_angle: camera.rotate_angle,
-              scaleX,
-              scaleY,
-              x: camera.x,
-              y: camera.y,
-              currentDx,
-              currentDy,
-              width: camera.width,
-              height: camera.height,
-            },
-            null,
-            2,
-          )
       }
 
       // update last touches
