@@ -38,114 +38,193 @@ ion-col {
   padding: 10px;
   border-radius: 10px;
 }
+
+.image-item img {
+  display: block;
+}
+
+.image-item > div[style*="position: relative"] {
+  line-height: 0;
+}
 `)
 
 let script = Script(/* js */ `
+(function(){
+  if (window.__reviewBoundingBoxInit) return;
+  window.__reviewBoundingBoxInit = true;
 
-  label_select = document.querySelector('#label_select');
-  box_count_select = document.querySelector('#box_count_select');
+  const getLabelSelect = () => document.querySelector('#label_select');
+  const getBoxCountSelect = () => document.querySelector('#box_count_select');
 
-  label_id = +label_select.value
-  box_count = +box_count_select.value
-  
-  // submit form when label_select is changed
-  label_select.addEventListener('ionChange', (event) => {
-    label_id = +event.detail.value;
-  
-    // Update URL with new label parameter
-    const url = new URL(window.location);
-    url.searchParams.set('label', label_id);
-    window.history.pushState({}, '', url);
-    submitBoxCount();
-    emit('/review-bounding-box/label-changed', { label_id })
-  })
+  let label_id = 1;
+  let box_count = 1;
 
-  box_count_select.addEventListener('ionChange', (event) => {
-    box_count = event.detail.value;
-    // Update URL with new box count parameter
-    const url = new URL(window.location);
-    url.searchParams.set('box_count', box_count);
-    window.history.pushState({}, '', url);
-    submitBoxCount();
-  })
-
-//send selected image label and box count to server
-function submitBoxCount() {
-  emit('/review-bounding-box/submit-box-count', {
-    label_id,
-    box_count,
-  })
-}
-
-// draw multiple bounding boxes on the single canvas located by image_id
-function drawBoundingBoxes(image) {
-  // boxes: Array of { x, y, width, height, angle } objects
-
-  const image_id = image.dataset.imageId
-  const canvas = image.parentElement.querySelector('canvas')
-  const boxes = JSON.parse(image.dataset.boxes);
-
-  if (!canvas || !image) {
-    console.error('Canvas or image not found for image_id:', image_id);
-    return;
+  function readSelectValues() {
+    const label_select = getLabelSelect();
+    const box_count_select = getBoxCountSelect();
+    if (label_select && typeof label_select.value !== 'undefined') {
+      label_id = +label_select.value;
+    }
+    if (box_count_select && typeof box_count_select.value !== 'undefined') {
+      box_count = +box_count_select.value;
+    }
   }
 
-  if(!image.clientWidth || !image.clientHeight) {
-    setTimeout(() => {
-      drawBoundingBoxes(image)
-    }, 33)
-    return
-  }
+  function bindSelectHandlers() {
+    const label_select = getLabelSelect();
+    const box_count_select = getBoxCountSelect();
 
-  // Resize canvas to match image size
-  canvas.width = image.clientWidth;
-  canvas.height = image.clientHeight;
+    if (label_select && !label_select.dataset.bound) {
+      label_select.addEventListener('ionChange', (event) => {
+        const newLabelId = +event.detail.value;
+        label_id = newLabelId;
 
-  const context = canvas.getContext('2d');
-  context.clearRect(0, 0, canvas.width, canvas.height)
-
-  let lineWidth = Math.max(canvas.width, canvas.height) * 0.01
-  context.lineWidth = lineWidth;
-
-  boxes.forEach((box) => {
-    const width = box.width * canvas.width
-    const height = box.height * canvas.height
-    const left = box.x * canvas.width - width / 2
-    const top = box.y * canvas.height - height / 2
-
-    // Save the current context state
-    context.save();
-
-    // Translate to center of rectangle
-    context.translate(left + width / 2, top + height / 2);
-
-    // Rotate context
-    let degrees = box.rotate * 360
-    let radians = degrees / 180 * Math.PI
-    context.rotate(radians);
-
-    const gradient = context.createConicGradient(0, 0, 0);
-    // Create a rainbow gradient with hsl
-    let n = 32;
-    for(let i = 0; i <= n; i++){
-      let h = 360 * i / n;
-      let s = 100;
-      let l = 50;
-      let color = 'hsl(' + h + ',' + s + '%,' + l + '%)';
-      gradient.addColorStop(i/n, color);
+        // Update URL with new label parameter
+        const url = new URL(window.location);
+        url.searchParams.set('label', label_id);
+        window.history.pushState({}, '', url);
+        submitBoxCount();
+        if (typeof emit === 'function') {
+          emit('/review-bounding-box/label-changed', { label_id })
+        }
+      })
+      label_select.dataset.bound = '1'
     }
 
+    if (box_count_select && !box_count_select.dataset.bound) {
+      box_count_select.addEventListener('ionChange', (event) => {
+        box_count = +event.detail.value;
+        // Update URL with new box count parameter
+        const url = new URL(window.location);
+        url.searchParams.set('box_count', box_count);
+        window.history.pushState({}, '', url);
+        submitBoxCount();
+      })
+      box_count_select.dataset.bound = '1'
+    }
+  }
 
+  //send selected image label and box count to server
+  function submitBoxCount() {
+    if (typeof emit !== 'function') return
+    emit('/review-bounding-box/submit-box-count', {
+      label_id,
+      box_count,
+    })
+  }
 
-    context.strokeStyle = gradient;
+  // draw multiple bounding boxes on the single canvas located by image_id
+  function _drawBoundingBoxes(image) {
+    // boxes: Array of { x, y, width, height, angle } objects
 
-    // Draw rectangle centered at origin
-    context.strokeRect(-width / 2, -height / 2, width, height);
+    const image_id = image.dataset.imageId
+    const canvas = image.parentElement.querySelector('canvas')
+    let boxes = []
+    try {
+      boxes = JSON.parse(image.dataset.boxes || '[]') || []
+    } catch (e) {
+      console.error('invalid boxes json for image_id:', image_id, e)
+      boxes = []
+    }
 
-    // Restore the context state
-    context.restore();
-  });
-}
+    if (!canvas || !image) {
+      console.error('Canvas or image not found for image_id:', image_id);
+      return;
+    }
+
+    if(!image.clientWidth || !image.clientHeight) {
+      setTimeout(() => {
+        _drawBoundingBoxes(image)
+      }, 33)
+      return
+    }
+
+    // Resize canvas to match image size
+    canvas.width = image.clientWidth;
+    canvas.height = image.clientHeight;
+    // Ensure CSS size also matches to avoid layout scaling mismatches
+    canvas.style.width = image.clientWidth + 'px';
+    canvas.style.height = image.clientHeight + 'px';
+    canvas.style.pointerEvents = 'none';
+
+    const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height)
+
+    let lineWidth = Math.max(canvas.width, canvas.height) * 0.01
+    context.lineWidth = lineWidth;
+
+    boxes.forEach((box) => {
+      const width = box.width * canvas.width
+      const height = box.height * canvas.height
+      const left = box.x * canvas.width - width / 2
+      const top = box.y * canvas.height - height / 2
+
+      // Save the current context state
+      context.save();
+
+      // Translate to center of rectangle
+      context.translate(left + width / 2, top + height / 2);
+
+      // Rotate context
+      let degrees = box.rotate * 360
+      let radians = degrees / 180 * Math.PI
+      context.rotate(radians);
+
+      const gradient = context.createConicGradient(0, 0, 0);
+      // Create a rainbow gradient with hsl
+      let n = 32;
+      for(let i = 0; i <= n; i++){
+        let h = 360 * i / n;
+        let s = 100;
+        let l = 50;
+        let color = 'hsl(' + h + ',' + s + '%,' + l + '%)';
+        gradient.addColorStop(i/n, color);
+      }
+
+      context.strokeStyle = gradient;
+
+      // Draw rectangle centered at origin
+      context.strokeRect(-width / 2, -height / 2, width, height);
+
+      // Restore the context state
+      context.restore();
+    });
+  }
+
+  // expose for <img onload="drawBoundingBoxes(this)">
+  window.drawBoundingBoxes = _drawBoundingBoxes
+
+  // Redraw when images are swapped/updated or window size changes
+  const redrawAllBoundingBoxes = () => {
+    document
+      .querySelectorAll('#ReviewBoundingBox img[data-image-id]')
+      .forEach(img => _drawBoundingBoxes(img))
+  }
+
+  // Debounce helper
+  let _rbxTimer
+  const debounce = (fn, ms) => {
+    clearTimeout(_rbxTimer)
+    _rbxTimer = setTimeout(fn, ms)
+  }
+
+  window.addEventListener('resize', () => debounce(redrawAllBoundingBoxes, 100))
+
+  // Observe DOM updates from WebSocket replace-in/update-in
+  const mo = new MutationObserver(() => {
+    readSelectValues()
+    bindSelectHandlers()
+    debounce(redrawAllBoundingBoxes, 50)
+  })
+  window.addEventListener('load', () => {
+    const root = document.getElementById('ReviewBoundingBox') || document.body
+    mo.observe(root, { childList: true, subtree: true, attributes: true })
+    // initial attempt in case images already loaded before script
+    readSelectValues()
+    bindSelectHandlers()
+    redrawAllBoundingBoxes()
+  })
+})();
 `)
 
 let page = (
@@ -322,16 +401,16 @@ function ImageItem(attrs: {
             data-image-id={attrs.image_id}
             style="position: absolute; top: 0; left: 0;"
           ></canvas>
-          <div class="image-item--filename" style="text-align: center;">
-            {attrs.original_filename}
-            <br />
-            {attrs.user_names.length > 0 && (
-              <span style="font-size: 0.8rem;">
-                <Locale en="Annotated by" zh_hk="標註者" zh_cn="标注者" />:{' '}
-                {attrs.user_names.join(', ')}
-              </span>
-            )}
-          </div>
+        </div>
+        <div class="image-item--filename" style="text-align: center;">
+          {attrs.original_filename}
+          <br />
+          {attrs.user_names.length > 0 && (
+            <span style="font-size: 0.8rem;">
+              <Locale en="Annotated by" zh_hk="標註者" zh_cn="标注者" />:{' '}
+              {attrs.user_names.join(', ')}
+            </span>
+          )}
         </div>
       </div>
     </ion-col>
