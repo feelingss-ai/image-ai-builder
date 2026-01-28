@@ -2050,13 +2050,14 @@ function AddBoundingBox(attrs: {}, context: WsContext) {
     }
 
     // Verify that the user exists
-    let user_record = proxy.user.find(u => u && u.id === user_id)
+    let user_record = proxy.user[user_id]
     if (!user_record) {
       console.log(
         'AddBoundingBox: Available users:',
         proxy.user
           .filter(u => u && u.id !== undefined)
           .map(u => ({ id: u.id, username: u.username })),
+        { user_id },
       )
       throws({
         en: 'User not found',
