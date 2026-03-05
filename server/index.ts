@@ -48,6 +48,7 @@ if (config.development) {
 }
 app.use('/js', express.static('build'))
 app.use('/uploads', express.static(env.UPLOAD_DIR))
+app.use('/saved_models', express.static('saved_models'))
 app.use('/npm/@ionic/core', express.static('node_modules/@ionic/core'))
 app.use('/npm/swiper', express.static('node_modules/swiper'))
 app.use('/npm/jquery', express.static('node_modules/jquery'))
