@@ -1,3 +1,4 @@
+import { count, filter } from 'better-sqlite3-proxy'
 import { o } from '../jsx/jsx.js'
 import { ajaxRoute, Routes } from '../routes.js'
 import { apiEndpointTitle, title } from '../../config.js'
@@ -29,6 +30,7 @@ import { dataURItoFile } from '@beenotung/tslib/image.js'
 import { writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { BackToProjectHomeButton } from '../components/back-to-project-home-button.js'
+import { render } from '@ionic/core/dist/types/stencil-public-runtime.js'
 
 let pageTitle = <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
 let addPageTitle = (
@@ -73,8 +75,10 @@ let script = Script(/* js */ `
 var imageItemTemplate = document.querySelector('#imageList .image-item')
 imageItemTemplate.remove()
 
-async function pickImage() {
+async function pickImage(event) {
   try {
+  let form = event.target.closest('form')
+  let project_id = form.dataset.projectId
   let files = await selectImage({
     accept: '.jpg,.png,.webp,.heic,.gif',
     multiple: true,
@@ -99,7 +103,7 @@ async function pickImage() {
     if (!file) continue
     let formData = new FormData()
     formData.append('image', file)
-    let res = await fetch('/upload-image/submit', {
+    let res = await fetch('/upload-image/submit?project=' + project_id, {
       method: 'POST',
       body: formData,
     })
@@ -119,12 +123,14 @@ async function pickImage() {
 }
 
 async function removeImage(button) {
+  let form = button.closest('form')
+  let project_id = form.dataset.projectId
   let imageItem = button.closest('.image-item')
   let image = imageItem.querySelector('img')
   let url = image.getAttribute('src')
   if (url.startsWith('/uploads/')) {
     let filename = url.slice('/uploads/'.length)
-    let params = new URLSearchParams({ filename })
+    let params = new URLSearchParams({ filename, project: project_id })
     let json = await fetch_json('/upload-image/remove?' + params)
     if (json.error) {
       return
@@ -161,16 +167,28 @@ let items = [
   { title: 'iOS', slug: 'ios' },
 ]
 
-function Main(attrs: {}, context: Context) {
+function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
-  let count = proxy.image.length.toLocaleString()
+  let params = new URLSearchParams(context.routerMatch?.search)
+  let project_id = +params.get('project')!
+  if (!project_id) {
+    return (
+      <>
+        {renderError('missing project id in url', context)}
+        <p>
+          <Link href="/app/project">Select Project</Link>
+        </p>
+      </>
+    )
+  }
+  let images = filter(proxy.image, { project_id })
   return (
     <>
       <div style="margin-bottom: 0.5rem; text-align: center">
-        Existing <span id="imageCount">{count}</span> images.
+        Existing <span id="imageCount">{images.length}</span> images.
       </div>
-      <form style="text-align: center">
-        <ion-button onclick={user ? 'pickImage()' : 'goto("/login")'}>
+      <form style="text-align: center" data-project-id={project_id}>
+        <ion-button onclick={user ? `pickImage(event)` : 'goto("/login")'}>
           <ion-icon name="cloud-upload" slot="start"></ion-icon> Upload Photos
         </ion-button>
         <div id="imageList">
@@ -179,7 +197,7 @@ function Main(attrs: {}, context: Context) {
             filename="filename.jpg"
             user={user}
           />
-          {mapArray(proxy.image, image => {
+          {mapArray(images, image => {
             return (
               <ImageItem
                 image_url={`/uploads/${image.filename}`}
@@ -218,71 +236,71 @@ function ImageItem(attrs: {
   )
 }
 
-let addPage = (
-  <>
-    {Style(/* css */ `
+let addPageStyle = Style(/* css */ `
 #AddUploadImage .hint {
   margin-inline-start: 1rem;
   margin-block: 0.25rem;
 }
-`)}
-    <ion-header>
-      <ion-toolbar>
-        <IonBackButton href="/upload-image" backText={pageTitle} />
-        <ion-title role="heading" aria-level="1">
-          {addPageTitle}
-        </ion-title>
-      </ion-toolbar>
-    </ion-header>
-    <ion-content id="AddUploadImage" class="ion-padding">
-      <form
-        method="POST"
-        action="/upload-image/add/submit"
-        onsubmit="emitForm(event)"
-      >
-        <ion-list>
-          <ion-item>
-            <ion-input
-              name="title"
-              label="Title*:"
-              label-placement="floating"
-              required
-              minlength="3"
-              maxlength="50"
-            />
-          </ion-item>
-          <p class="hint">(3-50 characters)</p>
-          <ion-item>
-            <ion-input
-              name="slug"
-              label="Slug*: (unique url)"
-              label-placement="floating"
-              required
-              pattern="(\w|-|\.){1,32}"
-            />
-          </ion-item>
-          <p class="hint">
-            (1-32 characters of: <code>a-z A-Z 0-9 - _ .</code>)
-          </p>
-        </ion-list>
-        <div style="margin-inline-start: 1rem">
-          <ion-button type="submit">Submit</ion-button>
-        </div>
-        <p>
-          Remark:
-          <br />
-          *: mandatory fields
-        </p>
-        <p id="add-message"></p>
-      </form>
-    </ion-content>
-  </>
-)
+`)
 
 function AddPage(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   if (!user) return <Redirect href="/login" />
-  return addPage
+  return (
+    <>
+      {addPageStyle}
+      <ion-header>
+        <ion-toolbar>
+          <IonBackButton href="/upload-image" backText={pageTitle} />
+          <ion-title role="heading" aria-level="1">
+            {addPageTitle}
+          </ion-title>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content id="AddUploadImage" class="ion-padding">
+        <form
+          method="POST"
+          action="/upload-image/add/submit?project=${project_id}"
+          onsubmit="emitForm(event)"
+        >
+          <ion-list>
+            <ion-item>
+              <ion-input
+                name="title"
+                label="Title*:"
+                label-placement="floating"
+                required
+                minlength="3"
+                maxlength="50"
+              />
+            </ion-item>
+            <p class="hint">(3-50 characters)</p>
+            <ion-item>
+              <ion-input
+                name="slug"
+                label="Slug*: (unique url)"
+                label-placement="floating"
+                required
+                pattern="(\w|-|\.){1,32}"
+              />
+            </ion-item>
+            <p class="hint">
+              (1-32 characters of: <code>a-z A-Z 0-9 - _ .</code>)
+            </p>
+          </ion-list>
+          <div style="margin-inline-start: 1rem">
+            <ion-button type="submit">Submit</ion-button>
+          </div>
+          <p>
+            Remark:
+            <br />
+            *: mandatory fields
+          </p>
+          <p id="add-message"></p>
+        </form>
+      </ion-content>
+    </>
+  )
 }
 
 let submitParser = object({
@@ -349,6 +367,11 @@ async function UploadImage(context: ExpressContext) {
   try {
     let user_id = getAuthUserId(context)
     if (!user_id) throw 'not login'
+
+    let params = new URLSearchParams(context.routerMatch?.search)
+    let project_id = +params.get('project')!
+    if (!project_id) throw 'missing project id in url'
+
     let form = createUploadForm({ maxFileSize: 500 * KB })
     let [fields, files] = await form.parse(req)
     for (let file of files.image || []) {
@@ -357,9 +380,11 @@ async function UploadImage(context: ExpressContext) {
         filename: file.newFilename,
         user_id,
         rotation: null,
+        project_id,
       })
+      let new_count = count(proxy.image, { project_id })
       let url = '/uploads/' + file.newFilename
-      res.json({ url, count: proxy.image.length })
+      res.json({ url, count: new_count })
       return
     }
     res.json({})
@@ -374,13 +399,15 @@ async function RemoveImage(context: ExpressContext) {
     let { filename } = req.query
     if (typeof filename !== 'string') throw 'filename is required'
     let image = find(proxy.image, { filename })
+    let project_id = image?.project_id!
     if (image) {
       del(proxy.image_label, { image_id: image.id! })
       del(proxy.image, { filename })
     }
     let file = join(env.UPLOAD_DIR, filename)
     await rm(file, { force: true })
-    res.json({ count: proxy.image.length })
+    let new_count = count(proxy.image, { project_id })
+    res.json({ count: new_count })
   } catch (error) {
     console.error(error)
     res.json({ error: String(error) })
