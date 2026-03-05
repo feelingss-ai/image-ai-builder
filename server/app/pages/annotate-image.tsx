@@ -21,6 +21,7 @@ import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate } from '../../exception.js'
 import { IonButton } from '../components/ion-button.js'
+import { BackToProjectHomeButton } from '../components/back-to-project-home-button.js'
 
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
@@ -155,7 +156,7 @@ let page = (
     {style}
     <ion-header>
       <ion-toolbar>
-        <IonBackButton href="/" backText="Home" />
+        <BackToProjectHomeButton />
         <ion-title role="heading" aria-level="1">
           {pageTitle}
         </ion-title>

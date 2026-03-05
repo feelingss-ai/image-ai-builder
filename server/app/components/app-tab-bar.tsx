@@ -5,17 +5,16 @@ import { Locale } from './locale.js'
 export let appIonTabBar = (
   <IonTabBar
     tabs={[
+      // {
+      //   icon: 'home',
+      //   label: <Locale en="Home" zh_hk="主頁" zh_cn="主页" />,
+      //   href: '/app/home',
+      // },
       {
-        icon: 'home',
-        label: <Locale en="Home" zh_hk="主頁" zh_cn="主页" />,
-        href: '/app/home',
-      },
-      {
-        tab: 'chat',
-        ios: 'chatbubble',
-        md: 'chatbox',
-        label: <Locale en="Chat" zh_hk="聊天" zh_cn="聊天" />,
-        href: '/app/chat',
+        tab: 'project',
+        icon: 'folder',
+        label: <Locale en="Project" zh_hk="項目" zh_cn="项目" />,
+        href: '/app/project',
       },
       {
         tab: 'notice',

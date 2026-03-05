@@ -106,6 +106,13 @@ export type ContentReport = {
   reject_time: null | number
 }
 
+export type Project = {
+  id?: null | number
+  title: string
+  creator_id: number
+  creator?: User
+}
+
 export type Image = {
   id?: null | number
   original_filename: null | string
@@ -113,6 +120,8 @@ export type Image = {
   user_id: number
   user?: User
   rotation: null | number
+  project_id: null | number
+  project?: Project
 }
 
 export type Label = {
@@ -120,6 +129,8 @@ export type Label = {
   title: string
   dependency_id: null | number
   dependency?: Label
+  project_id: null | number
+  project?: Project
 }
 
 export type ImageLabel = {
@@ -131,6 +142,14 @@ export type ImageLabel = {
   user_id: number
   user?: User
   answer: number
+}
+
+export type ProjectMember = {
+  id?: null | number
+  project_id: number
+  project?: Project
+  user_id: number
+  user?: User
 }
 
 export type DBProxy = {
@@ -146,9 +165,11 @@ export type DBProxy = {
   verification_attempt: VerificationAttempt[]
   verification_code: VerificationCode[]
   content_report: ContentReport[]
+  project: Project[]
   image: Image[]
   label: Label[]
   image_label: ImageLabel[]
+  project_member: ProjectMember[]
 }
 
 export let proxy = proxySchema<DBProxy>({
@@ -185,18 +206,29 @@ export let proxy = proxySchema<DBProxy>({
       ['reporter', { field: 'reporter_id', table: 'user' }],
       ['reviewer', { field: 'reviewer_id', table: 'user' }],
     ],
+    project: [
+      /* foreign references */
+      ['creator', { field: 'creator_id', table: 'user' }],
+    ],
     image: [
       /* foreign references */
       ['user', { field: 'user_id', table: 'user' }],
+      ['project', { field: 'project_id', table: 'project' }],
     ],
     label: [
       /* foreign references */
       ['dependency', { field: 'dependency_id', table: 'label' }],
+      ['project', { field: 'project_id', table: 'project' }],
     ],
     image_label: [
       /* foreign references */
       ['image', { field: 'image_id', table: 'image' }],
       ['label', { field: 'label_id', table: 'label' }],
+      ['user', { field: 'user_id', table: 'user' }],
+    ],
+    project_member: [
+      /* foreign references */
+      ['project', { field: 'project_id', table: 'project' }],
       ['user', { field: 'user_id', table: 'user' }],
     ],
   },
