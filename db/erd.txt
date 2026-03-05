@@ -144,7 +144,7 @@ id integer PK
 title text
 dependency_id integer NULL FK >0- label.id
 project_id integer NULL FK >0- project.id
-     
+
 
 image_label
 -----------
@@ -156,7 +156,7 @@ answer integer
 
 
 project_member
-------------
+--------------
 id integer PK
 project_id integer FK >0- project.id
 user_id integer FK >0- user.id
@@ -195,9 +195,9 @@ val_loss real
 # verification_code (50, 550)
 # verification_attempt (50, 372)
 # content_report (515, 948)
+# project (898, 1030)
 # image (1251, 636)
 # label (1255, 869)
 # image_label (921, 771)
-# project (898, 1030)
 # project_member (1223, 1096)
 # training_stats (73, 1019)
