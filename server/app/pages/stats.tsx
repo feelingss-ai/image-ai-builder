@@ -157,7 +157,7 @@ function Main(attrs: {}, context: Context) {
       </div>
       {mapArray(
         [...proxy.label].sort(
-          (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+          (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
         ),
         label => {
           let label_id = label.id!
@@ -170,7 +170,7 @@ function Main(attrs: {}, context: Context) {
               </ion-card-content>
             </ion-card>
           )
-        }
+        },
       )}
     </>
   )

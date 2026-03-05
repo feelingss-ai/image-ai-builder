@@ -535,7 +535,7 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
   let project_id = getProjectIDFromURL(context)
   let projectLabels = filter(proxy.label, { project_id })
   let labels = [...projectLabels].sort(
-    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
 
   if (input.training_mode === 'scratch') {

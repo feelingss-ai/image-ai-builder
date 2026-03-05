@@ -380,7 +380,7 @@ function Main(attrs: {}, context: DynamicContext) {
   }
   let labels = filter(proxy.label, { project_id })
   let sortedLabels = [...labels].sort(
-    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
   return (
     <>
@@ -410,11 +410,7 @@ function Main(attrs: {}, context: DynamicContext) {
           style="border-radius: 0.5rem; box-shadow: 0 2px 8px #0001; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 200px;"
           id="webcamOutput"
         >
-          <video
-            id="webcamVideo"
-            muted
-            playsinline
-          ></video>
+          <video id="webcamVideo" muted playsinline></video>
           <canvas id="webcamCanvas"></canvas>
         </div>
         {/* placeholder to display user selected image */}

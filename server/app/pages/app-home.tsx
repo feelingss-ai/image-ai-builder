@@ -135,7 +135,9 @@ function Main(attrs: {}, context: DynamicContext) {
     },
     {
       href: '/import-dataset?project=' + project_id,
-      title: <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />,
+      title: (
+        <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />
+      ),
     },
     {
       href: '/annotate-image?project=' + project_id,

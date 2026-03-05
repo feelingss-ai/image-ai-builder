@@ -217,7 +217,7 @@ function Main(attrs: {}, context: DynamicContext) {
     ? filter(proxy.label, { project_id })
     : [...proxy.label]
   let sortedLabels = [...labels].sort(
-    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
   let defaultLabelId = sortedLabels[0]?.id ?? 1
   let label_id = params.get('label') ? +params.get('label')! : defaultLabelId

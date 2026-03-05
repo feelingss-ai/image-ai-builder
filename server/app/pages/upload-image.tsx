@@ -245,7 +245,11 @@ function Main(attrs: {}, context: DynamicContext) {
               onclick="removeAllImages(event)"
             >
               <ion-icon name="trash" slot="start"></ion-icon>
-              <Locale en="Delete all images" zh_hk="刪除全部圖片" zh_cn="删除全部图片" />
+              <Locale
+                en="Delete all images"
+                zh_hk="刪除全部圖片"
+                zh_cn="删除全部图片"
+              />
             </ion-button>
           </div>
         ) : null}
