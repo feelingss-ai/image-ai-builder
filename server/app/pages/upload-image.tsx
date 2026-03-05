@@ -54,6 +54,7 @@ let style = Style(/* css */ `
   background-color: white;
   padding: 0.5rem;
   border-radius: 0.5rem;
+  max-width: 100%;
 }
 #UploadImage #imageList .image-item--buttons {
   position: absolute;
