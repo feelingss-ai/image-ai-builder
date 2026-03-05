@@ -16,6 +16,7 @@ import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
 import { evalLocale, Locale } from '../components/locale.js'
+import { filter } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { Script } from '../components/script.js'
 
@@ -32,12 +33,19 @@ let style = Style(/* css */ `
 }
 `)
 
-const read_models_by_id = (): string[] => {
-  let models_dir = []
-  for (let row of proxy.label) {
-    models_dir.push('label-' + row.id)
-  }
-  return models_dir
+/** Returns model paths and label ids for the current project (from URL ?project=). Uses best checkpoint for inference. */
+function read_models_by_id(context: DynamicContext): { path: string; id: number }[] {
+  let params = new URLSearchParams(context.routerMatch?.search ?? '')
+  let project_id = +params.get('project')!
+  if (!project_id) return []
+  let labels = filter(proxy.label, { project_id })
+  return [...labels]
+    .sort((a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999))
+    .filter(label => label.id != null)
+    .map(label => ({
+      path: `project-${project_id}/best/label-${label.id}`,
+      id: label.id as number,
+    }))
 }
 
 let script = Script(/* js */ `
@@ -47,8 +55,8 @@ models_dir = window.models_dir
 //avoid load model multiple times
 window.modelCache ||= {}
 
-function loadLabelModel(label_dir) {
-  let url = '/saved_models/' + label_dir + '/model.json'
+function loadLabelModel(modelPath) {
+  let url = '/saved_models/' + modelPath + '/model.json'
   window.modelCache[url] ||= loadTF().then(tf => tf.loadLayersModel(url))
   let p = window.modelCache[url]
   p.catch(err => {
@@ -103,6 +111,7 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
     img.src = e.target.result;
 
     img.onload = async function() {
+      try {
       // 1. Resize image to 40x32 (width=40, height=32) to match input size 1280 = 40*32
       const width = 40;
       const height = 32;
@@ -130,34 +139,36 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
         grayscaleData[i] = (r + g + b) / 3 / 255;
       }
 
+      if (!models_dir || models_dir.length === 0) {
+        console.warn('Preview: no models (open the page with ?project= from project home)');
+        return;
+      }
+
       // prevent use tf before it is loaded
       let tf = await loadTF();
       // Create input tensor shaped [1, 1280]
       const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
 
-      for (let model_dir of models_dir) {
-        let model = await loadLabelModel(model_dir);
+      for (let modelInfo of models_dir) {
+        let model = await loadLabelModel(modelInfo.path);
         // Predict
         const prediction = model.predict(inputTensor);
         const probabilities = prediction.arraySync()[0];
-
-      //console.log('Class probabilities:', probabilities);
 
       const classNames = ['yes', 'no'];
       const maxIndex = probabilities.indexOf(Math.max(...probabilities));
       const predictedClass = classNames[maxIndex];
 
-      // console.log(model_dir + ": " + "Prediction: " + predictedClass + " confidence:" + (probabilities[maxIndex] * 100).toFixed(2));
-
-      let label = "#" + model_dir
-
-      //update label progress value
-      document.querySelector(label).value =  (probabilities[0] * 100).toFixed(2) //0: yes 1: no
+      let labelEl = document.querySelector('#label-' + modelInfo.id);
+      if (labelEl) labelEl.value = Math.round(probabilities[0] * 100); // 0: yes 1: no
 
       // Dispose tensors to avoid memory leaks
       prediction.dispose && prediction.dispose();
       }
       inputTensor.dispose && inputTensor.dispose();
+      } catch (err) {
+        console.error('Preview prediction failed:', err);
+      }
     }
   }
   reader.readAsDataURL(file);
@@ -175,8 +186,8 @@ async function startRealtimeDetection() {
 
   // Make sure models are loaded
   const models = {};
-  for (let model_dir of models_dir) {
-    models[model_dir] = await loadLabelModel(model_dir);
+  for (let modelInfo of models_dir) {
+    models[modelInfo.id] = await loadLabelModel(modelInfo.path);
   }
 
   const video = document.querySelector('video');
@@ -214,8 +225,9 @@ async function startRealtimeDetection() {
     const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
 
     // Predict for each model
-    for (let model_dir of models_dir) {
-      const model = models[model_dir];
+    for (let modelInfo of models_dir) {
+      const model = models[modelInfo.id];
+      if (!model) continue;
       const prediction = model.predict(inputTensor);
       const probabilities = (await prediction.array())[0];
 
@@ -223,19 +235,15 @@ async function startRealtimeDetection() {
       const maxIndex = probabilities.indexOf(Math.max(...probabilities));
       const predictedClass = classNames[maxIndex];
 
-      // console.log(model_dir + ' Prediction: ' + predictedClass + ' confidence:' + (probabilities[maxIndex] * 100).toFixed(2));
-
-      let label = document.querySelector('#' + model_dir)
-      if (!label) {
-        // user returned to previous page
+      let labelEl = document.querySelector('#label-' + modelInfo.id);
+      if (!labelEl) {
         stopWebcam();
         return;
       }
       if (shouldUpdateProgress) {
-        label.value = (probabilities[0] * 100).toFixed(2);
+        labelEl.value = Math.round(probabilities[0] * 100);
       }
 
-      // Dispose tensors to avoid memory leaks
       prediction.dispose && prediction.dispose();
     }
     inputTensor.dispose && inputTensor.dispose();
@@ -302,6 +310,12 @@ async function toggleWebcam() {
 }
 `)
 
+function PreviewScript(attrs: {}, context: DynamicContext) {
+  return (
+    <script>window.models_dir = {JSON.stringify(read_models_by_id(context))}</script>
+  )
+}
+
 let page = (
   <>
     {style}
@@ -316,13 +330,12 @@ let page = (
     <ion-content id="PreviewAI" class="ion-no-padding">
       <Main />
     </ion-content>
-    {/* pass models_dir to client */}
-    <script>window.models_dir = {JSON.stringify(read_models_by_id())}</script>
+    <PreviewScript />
     {script}
   </>
 )
 
-function Main(attrs: {}, context: Context) {
+function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   if (!user) {
     return (
@@ -342,6 +355,25 @@ function Main(attrs: {}, context: Context) {
       </>
     )
   }
+  let params = new URLSearchParams(context.routerMatch?.search ?? '')
+  let project_id = +params.get('project')!
+  if (!project_id) {
+    return (
+      <p class="ion-padding">
+        <Locale
+          en="No project selected. Select a project first to preview AI."
+          zh_hk="未選擇專案。請先選擇專案以預覽 AI。"
+          zh_cn="未选择项目。请先选择项目以预览 AI。"
+        />
+        {' '}
+        <Link href="/app/home">App Home</Link>
+      </p>
+    )
+  }
+  let labels = filter(proxy.label, { project_id })
+  let sortedLabels = [...labels].sort(
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+  )
   return (
     <>
       <div style="padding: 30px; display: flex; justify-content: center; margin-bottom: 1rem;">
@@ -384,19 +416,14 @@ function Main(attrs: {}, context: Context) {
         >
           <img width="100%" height="100%" style="object-fit: contain;" />
         </div>
-        {/* labels */}
+        {/* labels - same project-scoped list as models_dir so progress ids match */}
         <div style="position: absolute; right: 0; top: 0; display: flex; flex-direction: column; gap: 0.5rem; max-width: 40%;">
-          {mapArray(
-            [...proxy.label].sort(
-              (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
-            ),
-            label => (
+          {mapArray(sortedLabels, label => (
             <div class="label-container">
               <div class="class-label">{label.title}</div>
               <progress id={'label-' + label.id} value="0" max="100"></progress>
             </div>
-          )
-          )}
+          ))}
         </div>
         {/* upload image input */}
         <input
