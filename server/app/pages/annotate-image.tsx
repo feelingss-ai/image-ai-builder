@@ -213,18 +213,18 @@ function Main(attrs: {}, context: DynamicContext) {
   }
   let params = new URLSearchParams(context.routerMatch?.search)
   let project_id = params.get('project') ? +params.get('project')! : null
-  let label_id = +params.get('label')! || 1
-  let image = select_next_image.get({ label_id })
-  let total_images = proxy.image.length
-  let count = has_previous_annotation.get({ label_id }) as number
-  let has_undo = count > 0
-
   let labels = project_id != null
     ? filter(proxy.label, { project_id })
     : [...proxy.label]
   let sortedLabels = [...labels].sort(
     (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
   )
+  let defaultLabelId = sortedLabels[0]?.id ?? 1
+  let label_id = params.get('label') ? +params.get('label')! : defaultLabelId
+  let image = select_next_image.get({ label_id })
+  let total_images = proxy.image.length
+  let count = has_previous_annotation.get({ label_id }) as number
+  let has_undo = count > 0
 
   return (
     <>

@@ -11,6 +11,7 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
+import { ProjectPageBackButton } from '../components/back-to-project-home-button.js'
 import { object, string, int } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
@@ -37,7 +38,7 @@ let page = (
     {style}
     <ion-header>
       <ion-toolbar>
-        <IonBackButton href="/" backText="Home" />
+        <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
           {pageTitle}
         </ion-title>
