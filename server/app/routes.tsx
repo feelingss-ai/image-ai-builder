@@ -1,3 +1,4 @@
+import ManageLabels from './pages/manage-labels.js'
 import Stats from './pages/stats.js'
 import PreviewAI from './pages/preview-ai.js'
 import TrainAI from './pages/train-ai.js'
@@ -86,6 +87,7 @@ export type Routes = Record<string, PageRoute>
 
 // TODO direct support alternative urls instead of having to repeat the entry
 let routeDict = {
+  ...ManageLabels.routes,
   ...Stats.routes,
   ...PreviewAI.routes,
   ...TrainAI.routes,

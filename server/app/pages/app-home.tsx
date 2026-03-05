@@ -126,6 +126,10 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let pages: { href: string; title: string }[] = [
     {
+      href: '/manage-labels?project=' + project_id,
+      title: <Locale en="Manage Labels" zh_hk="管理標籤" zh_cn="管理标签" />,
+    },
+    {
       href: '/upload-image?project=' + project_id,
       title: <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />,
     },

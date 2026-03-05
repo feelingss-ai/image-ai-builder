@@ -144,6 +144,7 @@ id integer PK
 title text
 dependency_id integer NULL FK >0- label.id
 project_id integer NULL FK >0- project.id
+display_order integer NULL
 
 
 image_label
