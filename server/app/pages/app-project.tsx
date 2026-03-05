@@ -23,7 +23,7 @@ import { db } from '../../../db/db.js'
 import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
-import { pick, del, filter, find } from 'better-sqlite3-proxy'
+import { pick, del, filter, find, count } from 'better-sqlite3-proxy'
 
 let pageTitle = <Locale en="Project List" zh_hk="項目列表" zh_cn="项目列表" />
 let manageMemberTitle = (
@@ -46,6 +46,10 @@ ion-item {
     box-shadow: 0 6px 20px rgba(0,0,0,0.15);
     z-index: 10;
   }
+}
+
+.project-title--image-count {
+  font-size: 0.9rem;
 }
 `)
 
@@ -167,15 +171,25 @@ let manage_member_page = (
 )
 
 //generate project item with title, id and user_id
-function ProjectItem(attrs: { title: string; id: number; user_id: number }) {
-  let project = proxy.project[attrs.id]
+function ProjectItem(attrs: { id: number; user_id: number }) {
+  let project_id = attrs.id
+  let project = proxy.project[project_id]
 
   // if user is creator, show add member button
   let is_owner = project.creator_id == attrs.user_id
 
+  let title = project.title
+
+  let image_count = count(proxy.image, { project_id })
+
   return (
     <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
-      <h2 id={`project-title-${attrs.id}`}>{attrs.title}</h2>
+      <h2 id={`project-title-${attrs.id}`}>
+        {title}{' '}
+        <span class="project-title--image-count">
+          {image_count === 0 ? '(no images)' : `(${image_count} images)`}
+        </span>
+      </h2>
       {is_owner ? (
         <div style="margin-top: 10px; margin-left: auto; display: flex; gap: 8px;">
           {/* edit member list */}
@@ -303,11 +317,7 @@ function Main(attrs: {}, context: Context) {
       </ion-button>
       <ion-list id="project-list">
         {mapArray(projects, project => (
-          <ProjectItem
-            title={project.title}
-            id={project.id!}
-            user_id={user_id!}
-          />
+          <ProjectItem id={project.id!} user_id={user_id!} />
         ))}
       </ion-list>
       <ion-alert
@@ -363,13 +373,7 @@ function AddProject(attrs: {}, context: WsContext) {
         user_id: user_id!,
       })
 
-      let new_project_item = (
-        <ProjectItem
-          title={input.project_name}
-          id={project_id}
-          user_id={user_id!}
-        />
-      )
+      let new_project_item = <ProjectItem id={project_id} user_id={user_id!} />
 
       context.ws.send([
         'append',
@@ -627,11 +631,7 @@ function AddMember(attrs: {}, context: WsContext) {
       )
 
       let new_project_item = (
-        <ProjectItem
-          title={proxy.project[input.project_id].title}
-          id={input.project_id}
-          user_id={user_id!}
-        />
+        <ProjectItem id={input.project_id} user_id={user_id!} />
       )
       context.ws.send([
         'append',
