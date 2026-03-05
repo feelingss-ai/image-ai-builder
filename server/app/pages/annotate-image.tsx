@@ -22,7 +22,7 @@ import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate } from '../../exception.js'
 import { IonButton } from '../components/ion-button.js'
-import { BackToProjectHomeButton } from '../components/back-to-project-home-button.js'
+import { ProjectPageBackButton } from '../components/back-to-project-home-button.js'
 
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
@@ -157,7 +157,7 @@ let page = (
     {style}
     <ion-header>
       <ion-toolbar>
-        <BackToProjectHomeButton />
+        <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
           {pageTitle}
         </ion-title>
@@ -221,7 +221,7 @@ function Main(attrs: {}, context: DynamicContext) {
   )
   let defaultLabelId = sortedLabels[0]?.id ?? 1
   let label_id = params.get('label') ? +params.get('label')! : defaultLabelId
-  let image = select_next_image.get({ label_id })
+  let image = getNextImageForLabel(label_id)
   let total_images = proxy.image.length
   let count = has_previous_annotation.get({ label_id }) as number
   let has_undo = count > 0
@@ -351,8 +351,9 @@ function Main(attrs: {}, context: DynamicContext) {
   )
 }
 
+// Next image for a label. If dependency_id is set, skip images already marked negative for the dependency (precondition not met).
 let select_next_image = db.prepare<
-  { label_id: number },
+  { label_id: number; dependency_id: null | number },
   { id: number; filename: string; rotation: number | null }
 >(/* sql */ `
 select image.id, image.filename, image.rotation
@@ -361,7 +362,20 @@ where id not in (
   select image_id from image_label
   where label_id = :label_id
 )
+and (
+  :dependency_id is null
+  or id not in (
+    select image_id from image_label
+    where label_id = :dependency_id and answer = 0
+  )
+)
 `)
+
+function getNextImageForLabel(label_id: number) {
+  let label = proxy.label[label_id]
+  let dependency_id = label?.dependency_id ?? null
+  return select_next_image.get({ label_id, dependency_id })
+}
 
 // Fetches the next unannotated image for a given label and user
 async function getNextImage(context: ExpressContext) {
@@ -371,7 +385,7 @@ async function getNextImage(context: ExpressContext) {
     if (!user) throw 'You must be logged in to annotate image'
     let label_id = +req.query.label!
     if (!label_id) throw 'missing label'
-    let image = select_next_image.get({ label_id })
+    let image = getNextImageForLabel(label_id)
     return { image }
   } catch (error) {
     return { error: String(error) }
@@ -425,8 +439,8 @@ function ShowImage(attrs: {}, context: WsContext) {
       },
     ])
 
-    // check if label exists
-    let next_image = select_next_image.get({ label_id })
+    // check if label exists (skip images already marked negative for dependency)
+    let next_image = getNextImageForLabel(label_id)
     console.log(`ShowImage: next_image for label_id=${label_id}:`, next_image)
 
     // if no image found, return error
@@ -670,6 +684,19 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
       },
     )
 
+    // If marking as positive and this label has a dependency, also mark dependency as positive (precondition)
+    if (+input.answer === 1 && label.dependency_id) {
+      seedRow(
+        proxy.image_label,
+        {
+          label_id: label.dependency_id,
+          image_id: image.id!,
+          user_id: user.id!,
+        },
+        { answer: 1 },
+      )
+    }
+
     // Calculate the updated count of annotated images
     let new_count = count_annotated_images.get({
       label_id: input.label,
@@ -698,10 +725,8 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
        }`,
     ])
 
-    // Query the database for the next unannotated image
-    let next_image = select_next_image.get({
-      label_id: input.label,
-    })
+    // Query the database for the next unannotated image (respecting dependency)
+    let next_image = getNextImageForLabel(input.label)
     // Send batch WebSocket messages to update UI elements
     context.ws.send([
       'batch',
