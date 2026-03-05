@@ -32,6 +32,7 @@ import AppHome from './pages/app-home.js'
 import AppAbout from './pages/app-about.js'
 import AppCharacter from './pages/app-character.js'
 import ImportExportModel from './pages/import-export-model.js'
+import ImportDataset from './pages/import-dataset.js'
 import type { renderWebTemplate } from '../../template/web.js'
 import type { renderIonicTemplate } from '../../template/ionic.js'
 import { VNode } from '../../client/jsx/types.js'
@@ -110,6 +111,7 @@ let routeDict = {
   ...AppMore.routes,
   ...AppSettings.routes,
   ...ImportExportModel.routes,
+  ...ImportDataset.routes,
 } satisfies Routes
 
 export let redirectDict: Record<string, string> = {

@@ -376,16 +376,16 @@ async function UploadImage(context: ExpressContext) {
     let form = createUploadForm({ maxFileSize: 500 * KB })
     let [fields, files] = await form.parse(req)
     for (let file of files.image || []) {
-      proxy.image.push({
+      let image_id = proxy.image.push({
         original_filename: file.originalFilename || null,
         filename: file.newFilename,
         user_id,
         rotation: null,
         project_id,
-      })
+      }) as number
       let new_count = count(proxy.image, { project_id })
       let url = '/uploads/' + file.newFilename
-      res.json({ url, count: new_count })
+      res.json({ url, count: new_count, image_id })
       return
     }
     res.json({})
