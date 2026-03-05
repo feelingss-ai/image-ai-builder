@@ -154,18 +154,23 @@ function Main(attrs: {}, context: Context) {
           </div>
         </div>
       </div>
-      {mapArray(proxy.label, label => {
-        let label_id = label.id!
-        let { yes, no, unknown } = labels[label_id]
-        return (
-          <ion-card class="stats-item">
-            <ion-card-content>
-              <div class="stats-label">{label.title}</div>
-              <StatsChart yes={yes} unknown={unknown} no={no} />
-            </ion-card-content>
-          </ion-card>
-        )
-      })}
+      {mapArray(
+        [...proxy.label].sort(
+          (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+        ),
+        label => {
+          let label_id = label.id!
+          let { yes, no, unknown } = labels[label_id]
+          return (
+            <ion-card class="stats-item">
+              <ion-card-content>
+                <div class="stats-label">{label.title}</div>
+                <StatsChart yes={yes} unknown={unknown} no={no} />
+              </ion-card-content>
+            </ion-card>
+          )
+        }
+      )}
     </>
   )
 }

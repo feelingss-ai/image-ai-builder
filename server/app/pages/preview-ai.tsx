@@ -61,12 +61,17 @@ function Main(attrs: {}, context: Context) {
     <>
       <div style="position: relative;">
         <div style="position: absolute; right: 0; top: 0; display: flex; flex-direction: column; gap: 0.25rem;">
-          {mapArray(proxy.label, label => (
+          {mapArray(
+            [...proxy.label].sort(
+              (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+            ),
+            label => (
             <div class="label-container">
               <div class="class-label">{label.title}</div>
               <progress value="10" max="100"></progress>
             </div>
-          ))}
+          )
+          )}
         </div>
         <img
           src="https://picsum.photos/seed/2/3000/4000"

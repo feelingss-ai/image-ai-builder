@@ -82,6 +82,9 @@ function Main(attrs: {}, context: DynamicContext) {
 
   // Get labels for this project (use proxy filter for DB query, not array loop)
   let labels = filter(proxy.label, { project_id })
+  let sortedLabels = [...labels].sort(
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+  )
 
   return (
     <>
@@ -99,13 +102,18 @@ function Main(attrs: {}, context: DynamicContext) {
       </div>
 
       {/* Labels list */}
-      <h3>Labels ({labels.length})</h3>
+      <h3>Labels ({sortedLabels.length})</h3>
       <ion-list>
-        {mapArray(labels, label => (
-          <LabelItem label={label} project_id={project_id} />
+        {mapArray(sortedLabels, (label, index) => (
+          <LabelItem
+            label={label}
+            project_id={project_id}
+            index={index}
+            totalCount={sortedLabels.length}
+          />
         ))}
       </ion-list>
-      {labels.length === 0 && (
+      {sortedLabels.length === 0 && (
         <p style="text-align: center; color: var(--ion-color-medium); padding: 2rem;">
           <Locale
             en="No labels created yet. Click 'Add Label' to create your first label."
@@ -118,12 +126,21 @@ function Main(attrs: {}, context: DynamicContext) {
   )
 }
 
-function LabelItem(attrs: { label: any; project_id: number }) {
+function LabelItem(attrs: {
+  label: any
+  project_id: number
+  index: number
+  totalCount: number
+}) {
   let label = attrs.label
   let project_id = attrs.project_id
+  let index = attrs.index
+  let totalCount = attrs.totalCount
   if (!label) return null
   let dependency = label.dependency
   let dependencyText = dependency ? ` (depends on: ${dependency.title})` : ''
+  let canMoveUp = index > 0
+  let canMoveDown = index < totalCount - 1
 
   return (
     <ion-item id={`label-item-${label.id}`}>
@@ -131,17 +148,41 @@ function LabelItem(attrs: { label: any; project_id: number }) {
         <h2 id={`label-title-${label.id}`}>{label.title}</h2>
         <p>{dependencyText}</p>
       </ion-label>
-      <div style="display: flex; gap: 8px;">
+      <div style="display: flex; gap: 4px; align-items: center;">
+        <ion-button
+          class="label-move-up"
+          fill="clear"
+          size="small"
+          slot="end"
+          title="Move up"
+          disabled={!canMoveUp}
+          onclick={canMoveUp ? `emit('/manage-labels/reorder', { label_id: ${label.id}, project_id: ${project_id}, direction: 'up' })` : undefined}
+        >
+          <ion-icon name="chevron-up-outline"></ion-icon>
+        </ion-button>
+        <ion-button
+          class="label-move-down"
+          fill="clear"
+          size="small"
+          slot="end"
+          title="Move down"
+          disabled={!canMoveDown}
+          onclick={canMoveDown ? `emit('/manage-labels/reorder', { label_id: ${label.id}, project_id: ${project_id}, direction: 'down' })` : undefined}
+        >
+          <ion-icon name="chevron-down-outline"></ion-icon>
+        </ion-button>
         <Link
           href={`/manage-labels/edit?project=${project_id}&label_id=${label.id}`}
           tagName="ion-button"
           color="primary"
+          size="small"
           slot="end"
         >
           <ion-icon name="create-outline"></ion-icon>
         </Link>
         <ion-button
           color="danger"
+          size="small"
           slot="end"
           onclick={`emit('/manage-labels/delete', { label_id: ${label.id}, project_id: ${project_id} })`}
         >
@@ -167,8 +208,11 @@ function AddPage(attrs: {}, context: DynamicContext) {
     return <Redirect href="/app/project" />
   }
 
-  // Get existing labels for parent selection (use proxy filter for DB query)
+  // Get existing labels for parent selection (use proxy filter for DB query), sorted by display_order
   let labels = filter(proxy.label, { project_id })
+  let sortedLabelsForSelect = [...labels].sort(
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+  )
 
   return (
     <>
@@ -187,6 +231,7 @@ function AddPage(attrs: {}, context: DynamicContext) {
         <h2>Project: {project.title}</h2>
 
         <form
+          id="add-label-form"
           method="POST"
           action={`/manage-labels/add/submit?project=${project_id}`}
           onsubmit="emitForm(event)"
@@ -213,7 +258,7 @@ function AddPage(attrs: {}, context: DynamicContext) {
                 interface="popover"
               >
                 <ion-select-option value="">No parent</ion-select-option>
-                {mapArray(labels, label => (
+                {mapArray(sortedLabelsForSelect, label => (
                   <ion-select-option value={label.id}>
                     {label.title}
                   </ion-select-option>
@@ -232,8 +277,13 @@ function AddPage(attrs: {}, context: DynamicContext) {
           </div>
           <p
             id="add-message"
-            style="color: var(--ion-color-primary); text-align: center;"
+            style="color: var(--ion-color-success); text-align: center; min-height: 2.5rem;"
           ></p>
+          <p style="text-align: center; margin-top: 1rem;">
+            <Link href={`/manage-labels?project=${project_id}`} tagName="ion-button" fill="outline" size="small">
+              <Locale en="Back to label list" zh_hk="返回標籤列表" zh_cn="返回标签列表" />
+            </Link>
+          </p>
         </form>
       </ion-content>
     </>
@@ -264,9 +314,12 @@ function EditPage(attrs: {}, context: DynamicContext) {
     return <Redirect href={`/manage-labels?project=${project_id}`} />
   }
 
-  // Other labels in project for dependency dropdown, excluding self (proxy filter then exclude current)
+  // Other labels in project for dependency dropdown, excluding self (proxy filter then exclude current), sorted by display_order
   let allProjectLabels = filter(proxy.label, { project_id })
   let labels = allProjectLabels.filter(l => l.id !== label_id)
+  let sortedLabelsForEdit = [...labels].sort(
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+  )
 
   return (
     <>
@@ -313,7 +366,7 @@ function EditPage(attrs: {}, context: DynamicContext) {
                 value={label.dependency_id ?? ''}
               >
                 <ion-select-option value="">No parent</ion-select-option>
-                {mapArray(labels, l => (
+                {mapArray(sortedLabelsForEdit, l => (
                   <ion-select-option value={l.id}>
                     {l.title}
                   </ion-select-option>
@@ -380,15 +433,29 @@ function Submit(attrs: {}, context: WsContext) {
       }
     }
 
+    let projectLabels = filter(proxy.label, { project_id })
+    let maxOrder = 0
+    for (let i = 0; i < projectLabels.length; i++) {
+      let o = projectLabels[i].display_order
+      if (o != null && o > maxOrder) maxOrder = o
+    }
+
     let label_id = proxy.label.push({
       title: input.title,
       dependency_id: dependency_id,
       project_id: project_id,
+      display_order: maxOrder + 1,
     })
 
+    // Stay on page: show hint and clear form so user can add another or go back
     context.ws.send([
       'eval',
-      'document.querySelector("#add-message").textContent = "Label created successfully!"',
+      [
+        'var msg = document.querySelector("#add-message");',
+        'if (msg) msg.textContent = "Label created. Add another below or click Back to label list.";',
+        'var form = document.querySelector("#add-label-form");',
+        'if (form) { form.reset(); }',
+      ].join(' '),
     ])
 
     throw EarlyTerminate
@@ -534,6 +601,81 @@ function Delete(attrs: {}, context: WsContext) {
   }
 }
 
+let reorderParser = object({
+  project_id: int(),
+  label_id: int(),
+  direction: string(),
+})
+
+function ReorderLabel(attrs: {}, context: WsContext) {
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'You must be logged in'
+
+    let body = getContextFormBody(context)
+    let input = reorderParser.parse(body)
+    let project_id = input.project_id
+    let label_id = input.label_id
+    let direction = input.direction
+    if (direction !== 'up' && direction !== 'down') throw 'Invalid direction'
+
+    let project = proxy.project[project_id]
+    let label = proxy.label[label_id]
+    if (!project || !label || label.project_id !== project_id) {
+      throw 'Label not found'
+    }
+    if (project.creator_id !== user.id) {
+      throw 'You do not have permission to reorder labels in this project'
+    }
+
+    let labels = filter(proxy.label, { project_id })
+    let sorted = [...labels].sort(
+      (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+    )
+    let idx = sorted.findIndex(l => l.id === label_id)
+    if (idx < 0) throw 'Label not in project list'
+    let swapIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (swapIdx < 0 || swapIdx >= sorted.length) throw 'Cannot move further'
+
+    let other = sorted[swapIdx]
+    let other_id = other!.id!
+    let aOrder = label.display_order ?? 999999
+    let bOrder = other!.display_order ?? 999999
+    label.display_order = bOrder
+    other!.display_order = aOrder
+
+    let swapEval = `
+(function(){
+  var cur = document.getElementById('label-item-${label_id}');
+  var other = document.getElementById('label-item-${other_id}');
+  if (!cur || !other) return;
+  var parent = cur.parentNode;
+  if ('${direction}' === 'up') {
+    parent.insertBefore(cur, other);
+  } else {
+    parent.insertBefore(cur, other.nextSibling);
+  }
+  var list = document.querySelector('#ManageLabels ion-list');
+  if (!list) return;
+  var items = list.querySelectorAll('ion-item[id^="label-item-"]');
+  for (var i = 0; i < items.length; i++) {
+    var up = items[i].querySelector('.label-move-up');
+    var down = items[i].querySelector('.label-move-down');
+    if (up) up.disabled = (i === 0);
+    if (down) down.disabled = (i === items.length - 1);
+  }
+})();
+`
+    context.ws.send(['eval', swapEval])
+    throw EarlyTerminate
+  } catch (error) {
+    if (error === EarlyTerminate) throw EarlyTerminate
+    console.error(error)
+    context.ws.send(['eval', `alert("${String(error).replace(/"/g, '\\"')}")`])
+    throw EarlyTerminate
+  }
+}
+
 let routes = {
   '/manage-labels': {
     title: <Title t={pageTitle} />,
@@ -568,6 +710,12 @@ let routes = {
     title: apiEndpointTitle,
     description: 'Delete a label',
     node: <Delete />,
+    streaming: false,
+  },
+  '/manage-labels/reorder': {
+    title: apiEndpointTitle,
+    description: 'Change label order',
+    node: <ReorderLabel />,
     streaming: false,
   },
 } satisfies Routes

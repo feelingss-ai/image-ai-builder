@@ -137,6 +137,7 @@ export type Label = {
   dependency?: Label
   project_id: null | number
   project?: Project
+  display_order: null | number
 }
 
 export type ImageLabel = {

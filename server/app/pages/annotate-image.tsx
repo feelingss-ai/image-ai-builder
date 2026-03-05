@@ -15,6 +15,7 @@ import { id, number, object, values } from 'cast.ts'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, makeThrows, Title } from '../components/locale.js'
+import { filter } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
@@ -211,11 +212,19 @@ function Main(attrs: {}, context: DynamicContext) {
     )
   }
   let params = new URLSearchParams(context.routerMatch?.search)
+  let project_id = params.get('project') ? +params.get('project')! : null
   let label_id = +params.get('label')! || 1
   let image = select_next_image.get({ label_id })
   let total_images = proxy.image.length
   let count = has_previous_annotation.get({ label_id }) as number
   let has_undo = count > 0
+
+  let labels = project_id != null
+    ? filter(proxy.label, { project_id })
+    : [...proxy.label]
+  let sortedLabels = [...labels].sort(
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+  )
 
   return (
     <>
@@ -229,7 +238,7 @@ function Main(attrs: {}, context: DynamicContext) {
             )}
             id="label_select"
           >
-            {mapArray(proxy.label, label => {
+            {mapArray(sortedLabels, label => {
               let annotated_images = count_annotated_images.get({
                 label_id: label.id!,
               })

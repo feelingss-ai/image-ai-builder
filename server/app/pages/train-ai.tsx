@@ -531,7 +531,11 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
   if (!user) throw 'You must be logged in to train AI'
   let body = getContextFormBody(context)
   let input = submitTrainParser.parse(body)
-  let labels = pick(proxy.label, ['id', 'title', 'dependency_id', 'project_id'])
+  let project_id = getProjectIDFromURL(context)
+  let projectLabels = filter(proxy.label, { project_id })
+  let labels = [...projectLabels].sort(
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+  )
 
   if (input.training_mode === 'scratch') {
     del(proxy.training_stats, { id: notNull })
@@ -587,6 +591,7 @@ let select_label_by_project = db.prepare<
     label.title
   from label
   where label.project_id = :project_id
+  order by label.display_order asc, label.id asc
   `)
 
 let select_image_filename_by_label = db.prepare<
