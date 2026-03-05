@@ -23,6 +23,9 @@ When extending a feature, keep client and server validation aligned and don't ch
 **Minimal git diff**  
 Change only what the task needs. Don't reformat, rewrap, or "fix" unrelated style; don't reorder imports or touch unused code. Smaller diffs are easier to review and less risky.
 
+**JSX requires `o` in scope**  
+This project uses a custom JSX runtime. Any file that contains JSX (e.g. `<Component />`) must have **`o`** in scope — typically `import { o } from '../jsx/jsx.js'` (or the correct path to the project's jsx module). Do **not** remove the `o` import when cleaning up or refactoring; the compiler/runtime expects it for JSX tags. If the linter reports "This JSX tag requires 'o' to be in scope", add or restore the `o` import.
+
 ---
 
 **Readability over brevity**  
