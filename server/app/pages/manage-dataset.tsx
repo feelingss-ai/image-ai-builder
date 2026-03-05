@@ -104,7 +104,6 @@ let style = Style(/* css */ `
   text-align: center;
 }
 #imageModal .sidebar .label-item {
-  margin-bottom: 0.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -170,7 +169,6 @@ let style = Style(/* css */ `
   gap: 0.5rem;
 }
 #ManageDataset .label-container .class-label {
-  font-size: 0.1rem;
   display: flex;
   justify-content: center;
   flex: 1;
@@ -183,25 +181,14 @@ let style = Style(/* css */ `
   right: 0;
   top: -2.5rem;
   width: 5rem;
-  font-size: 0.5rem;
   padding: 0rem;
-  background-color: #d9d5d5b0;
   border-radius: 0.1rem;
   text-align: center;
-  --background: #d9d5d5b0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.2rem;
   z-index: 10;
-}
-#ManageDataset .label-toggle-button ion-icon {
-  font-size: 0.5rem;
-  color: #ffffffe4;
-}
-#ManageDataset .label-toggle-button span {
-  color: #ffffffe4;
-  font-size: 0.1rem;
 }
 #ManageDataset .label-state-button {
   --padding-start: 0;
@@ -224,21 +211,14 @@ let style = Style(/* css */ `
   left: 0;
   top: -2.5rem;
   width: 5rem;
-  font-size: 0.5rem;
   padding: 0rem;
-  background-color: #d9d5d5b0;
   border-radius: 0.1rem;
   text-align: center;
-  --background: #d9d5d5b0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.2rem;
   z-index: 10;
-}
-#ManageDataset .select-toggle-button span {
-  color: #ffffffe4;
-  font-size: 0.1rem;
 }
 #ManageDataset .select-all-button {
   position: absolute;
@@ -246,21 +226,14 @@ let style = Style(/* css */ `
   top: -2.5rem;
   width: 8rem;
   height: 1.2rem;
-  font-size: 0.1rem;
   padding: 0rem;
-  background-color: #d9d5d5b0;
   border-radius: 0.1rem;
   text-align: center;
-  --background: #d9d5d5b0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.1rem;
   z-index: 10;
-}
-#ManageDataset .select-all-button span {
-  color: #ffffffe4;
-  font-size: 0.1rem;
 }
 #ManageDataset .image-checkbox {
   position: absolute;
@@ -347,7 +320,6 @@ let style = Style(/* css */ `
 #ManageDataset .import-button {
   width: 12rem;
   height: 3rem;
-  font-size: 0.5rem;
   --background: #d9d5d5b0;
   border-radius: 0.1rem;
   display: flex;
@@ -356,7 +328,6 @@ let style = Style(/* css */ `
 }
 #ManageDataset .import-button span {
   color: #ffffffe4;
-  font-size: 0.1rem;
 }
 `)
 
