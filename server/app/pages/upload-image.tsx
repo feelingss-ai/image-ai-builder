@@ -230,25 +230,25 @@ function Main(attrs: {}, context: DynamicContext) {
   let images = filter(proxy.image, { project_id })
   return (
     <>
-      <div style="margin-bottom: 0.5rem; text-align: center; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.5rem">
-        <span>
-          Existing <span id="imageCount">{images.length}</span> images.
-        </span>
-        {images.length > 0 && user ? (
-          <ion-button
-            color="danger"
-            fill="outline"
-            onclick="removeAllImages(event)"
-          >
-            <ion-icon name="trash" slot="start"></ion-icon>
-            <Locale en="Delete all images" zh_hk="刪除全部圖片" zh_cn="删除全部图片" />
-          </ion-button>
-        ) : null}
+      <div style="margin-bottom: 0.5rem; text-align: center">
+        Existing <span id="imageCount">{images.length}</span> images.
       </div>
       <form style="text-align: center" data-project-id={project_id}>
         <ion-button onclick={user ? `pickImage(event)` : 'goto("/login")'}>
           <ion-icon name="cloud-upload" slot="start"></ion-icon> Upload Photos
         </ion-button>
+        {images.length > 0 && user ? (
+          <div style="display: block; margin-top: 0.5rem">
+            <ion-button
+              color="danger"
+              fill="outline"
+              onclick="removeAllImages(event)"
+            >
+              <ion-icon name="trash" slot="start"></ion-icon>
+              <Locale en="Delete all images" zh_hk="刪除全部圖片" zh_cn="删除全部图片" />
+            </ion-button>
+          </div>
+        ) : null}
         <div id="imageList">
           <ImageItem
             image_url="https://picsum.photos/seed/1/200/300"
