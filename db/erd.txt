@@ -162,6 +162,19 @@ project_id integer FK >0- project.id
 user_id integer FK >0- user.id
 
 
+training_stats
+--------------
+id integer PK
+user_id integer FK >0- user.id
+label_id integer FK >0- label.id
+epoch integer
+learning_rate real
+train_accuracy real
+train_loss real
+val_accuracy real
+val_loss real
+
+
 # zoom: 1.000
 # view: (734, 575)
 # text-bg: #6495ed
@@ -187,3 +200,4 @@ user_id integer FK >0- user.id
 # image_label (921, 771)
 # project (898, 1030)
 # project_member (1223, 1096)
+# training_stats (73, 1019)

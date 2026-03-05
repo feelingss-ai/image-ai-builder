@@ -158,6 +158,20 @@ export type ProjectMember = {
   user?: User
 }
 
+export type TrainingStats = {
+  id?: null | number
+  user_id: number
+  user?: User
+  label_id: number
+  label?: Label
+  epoch: number
+  learning_rate: number
+  train_accuracy: number
+  train_loss: number
+  val_accuracy: number
+  val_loss: number
+}
+
 export type DBProxy = {
   method: Method[]
   url: Url[]
@@ -176,6 +190,7 @@ export type DBProxy = {
   label: Label[]
   image_label: ImageLabel[]
   project_member: ProjectMember[]
+  training_stats: TrainingStats[]
 }
 
 export let proxy = proxySchema<DBProxy>({
@@ -236,6 +251,11 @@ export let proxy = proxySchema<DBProxy>({
       /* foreign references */
       ['project', { field: 'project_id', table: 'project' }],
       ['user', { field: 'user_id', table: 'user' }],
+    ],
+    training_stats: [
+      /* foreign references */
+      ['user', { field: 'user_id', table: 'user' }],
+      ['label', { field: 'label_id', table: 'label' }],
     ],
   },
 })
