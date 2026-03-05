@@ -53,6 +53,76 @@ let sweetAlertPlugin = loadClientPlugin({
 let script = Script(/* js */ `
 var importedImageIds = [];
 
+window.batchLabelDeps = window.batchLabelDeps || {};
+function getBatchDependentsMap() {
+  var deps = window.batchLabelDeps;
+  var map = {};
+  for (var lid in deps) {
+    var dep = deps[lid];
+    if (dep != null) {
+      var d = typeof dep === 'number' ? dep : parseInt(dep, 10);
+      if (!map[d]) map[d] = [];
+      map[d].push(typeof lid === 'number' ? lid : parseInt(lid, 10));
+    }
+  }
+  return map;
+}
+function getAncestors(labelId) {
+  var deps = window.batchLabelDeps;
+  var out = [];
+  var cur = deps[labelId] != null ? (typeof deps[labelId] === 'number' ? deps[labelId] : parseInt(deps[labelId], 10)) : null;
+  while (cur) {
+    out.push(cur);
+    cur = deps[cur] != null ? (typeof deps[cur] === 'number' ? deps[cur] : parseInt(deps[cur], 10)) : null;
+  }
+  return out;
+}
+function getDescendants(labelId, map) {
+  var children = map[labelId] || [];
+  var out = [].concat(children);
+  for (var i = 0; i < children.length; i++) {
+    out = out.concat(getDescendants(children[i], map));
+  }
+  return out;
+}
+function setupBatchLabelDepsCascade() {
+  var dependentsMap = getBatchDependentsMap();
+  document.addEventListener('ionChange', function(e) {
+    var segment = e.target;
+    if (!segment || segment.tagName !== 'ION-SEGMENT') return;
+    var row = segment.closest('.batch-label-row');
+    if (!row) return;
+    var labelIdStr = row.dataset.labelId;
+    if (!labelIdStr) return;
+    var labelId = parseInt(labelIdStr, 10);
+    var value = segment.value;
+    if (value === 'yes') {
+      var ancestors = getAncestors(labelIdStr);
+      for (var i = 0; i < ancestors.length; i++) {
+        var row2 = document.querySelector('.batch-label-row[data-label-id="' + ancestors[i] + '"]');
+        if (row2) {
+          var seg2 = row2.querySelector('ion-segment');
+          if (seg2) seg2.value = 'yes';
+        }
+      }
+    } else if (value === 'no') {
+      var descendants = getDescendants(labelId, dependentsMap);
+      for (var j = 0; j < descendants.length; j++) {
+        var row3 = document.querySelector('.batch-label-row[data-label-id="' + descendants[j] + '"]');
+        if (row3) {
+          var seg3 = row3.querySelector('ion-segment');
+          if (seg3) seg3.value = 'no';
+        }
+      }
+    }
+  });
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupBatchLabelDepsCascade);
+} else {
+  setupBatchLabelDepsCascade();
+}
+
 function reportError(err) {
   var msg = err && (err.message || String(err))
   if (typeof showError === 'function') showError(msg); else alert(msg)
@@ -207,8 +277,17 @@ function Main(attrs: {}, context: DynamicContext) {
   let sortedLabels = [...labels].sort(
     (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
+  let labelDeps: Record<string, number | null> = {}
+  for (let l of sortedLabels) {
+    if (l.id != null) labelDeps[String(l.id)] = l.dependency_id ?? null
+  }
   return (
     <>
+      {sortedLabels.length > 0 && (
+        <script>
+          {'window.batchLabelDeps = ' + JSON.stringify(labelDeps)}
+        </script>
+      )}
       <p class="ion-text-secondary">
         <Locale
           en="Upload multiple images, then set Yes/No for each label to apply to all of them at once."
