@@ -142,6 +142,17 @@ function Main(attrs: {}, context: DynamicContext) {
         <Link tagName="ion-item" href={'/stats?project=' + project_id}>
           5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
         </Link>
+        <Link
+          tagName="ion-item"
+          href={'/import-export-model?project=' + project_id}
+        >
+          6.
+          <Locale
+            en="Import/Export Model"
+            zh_hk="匯入/匯出模型"
+            zh_cn="导入/导出模型"
+          />
+        </Link>
       </ion-list>
       {wsStatus.safeArea}
     </ion-content>

@@ -35,4 +35,4 @@ uploads/
 data/*.tmp.*
 data/*.sql
 data/*.zst
-saved_models
+saved_models/
