@@ -124,35 +124,47 @@ function Main(attrs: {}, context: DynamicContext) {
     )
   }
 
+  let pages: { href: string; title: string }[] = [
+    {
+      href: '/upload-image?project=' + project_id,
+      title: <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />,
+    },
+    {
+      href: '/annotate-image?project=' + project_id,
+      title: <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />,
+    },
+    {
+      href: '/train-ai?project=' + project_id,
+      title: <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />,
+    },
+    {
+      href: '/preview-ai?project=' + project_id,
+      title: <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />,
+    },
+    {
+      href: '/stats?project=' + project_id,
+      title: <Locale en="Stats" zh_hk="統計" zh_cn="统计" />,
+    },
+    {
+      href: '/import-export-model?project=' + project_id,
+      title: (
+        <Locale
+          en="Import/Export Model"
+          zh_hk="匯入/匯出模型"
+          zh_cn="导入/导出模型"
+        />
+      ),
+    },
+  ]
+
   return (
     <ion-content class="ion-padding">
       <ion-list>
-        <Link tagName="ion-item" href={'/upload-image?project=' + project_id}>
-          1. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
-        </Link>
-        <Link tagName="ion-item" href={'/annotate-image?project=' + project_id}>
-          2. <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />
-        </Link>
-        <Link tagName="ion-item" href={'/train-ai?project=' + project_id}>
-          3. <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
-        </Link>
-        <Link tagName="ion-item" href={'/preview-ai?project=' + project_id}>
-          4. <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
-        </Link>
-        <Link tagName="ion-item" href={'/stats?project=' + project_id}>
-          5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
-        </Link>
-        <Link
-          tagName="ion-item"
-          href={'/import-export-model?project=' + project_id}
-        >
-          6.
-          <Locale
-            en="Import/Export Model"
-            zh_hk="匯入/匯出模型"
-            zh_cn="导入/导出模型"
-          />
-        </Link>
+        {mapArray(pages, (page, index) => (
+          <Link tagName="ion-item" href={page.href}>
+            {index + 1}. {page.title}
+          </Link>
+        ))}
       </ion-list>
       {wsStatus.safeArea}
     </ion-content>
