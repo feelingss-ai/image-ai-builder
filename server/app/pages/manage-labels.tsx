@@ -1,3 +1,4 @@
+import { count } from 'better-sqlite3-proxy'
 import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle, LayoutType } from '../../config.js'
@@ -30,6 +31,10 @@ let addPageTitle = <Locale en="Add Label" zh_hk="添加標籤" zh_cn="添加标�
 let style = Style(/* css */ `
 #ManageLabels {
 
+}
+.label-image-count {
+  font-size: 0.8rem;
+  color: var(--ion-color-medium);
 }
 `)
 
@@ -84,7 +89,7 @@ function Main(attrs: {}, context: DynamicContext) {
   // Get labels for this project (use proxy filter for DB query, not array loop)
   let labels = filter(proxy.label, { project_id })
   let sortedLabels = [...labels].sort(
-    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
 
   return (
@@ -143,10 +148,15 @@ function LabelItem(attrs: {
   let canMoveUp = index > 0
   let canMoveDown = index < totalCount - 1
 
+  let image_count = count(proxy.image_label, { label_id: label.id })
+
   return (
     <ion-item id={`label-item-${label.id}`}>
       <ion-label>
-        <h2 id={`label-title-${label.id}`}>{label.title}</h2>
+        <h2 id={`label-title-${label.id}`}>
+          {label.title}{' '}
+          <span class="label-image-count">({image_count || 'no'} images)</span>
+        </h2>
         <p>{dependencyText}</p>
       </ion-label>
       <div style="display: flex; gap: 4px; align-items: center;">
@@ -157,7 +167,11 @@ function LabelItem(attrs: {
           slot="end"
           title="Move up"
           disabled={!canMoveUp}
-          onclick={canMoveUp ? `emit('/manage-labels/reorder', { label_id: ${label.id}, project_id: ${project_id}, direction: 'up' })` : undefined}
+          onclick={
+            canMoveUp
+              ? `emit('/manage-labels/reorder', { label_id: ${label.id}, project_id: ${project_id}, direction: 'up' })`
+              : undefined
+          }
         >
           <ion-icon name="chevron-up-outline"></ion-icon>
         </ion-button>
@@ -168,7 +182,11 @@ function LabelItem(attrs: {
           slot="end"
           title="Move down"
           disabled={!canMoveDown}
-          onclick={canMoveDown ? `emit('/manage-labels/reorder', { label_id: ${label.id}, project_id: ${project_id}, direction: 'down' })` : undefined}
+          onclick={
+            canMoveDown
+              ? `emit('/manage-labels/reorder', { label_id: ${label.id}, project_id: ${project_id}, direction: 'down' })`
+              : undefined
+          }
         >
           <ion-icon name="chevron-down-outline"></ion-icon>
         </ion-button>
@@ -212,7 +230,7 @@ function AddPage(attrs: {}, context: DynamicContext) {
   // Get existing labels for parent selection (use proxy filter for DB query), sorted by display_order
   let labels = filter(proxy.label, { project_id })
   let sortedLabelsForSelect = [...labels].sort(
-    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
 
   return (
@@ -281,8 +299,17 @@ function AddPage(attrs: {}, context: DynamicContext) {
             style="color: var(--ion-color-success); text-align: center; min-height: 2.5rem;"
           ></p>
           <p style="text-align: center; margin-top: 1rem;">
-            <Link href={`/manage-labels?project=${project_id}`} tagName="ion-button" fill="outline" size="small">
-              <Locale en="Back to label list" zh_hk="返回標籤列表" zh_cn="返回标签列表" />
+            <Link
+              href={`/manage-labels?project=${project_id}`}
+              tagName="ion-button"
+              fill="outline"
+              size="small"
+            >
+              <Locale
+                en="Back to label list"
+                zh_hk="返回標籤列表"
+                zh_cn="返回标签列表"
+              />
             </Link>
           </p>
         </form>
@@ -291,9 +318,7 @@ function AddPage(attrs: {}, context: DynamicContext) {
   )
 }
 
-let editPageTitle = (
-  <Locale en="Edit Label" zh_hk="編輯標籤" zh_cn="编辑标签" />
-)
+let editPageTitle = <Locale en="Edit Label" zh_hk="編輯標籤" zh_cn="编辑标签" />
 
 function EditPage(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
@@ -319,7 +344,7 @@ function EditPage(attrs: {}, context: DynamicContext) {
   let allProjectLabels = filter(proxy.label, { project_id })
   let labels = allProjectLabels.filter(l => l.id !== label_id)
   let sortedLabelsForEdit = [...labels].sort(
-    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
 
   return (
@@ -368,9 +393,7 @@ function EditPage(attrs: {}, context: DynamicContext) {
               >
                 <ion-select-option value="">No parent</ion-select-option>
                 {mapArray(sortedLabelsForEdit, l => (
-                  <ion-select-option value={l.id}>
-                    {l.title}
-                  </ion-select-option>
+                  <ion-select-option value={l.id}>{l.title}</ion-select-option>
                 ))}
               </ion-select>
             </ion-item>
@@ -390,7 +413,6 @@ function EditPage(attrs: {}, context: DynamicContext) {
     </>
   )
 }
-
 
 let submitParser = object({
   title: string({ minLength: 1, maxLength: 100 }),
@@ -423,7 +445,12 @@ function Submit(attrs: {}, context: WsContext) {
     if (existingLabel)
       throw `Label "${input.title}" already exists in this project`
 
-    let dependency_id = (input.dependency_id && input.dependency_id.trim() && input.dependency_id !== '0') ? +input.dependency_id : null
+    let dependency_id =
+      input.dependency_id &&
+      input.dependency_id.trim() &&
+      input.dependency_id !== '0'
+        ? +input.dependency_id
+        : null
     if (dependency_id && dependency_id > 0) {
       let dependency = proxy.label[dependency_id]
       if (!dependency) {
@@ -498,7 +525,12 @@ function ModifyLabel(attrs: {}, context: WsContext) {
       throw 'You do not have permission to edit labels in this project'
     }
 
-    let dependency_id = (input.dependency_id && input.dependency_id.trim() && input.dependency_id !== '0') ? +input.dependency_id : null
+    let dependency_id =
+      input.dependency_id &&
+      input.dependency_id.trim() &&
+      input.dependency_id !== '0'
+        ? +input.dependency_id
+        : null
     if (dependency_id && dependency_id > 0) {
       if (dependency_id === label_id) throw 'A label cannot depend on itself'
       let dependency = proxy.label[dependency_id]
@@ -513,11 +545,7 @@ function ModifyLabel(attrs: {}, context: WsContext) {
     label.title = input.title
     label.dependency_id = dependency_id
 
-    context.ws.send([
-      'update-text',
-      `#label-title-${label_id}`,
-      input.title,
-    ])
+    context.ws.send(['update-text', `#label-title-${label_id}`, input.title])
     context.ws.send(['redirect', `/manage-labels?project=${project_id}`])
     throw EarlyTerminate
   } catch (error) {
@@ -631,7 +659,7 @@ function ReorderLabel(attrs: {}, context: WsContext) {
 
     let labels = filter(proxy.label, { project_id })
     let sorted = [...labels].sort(
-      (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999)
+      (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
     )
     let idx = sorted.findIndex(l => l.id === label_id)
     if (idx < 0) throw 'Label not in project list'
