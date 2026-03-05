@@ -15,6 +15,7 @@ import { characters } from './app-character.js'
 import { Context, DynamicContext } from '../context.js'
 import { getAuthUserId } from '../auth/user.js'
 import { IonBackButton } from '../components/ion-back-button.js'
+import { IonButton } from '../components/ion-button.js'
 import { Page } from '../components/page.js'
 
 let pageTitle = <Locale en="Home" zh_hk="主頁" zh_cn="主页" />
@@ -106,9 +107,9 @@ function Main(attrs: {}, context: DynamicContext) {
               zh_cn="您必须先选择项目"
             />
           </p>
-          <ion-button color="primary" onclick='goto("/app/project")'>
+          <IonButton url="/app/project" color="primary">
             <Locale en="Select Project" zh_hk="選擇項目" zh_cn="选择项目" />
-          </ion-button>
+          </IonButton>
         </div>
       </>
     )

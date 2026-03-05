@@ -12,6 +12,7 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
+import { IonButton } from '../components/ion-button.js'
 import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
@@ -285,12 +286,15 @@ function ImageItem(attrs: {
         <ion-button color="success" disabled class="image-item--upload">
           <ion-icon name="cloud-upload-outline" slot="icon-only"></ion-icon>
         </ion-button>
-        <ion-button
-          color="danger"
-          onclick={attrs.user ? 'removeImage(this)' : 'goto("/login")'}
-        >
-          <ion-icon name="trash" slot="icon-only"></ion-icon>
-        </ion-button>
+        {attrs.user ? (
+          <ion-button color="danger" onclick="removeImage(this)">
+            <ion-icon name="trash" slot="icon-only"></ion-icon>
+          </ion-button>
+        ) : (
+          <IonButton color="danger" url="/login">
+            <ion-icon name="trash" slot="icon-only"></ion-icon>
+          </IonButton>
+        )}
       </div>
       <img src={attrs.image_url} />
       <div class="image-item--filename">{attrs.filename}</div>

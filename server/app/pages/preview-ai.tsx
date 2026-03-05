@@ -10,6 +10,7 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
+import { IonButton } from '../components/ion-button.js'
 import { ProjectPageBackButton } from '../components/back-to-project-home-button.js'
 import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
@@ -356,9 +357,9 @@ function Main(attrs: {}, context: DynamicContext) {
               zh_cn="您必须登录才能预览 AI"
             />
           </p>
-          <ion-button color="primary" onclick='goto("/login")'>
+          <IonButton url="/login" color="primary">
             <Locale en="Login" zh_hk="登入" zh_cn="登录" />
-          </ion-button>
+          </IonButton>
         </div>
       </>
     )

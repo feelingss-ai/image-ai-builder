@@ -13,6 +13,7 @@ import { appIonTabBar } from '../components/app-tab-bar.js'
 import { fitIonFooter, selectIonTab } from '../styles/mobile-style.js'
 import { Locale, Title } from '../components/locale.js'
 import { IonBackButton } from '../components/ion-back-button.js'
+import { IonButton } from '../components/ion-button.js'
 import { Script } from '../components/script.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { int, object, string } from 'cast.ts'
@@ -270,9 +271,9 @@ function Main(attrs: {}, context: Context) {
               zh_cn="您必须登录才能选择项目"
             />
           </p>
-          <ion-button color="primary" onclick='goto("/login")'>
+          <IonButton url="/login" color="primary">
             <Locale en="Login" zh_hk="登入" zh_cn="登录" />
-          </ion-button>
+          </IonButton>
         </div>
       </>
     )
