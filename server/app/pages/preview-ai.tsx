@@ -33,8 +33,10 @@ let style = Style(/* css */ `
 }
 `)
 
-/** Returns model paths and label ids for the current project (from URL ?project=). Uses best checkpoint for inference. */
-function read_models_by_id(context: DynamicContext): { path: string; id: number }[] {
+/** Returns model paths and label ids for the current project (from URL ?project=). Uses best checkpoint for inference. Includes dependency_id so preview only runs dependent models when precondition is met. */
+function read_models_by_id(
+  context: DynamicContext,
+): { path: string; id: number; dependency_id: null | number }[] {
   let params = new URLSearchParams(context.routerMatch?.search ?? '')
   let project_id = +params.get('project')!
   if (!project_id) return []
@@ -45,6 +47,7 @@ function read_models_by_id(context: DynamicContext): { path: string; id: number 
     .map(label => ({
       path: `project-${project_id}/best/label-${label.id}`,
       id: label.id as number,
+      dependency_id: label.dependency_id ?? null,
     }))
 }
 
@@ -149,21 +152,25 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
       // Create input tensor shaped [1, 1280]
       const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
 
+      let predictions = {};
       for (let modelInfo of models_dir) {
+        if (modelInfo.dependency_id != null) {
+          let depProb = predictions[modelInfo.dependency_id];
+          if (depProb == null || depProb < 0.5) {
+            let labelEl = document.querySelector('#label-' + modelInfo.id);
+            if (labelEl) labelEl.value = 0;
+            continue;
+          }
+        }
         let model = await loadLabelModel(modelInfo.path);
-        // Predict
         const prediction = model.predict(inputTensor);
         const probabilities = prediction.arraySync()[0];
+        predictions[modelInfo.id] = probabilities[0];
 
-      const classNames = ['yes', 'no'];
-      const maxIndex = probabilities.indexOf(Math.max(...probabilities));
-      const predictedClass = classNames[maxIndex];
+        let labelEl = document.querySelector('#label-' + modelInfo.id);
+        if (labelEl) labelEl.value = Math.round(probabilities[0] * 100);
 
-      let labelEl = document.querySelector('#label-' + modelInfo.id);
-      if (labelEl) labelEl.value = Math.round(probabilities[0] * 100); // 0: yes 1: no
-
-      // Dispose tensors to avoid memory leaks
-      prediction.dispose && prediction.dispose();
+        prediction.dispose && prediction.dispose();
       }
       inputTensor.dispose && inputTensor.dispose();
       } catch (err) {
@@ -197,6 +204,7 @@ async function startRealtimeDetection() {
   canvas.height = height;
   const ctx = canvas.getContext('2d');
 
+  let predictions = {};
   async function detectLoop() {
     if (video.readyState < 2) {
       detectionLoopHandle = requestAnimationFrame(detectLoop);
@@ -224,31 +232,31 @@ async function startRealtimeDetection() {
     // Create input tensor
     const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
 
-    // Predict for each model
     for (let modelInfo of models_dir) {
-      const model = models[modelInfo.id];
-      if (!model) continue;
-      const prediction = model.predict(inputTensor);
-      const probabilities = (await prediction.array())[0];
-
-      const classNames = ['yes', 'no'];
-      const maxIndex = probabilities.indexOf(Math.max(...probabilities));
-      const predictedClass = classNames[maxIndex];
-
       let labelEl = document.querySelector('#label-' + modelInfo.id);
       if (!labelEl) {
         stopWebcam();
         return;
       }
+      if (modelInfo.dependency_id != null) {
+        let depProb = predictions[modelInfo.dependency_id];
+        if (depProb == null || depProb < 0.5) {
+          if (shouldUpdateProgress) labelEl.value = 0;
+          continue;
+        }
+      }
+      const model = models[modelInfo.id];
+      if (!model) continue;
+      const prediction = model.predict(inputTensor);
+      const probabilities = (await prediction.array())[0];
+      predictions[modelInfo.id] = probabilities[0];
       if (shouldUpdateProgress) {
         labelEl.value = Math.round(probabilities[0] * 100);
       }
-
       prediction.dispose && prediction.dispose();
     }
     inputTensor.dispose && inputTensor.dispose();
 
-    // Run next frame
     detectionLoopHandle = requestAnimationFrame(detectLoop);
   }
   detectionLoopHandle = requestAnimationFrame(detectLoop);

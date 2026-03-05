@@ -595,8 +595,9 @@ let select_label_by_project = db.prepare<
   order by label.display_order asc, label.id asc
   `)
 
+// For labels with dependency_id, only include images where the dependency is annotated positive (precondition met).
 let select_image_filename_by_label = db.prepare<
-  { label_id: number },
+  { label_id: number; dependency_id: null | number },
   {
     filename: string
     answer: 1 | 0
@@ -608,6 +609,15 @@ select
 from image_label
 inner join image on image.id = image_label.image_id
 where image_label.label_id = :label_id
+and (
+  :dependency_id is null
+  or exists (
+    select 1 from image_label il2
+    where il2.image_id = image_label.image_id
+    and il2.label_id = :dependency_id
+    and il2.answer = 1
+  )
+)
 `)
 
 let count_epoch_by_label = db
@@ -687,7 +697,8 @@ async function trainModel(options: {
     project_id,
   } = options
   let label_id = label.id!
-  let rows = select_image_filename_by_label.all({ label_id })
+  let dependency_id = label.dependency_id ?? null
+  let rows = select_image_filename_by_label.all({ label_id, dependency_id })
   if (rows.length === 0) {
     console.log('no images available for training', { project_id, label_id })
     return
