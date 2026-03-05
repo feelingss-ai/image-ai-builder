@@ -39,8 +39,6 @@ const read_models_by_id = (): string[] => {
   return models_dir
 }
 
-const models_dir = read_models_by_id()
-
 let script = Script(/* js */ `
 
 models_dir = window.models_dir
@@ -318,7 +316,7 @@ let page = (
       <Main />
     </ion-content>
     {/* pass models_dir to client */}
-    <script>window.models_dir = {JSON.stringify(models_dir)}</script>
+    <script>window.models_dir = {JSON.stringify(read_models_by_id())}</script>
     {script}
   </>
 )
