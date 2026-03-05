@@ -49,7 +49,7 @@ ion-item {
   }
 }
 
-.project-title--image-count {
+.project-title--stats {
   font-size: 0.9rem;
 }
 `)
@@ -181,14 +181,18 @@ function ProjectItem(attrs: { id: number; user_id: number }) {
 
   let title = project.title
 
+  let label_count = count(proxy.label, { project_id })
   let image_count = count(proxy.image, { project_id })
 
   return (
     <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
       <h2 id={`project-title-${attrs.id}`}>
         {title}{' '}
-        <span class="project-title--image-count">
-          {image_count === 0 ? '(no images)' : `(${image_count} images)`}
+        <span class="project-title--stats">
+          ({label_count || 'no'}{' '}
+          <Locale en="labels" zh_hk="標籤" zh_cn="标签" />,{' '}
+          {image_count || 'no'} <Locale en="images" zh_hk="圖片" zh_cn="图片" />{' '}
+          )
         </span>
       </h2>
       {is_owner ? (
