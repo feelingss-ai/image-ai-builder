@@ -42,6 +42,8 @@
   "dependencies": {
     "@beenotung/tslib": "^24.9.0",
     "@ionic/core": "^8.5.5",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-layers": "^4.22.0",
     "argon2": "^0.41.1",
     "better-sqlite3-proxy": "^2.11.1",
     "better-sqlite3-schema": "^3.1.8",
@@ -67,6 +69,7 @@
     "sanitize-html": "^2.16.0",
     "sweetalert2-unrestricted": "^11.10.5",
     "swiper": "^11.2.6",
+    "tensorflow-helpers": "^2.0.1",
     "timezone-date.ts": "^2.0.1",
     "url-router.ts": "^1.2.1",
     "ws": "^8.18.1"
