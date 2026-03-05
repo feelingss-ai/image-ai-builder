@@ -167,7 +167,14 @@ async function pickAndUpload(event) {
         reportError(json.error)
         break
       }
-      if (json.image_id) importedImageIds.push(json.image_id)
+      if (json.image_id) {
+        if (json.duplicate) {
+          if (typeof showToast === 'function') showToast('Duplicate image skipped', 'info')
+          if (importedImageIds.indexOf(json.image_id) === -1) importedImageIds.push(json.image_id)
+        } else {
+          importedImageIds.push(json.image_id)
+        }
+      }
     }
     var el = document.getElementById('importedCount')
     if (el) el.textContent = importedImageIds.length
