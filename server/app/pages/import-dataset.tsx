@@ -314,9 +314,9 @@ async function ApplyLabels(context: ExpressContext) {
         'body must have image_ids (number[]) and labels ({ label_id, answer }[])',
       )
     }
-    let image_ids = body.image_ids.filter(
-      (id): id is number => typeof id === 'number',
-    )
+    let image_ids = [...new Set(
+      body.image_ids.filter((id): id is number => typeof id === 'number'),
+    )]
     let labels = body.labels.filter(
       (l): l is { label_id: number; answer: 0 | 1 } =>
         typeof l?.label_id === 'number' && (l.answer === 0 || l.answer === 1),

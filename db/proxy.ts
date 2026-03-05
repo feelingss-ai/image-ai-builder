@@ -128,6 +128,7 @@ export type Image = {
   rotation: null | number
   project_id: null | number
   project?: Project
+  content_hash: null | string
 }
 
 export type Label = {

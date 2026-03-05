@@ -22,6 +22,8 @@ import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
 import { createUploadForm } from '../upload.js'
 import { del, find } from 'better-sqlite3-proxy'
+import { createHash } from 'crypto'
+import { readFileSync } from 'fs'
 import { rm } from 'fs/promises'
 import { join } from 'path'
 import { env } from '../../env.js'
@@ -113,9 +115,14 @@ async function pickImage(event) {
       showError(json.error)
       return
     }
-    let url = json.url
-    image.src = url
-    button.setAttribute('color', 'success')
+    if (json.duplicate) {
+      if (typeof showToast === 'function') showToast('Duplicate image skipped', 'info')
+      imageItem.remove()
+    } else {
+      let url = json.url
+      image.src = url
+      button.setAttribute('color', 'success')
+    }
     imageCount.textContent = json.count.toLocaleString()
   }
   } catch (error) {
@@ -124,6 +131,8 @@ async function pickImage(event) {
 }
 
 async function removeImage(button) {
+  if (button.disabled) return
+  button.disabled = true
   let form = button.closest('form')
   let project_id = form.dataset.projectId
   let imageItem = button.closest('.image-item')
@@ -134,11 +143,47 @@ async function removeImage(button) {
     let params = new URLSearchParams({ filename, project: project_id })
     let json = await fetch_json('/upload-image/remove?' + params)
     if (json.error) {
+      button.disabled = false
       return
     }
     imageCount.textContent = json.count.toLocaleString()
   }
   imageItem.remove()
+}
+
+async function removeAllImages(event) {
+  if (event.target.disabled) return
+  let form = event.target.closest('form')
+  let project_id = (form && form.dataset.projectId) || new URLSearchParams(window.location.search).get('project')
+  if (!project_id) { showError('Missing project'); return }
+  let isConfirmed
+  if (typeof showConfirm === 'function') {
+    isConfirmed = await showConfirm({
+      title: 'Delete all images?',
+      text: 'This cannot be undone. All images and their labels will be removed.',
+      icon: 'warning',
+      confirmButtonText: 'Delete all',
+      cancelButtonText: 'Cancel',
+    })
+  } else {
+    isConfirmed = confirm('Delete all images? This cannot be undone. All images and their labels will be removed.')
+  }
+  if (!isConfirmed) return
+  event.target.disabled = true
+  let json = await fetch_json('/upload-image/remove-all?project=' + project_id)
+  if (json.error) {
+    showError(json.error)
+    event.target.disabled = false
+    return
+  }
+  let list = document.getElementById('imageList')
+  if (list) {
+    list.querySelectorAll('.image-item').forEach(el => el.remove())
+  }
+  let countEl = document.getElementById('imageCount')
+  if (countEl) countEl.textContent = '0'
+  if (typeof showToast === 'function') showToast('All images deleted', 'success')
+  event.target.disabled = false
 }
 
 `)
@@ -185,8 +230,20 @@ function Main(attrs: {}, context: DynamicContext) {
   let images = filter(proxy.image, { project_id })
   return (
     <>
-      <div style="margin-bottom: 0.5rem; text-align: center">
-        Existing <span id="imageCount">{images.length}</span> images.
+      <div style="margin-bottom: 0.5rem; text-align: center; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.5rem">
+        <span>
+          Existing <span id="imageCount">{images.length}</span> images.
+        </span>
+        {images.length > 0 && user ? (
+          <ion-button
+            color="danger"
+            fill="outline"
+            onclick="removeAllImages(event)"
+          >
+            <ion-icon name="trash" slot="start"></ion-icon>
+            <Locale en="Delete all images" zh_hk="刪除全部圖片" zh_cn="删除全部图片" />
+          </ion-button>
+        ) : null}
       </div>
       <form style="text-align: center" data-project-id={project_id}>
         <ion-button onclick={user ? `pickImage(event)` : 'goto("/login")'}>
@@ -375,13 +432,37 @@ async function UploadImage(context: ExpressContext) {
 
     let form = createUploadForm({ maxFileSize: 500 * KB })
     let [fields, files] = await form.parse(req)
+    let uploadDir = env.UPLOAD_DIR
     for (let file of files.image || []) {
+      let filePath = join(uploadDir, file.newFilename)
+      let contentHash: string
+      try {
+        let buf = readFileSync(filePath)
+        contentHash = createHash('sha256').update(buf).digest('hex')
+      } catch {
+        contentHash = ''
+      }
+      let existing =
+        contentHash &&
+        filter(proxy.image, { project_id, content_hash: contentHash })[0]
+      if (existing) {
+        await rm(filePath, { force: true })
+        let new_count = count(proxy.image, { project_id })
+        res.json({
+          url: '/uploads/' + existing.filename,
+          count: new_count,
+          image_id: existing.id,
+          duplicate: true,
+        })
+        return
+      }
       let image_id = proxy.image.push({
         original_filename: file.originalFilename || null,
         filename: file.newFilename,
         user_id,
         rotation: null,
         project_id,
+        content_hash: contentHash || null,
       }) as number
       let new_count = count(proxy.image, { project_id })
       let url = '/uploads/' + file.newFilename
@@ -397,18 +478,44 @@ async function UploadImage(context: ExpressContext) {
 async function RemoveImage(context: ExpressContext) {
   let { req, res } = context
   try {
-    let { filename } = req.query
+    let { filename, project } = req.query
     if (typeof filename !== 'string') throw 'filename is required'
     let image = find(proxy.image, { filename })
-    let project_id = image?.project_id!
+    let project_id = image?.project_id ?? (typeof project === 'string' ? +project : undefined)
     if (image) {
       del(proxy.image_label, { image_id: image.id! })
       del(proxy.image, { filename })
     }
     let file = join(env.UPLOAD_DIR, filename)
     await rm(file, { force: true })
-    let new_count = count(proxy.image, { project_id })
+    let new_count = project_id != null ? count(proxy.image, { project_id }) : 0
     res.json({ count: new_count })
+  } catch (error) {
+    console.error(error)
+    res.json({ error: String(error) })
+  }
+}
+
+async function RemoveAllImages(context: ExpressContext) {
+  let { req, res } = context
+  try {
+    let user_id = getAuthUserId(context)
+    if (!user_id) throw 'not login'
+    let { project } = req.query
+    if (typeof project !== 'string') throw 'project is required'
+    let project_id = +project
+    if (!project_id) throw 'invalid project id'
+    let images = filter(proxy.image, { project_id })
+    let uploadDir = env.UPLOAD_DIR || ''
+    for (let image of images) {
+      del(proxy.image_label, { image_id: image.id! })
+      del(proxy.image, { filename: image.filename })
+      if (uploadDir && image.filename) {
+        let file = join(uploadDir, image.filename)
+        await rm(file, { force: true })
+      }
+    }
+    res.json({ count: 0 })
   } catch (error) {
     console.error(error)
     res.json({ error: String(error) })
@@ -433,6 +540,10 @@ let routes = {
   '/upload-image/remove': ajaxRoute({
     description: 'remove image',
     api: RemoveImage,
+  }),
+  '/upload-image/remove-all': ajaxRoute({
+    description: 'remove all images in project',
+    api: RemoveAllImages,
   }),
 } satisfies Routes
 

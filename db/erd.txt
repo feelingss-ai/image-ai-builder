@@ -136,6 +136,7 @@ filename text
 user_id integer FK >0- user.id
 rotation integer NULL
 project_id integer NULL FK >0- project.id
+content_hash text NULL
 
 
 label
