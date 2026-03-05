@@ -682,6 +682,10 @@ async function trainModel(options: {
   } = options
   let label_id = label.id!
   let rows = select_image_filename_by_label.all({ label_id })
+  if (rows.length === 0) {
+    console.log('no images available for training', { project_id, label_id })
+    return
+  }
   let embeddings = []
   let answers = []
   let classCounts = [0, 0]
@@ -702,7 +706,10 @@ async function trainModel(options: {
   }
 
   const total = embeddings.length
-  const valCount = Math.floor(total * cross_validation_ratio)
+  let valCount = Math.floor(total * cross_validation_ratio)
+  if (total >= 2 && valCount == 0) {
+    valCount = 1
+  }
   const valEmbeddings = embeddings.slice(0, valCount)
   const valAnswers = answers.slice(0, valCount)
   const trainEmbeddings = embeddings.slice(valCount)
