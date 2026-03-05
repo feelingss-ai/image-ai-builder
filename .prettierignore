@@ -13,3 +13,4 @@ localhost_*.report.html
 
 # library
 public/lib/
+db/migrations/*_auto-migrate.ts
