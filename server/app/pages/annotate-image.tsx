@@ -21,7 +21,13 @@ import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate } from '../../exception.js'
 import { IonButton } from '../components/ion-button.js'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { BackToProjectHomeButton } from '../components/back-to-project-home-button.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
@@ -150,6 +156,35 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 })
 `)
+
+//Function to take the label of user input (e.g. label: 1 = dog) and return the title of the label
+function getFolderByLabel(labelID: number) {
+  const row = db
+    .prepare<
+      { id: number },
+      { title: string }
+    >(`SELECT title FROM label WHERE id = :id`)
+    .get({ id: labelID })
+  if (!row) return null
+
+  const labelTitle = row.title
+  // dataset folder should be locate directly under root (image-ai-builder), if changed location, please change the following line
+  return labelTitle
+}
+
+//Function to search database using imageID, return filename
+function searchImageByID(imageID: number) {
+  const image = db
+    .prepare<
+      { id: number },
+      { filename: string }
+    >(`SELECT filename FROM image WHERE id = :id`)
+    .get({ id: imageID })
+  if (image) {
+    return image.filename
+  }
+  return null
+}
 
 let page = (
   <>
@@ -449,7 +484,58 @@ function ShowImage(attrs: {}, context: WsContext) {
     let last_annotation = select_previous_image_label.get({
       user_id,
       label_id,
-    })
+    })!
+    })!
+    if (!last_annotation)
+      throws({
+        en: 'No previous annotation to undo',
+        zh_hk: '沒有之前的標註可以還原',
+        zh_cn: '没有之前的标注可以还原',
+      })
+
+    let image = proxy.image[last_annotation.image_id]
+
+    delete proxy.image_label[last_annotation.id]
+
+    // TODO update the counts
+=======
+    })!
+    if (!last_annotation)
+      throws({
+        en: 'No previous annotation to undo',
+        zh_hk: '沒有之前的標註可以還原',
+        zh_cn: '没有之前的标注可以还原',
+      })
+
+    let image = proxy.image[last_annotation.image_id]
+    let answer = proxy.image_label[last_annotation.id].answer
+    delete proxy.image_label[last_annotation.id]
+
+    removeImageFromDataset(answer)
+
+    function removeImageFromDataset(answer: number) {
+      const folderName = getFolderByLabel(label_id)
+      if (!folderName) {
+        throw new Error('Dataset folder not found for label ' + label_id)
+      }
+      const datasetDir = path.resolve(process.cwd(), 'dataset')
+      let folderPath
+      if (answer === 1) {
+        folderPath = path.join(datasetDir, folderName)
+      } else {
+        folderPath = path.join(datasetDir, `!` + folderName)
+      }
+      const filePath = path.join(folderPath, image.filename)
+
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+        console.log(`Removed ${filePath}`)
+      } else {
+        console.log(`File not found: ${filePath}`)
+      }
+    }
+
+    // TODO update the counts
     context.ws.send([
       'update-attrs',
       '#btn_undo',
@@ -661,6 +747,20 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
       },
     )
 
+    searchImageByFilename(input.answer)
+
+    //Function to search uploaded folder using filename, then copy the image to the correspond dataset folder
+    function searchImageByFilename(answer: number) {
+      const filename = searchImageByID(input.image)
+      if (!filename) {
+        throw new Error('Image not found')
+      }
+      const folderName = getFolderByLabel(input.label)
+      if (!folderName) {
+        throw new Error('Folder not found')
+      }
+    }
+
     // Calculate the updated count of annotated images
     let new_count = count_annotated_images.get({
       label_id: input.label,
@@ -673,7 +773,8 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
     let total_images = proxy.image.length
     // Construct new text for the label select option
     let newText = `${label.title} (${new_count}/${total_images})`
-    // Update the select option text via WebSocket
+
+    let next_image = select_next_image.get({ label_id: input.label })
     context.ws.send([
       'update-text',
       `#label_select ion-select-option[value="${input.label}"]`,

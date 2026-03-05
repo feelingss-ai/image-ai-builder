@@ -24,6 +24,7 @@ import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
 import { pick, del, filter, find, count } from 'better-sqlite3-proxy'
+import { mkdirSync, rmSync } from 'fs'
 
 let pageTitle = <Locale en="Project List" zh_hk="項目列表" zh_cn="项目列表" />
 let manageMemberTitle = (
@@ -375,6 +376,13 @@ function AddProject(attrs: {}, context: WsContext) {
 
       let new_project_item = <ProjectItem id={project_id} user_id={user_id!} />
 
+      mkdirSync(`saved_models/project-${project_id}`, { recursive: true })
+      mkdirSync(`saved_models/project-${project_id}/latest`, {
+        recursive: true,
+      })
+      mkdirSync(`saved_models/project-${project_id}/best`, {
+        recursive: true,
+      })
       context.ws.send([
         'append',
         'ion-list',
@@ -424,6 +432,11 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
     delete proxy.project[input.project_id]
 
     broadcast(['remove', 'ion-list #project-item-' + input.project_id])
+
+    rmSync(`saved_models/project-${input.project_id}`, {
+      recursive: true,
+      force: true,
+    })
   } catch (error) {
     console.error(error)
   }
