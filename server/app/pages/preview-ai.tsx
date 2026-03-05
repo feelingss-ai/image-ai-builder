@@ -289,7 +289,7 @@ async function toggleWebcam() {
   } else {
     try {
     console.log('starting')
-    currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } } });
+    currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { preferred: "environment" } } });
     // Attach the stream to a video element:
     const video = document.querySelector('video'); 
     video.srcObject = currentStream;
