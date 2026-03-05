@@ -265,7 +265,7 @@ function Main(attrs: {}, context: Context) {
     <>
       <ion-input
         id="new-project-name"
-        placeholder={Locale(
+        label={Locale(
           {
             en: 'New Project Name',
             zh_hk: '新項目名稱',
@@ -273,6 +273,7 @@ function Main(attrs: {}, context: Context) {
           },
           context,
         )}
+        placeholder="e.g. Horse Pose Detection"
       ></ion-input>
       <ion-alert
         id="project-name-empty-alert"
