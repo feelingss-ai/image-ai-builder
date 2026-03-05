@@ -36,7 +36,9 @@
     "onlyBuiltDependencies": [
       "argon2",
       "better-sqlite3",
-      "esbuild"
+      "esbuild",
+      "core-js",
+      "@tensorflow/tfjs-node"
     ]
   },
   "dependencies": {
