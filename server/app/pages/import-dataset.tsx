@@ -17,6 +17,7 @@ import { proxy } from '../../../db/proxy.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
+import { array, id, object, values } from 'cast.ts'
 
 let pageTitle = (
   <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />
@@ -379,6 +380,16 @@ function Main(attrs: {}, context: DynamicContext) {
   )
 }
 
+let applyLabelsParser = object({
+  image_ids: array(id()),
+  labels: array(
+    object({
+      label_id: id(),
+      answer: values([0, 1] as const),
+    }),
+  ),
+})
+
 async function ApplyLabels(context: ExpressContext) {
   let { res } = context
   try {
@@ -387,32 +398,16 @@ async function ApplyLabels(context: ExpressContext) {
     let params = new URLSearchParams(context.routerMatch?.search ?? '')
     let project_id = +params.get('project')!
     if (!project_id) throw new Error('missing project id in url')
-    let body = getContextFormBody(context) as {
-      image_ids?: number[]
-      labels?: { label_id: number; answer: 0 | 1 }[]
-    }
-    if (
-      !body ||
-      !Array.isArray(body.image_ids) ||
-      !Array.isArray(body.labels)
-    ) {
-      throw new Error(
-        'body must have image_ids (number[]) and labels ({ label_id, answer }[])',
-      )
-    }
-    let image_ids = [...new Set(
-      body.image_ids.filter((id): id is number => typeof id === 'number'),
-    )]
-    let labels = body.labels.filter(
-      (l): l is { label_id: number; answer: 0 | 1 } =>
-        typeof l?.label_id === 'number' && (l.answer === 0 || l.answer === 1),
-    )
-    for (let image_id of image_ids) {
-      let image = find(proxy.image, { id: image_id })
-      if (!image || image.project_id !== project_id) continue
-      for (let { label_id, answer } of labels) {
-        let label = find(proxy.label, { id: label_id })
-        if (!label || label.project_id !== project_id) continue
+    let body = getContextFormBody(context)
+    let input = applyLabelsParser.parse(body)
+    for (let image_id of input.image_ids) {
+      let image = proxy.image[image_id]
+      if (!image || image.project_id !== project_id)
+        throw new Error('image not found')
+      for (let { label_id, answer } of input.labels) {
+        let label = proxy.label[label_id]
+        if (!label || label.project_id !== project_id)
+          throw new Error('label not found')
         seedRow(proxy.image_label, { image_id, label_id, user_id }, { answer })
       }
     }
