@@ -378,8 +378,7 @@ function Main(attrs: {}, context: DynamicContext) {
           en="No project selected. Select a project first to preview AI."
           zh_hk="未選擇專案。請先選擇專案以預覽 AI。"
           zh_cn="未选择项目。请先选择项目以预览 AI。"
-        />
-        {' '}
+        />{' '}
         <Link href="/app/home">App Home</Link>
       </p>
     )
