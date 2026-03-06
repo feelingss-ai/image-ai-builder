@@ -256,9 +256,8 @@ let page = (
 
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
-  let params = new URLSearchParams(context.routerMatch?.search ?? '')
-  let project_id = +params.get('project')!
-  if (!project_id) {
+  let project = getContextProject(context)
+  if (!project) {
     return (
       <>
         {renderError('missing project id in url', context)}
@@ -268,6 +267,7 @@ function Main(attrs: {}, context: DynamicContext) {
       </>
     )
   }
+  let project_id = project.id!
   if (!user) {
     return (
       <p>
@@ -395,9 +395,9 @@ async function ApplyLabels(context: ExpressContext) {
   try {
     let user_id = getAuthUserId(context)
     if (!user_id) throw new Error('not login')
-    let params = new URLSearchParams(context.routerMatch?.search ?? '')
-    let project_id = +params.get('project')!
-    if (!project_id) throw new Error('missing project id in url')
+    let project = getContextProject(context)
+    if (!project) throw new Error('missing project id in url')
+    let project_id = project.id!
     let body = getContextFormBody(context)
     let input = applyLabelsParser.parse(body)
     for (let image_id of input.image_ids) {

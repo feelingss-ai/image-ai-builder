@@ -12,6 +12,7 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
+import { getContextProject } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { object, string, int } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
@@ -65,18 +66,7 @@ function Main(attrs: {}, context: DynamicContext) {
     )
   }
 
-  let params = new URLSearchParams(context.routerMatch?.search)
-  let project_id = +params.get('project')!
-  if (!project_id) {
-    return (
-      <p>
-        Invalid project. Please{' '}
-        <Link href="/app/project">select a project</Link> first.
-      </p>
-    )
-  }
-
-  let project = proxy.project[project_id]
+  let project = getContextProject(context)
   if (!project) {
     return (
       <p>
@@ -85,6 +75,7 @@ function Main(attrs: {}, context: DynamicContext) {
       </p>
     )
   }
+  let project_id = project.id!
 
   // Get labels for this project (use proxy filter for DB query, not array loop)
   let labels = filter(proxy.label, { project_id })
@@ -214,16 +205,11 @@ function AddPage(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   if (!user) return <Redirect href="/login" />
 
-  let params = new URLSearchParams(context.routerMatch?.search)
-  let project_id = +params.get('project')!
-  if (!project_id) {
-    return <Redirect href="/app/project" />
-  }
-
-  let project = proxy.project[project_id]
+  let project = getContextProject(context)
   if (!project) {
     return <Redirect href="/app/project" />
   }
+  let project_id = project.id!
 
   // Get existing labels for parent selection (use proxy filter for DB query), sorted by display_order
   let labels = filter(proxy.label, { project_id })
@@ -320,16 +306,18 @@ function EditPage(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   if (!user) return <Redirect href="/login" />
 
-  let params = new URLSearchParams(context.routerMatch?.search)
-  let project_id = +params.get('project')!
+  let project = getContextProject(context)
+  if (!project) {
+    return <NoProjectMessage />
+  }
+  let project_id = project.id!
   let label_id = +params.get('label_id')!
-  if (!project_id || !label_id) {
+  if (!label_id) {
     return <Redirect href="/app/project" />
   }
 
-  let project = proxy.project[project_id]
   let label = proxy.label[label_id]
-  if (!project || !label || label.project_id !== project_id) {
+  if (!label || label.project_id !== project_id) {
     return <Redirect href={`/manage-labels?project=${project_id}`} />
   }
   if (project.creator_id !== user.id) {
@@ -419,9 +407,9 @@ function Submit(attrs: {}, context: WsContext) {
     let user = getAuthUser(context)
     if (!user) throw 'You must be logged in'
 
-    let params = new URLSearchParams(context.routerMatch?.search)
-    let project_id = +params.get('project')!
-    if (!project_id) throw 'Invalid project'
+    let project = getContextProject(context)
+    if (!project) throw 'Project not found'
+    let project_id = project.id!
 
     let body = getContextFormBody(context)
     let input = submitParser.parse(body)
@@ -503,17 +491,15 @@ function ModifyLabel(attrs: {}, context: WsContext) {
     let user = getAuthUser(context)
     if (!user) throw 'You must be logged in'
 
-    let params = new URLSearchParams(context.routerMatch?.search)
-    let project_id = +params.get('project')!
-    let label_id = +params.get('label_id')!
-    if (!project_id || !label_id) throw 'Invalid project or label'
+    let project = getContextProject(context)
+    if (!project) throw 'Project not found'
+    let project_id = project.id!
 
     let body = getContextFormBody(context)
     let input = modifyParser.parse(body)
 
-    let project = proxy.project[project_id]
     let label = proxy.label[label_id]
-    if (!project || !label || label.project_id !== project_id) {
+    if (!label || label.project_id !== project_id) {
       throw 'Label not found'
     }
     if (project.creator_id !== user.id) {

@@ -369,9 +369,8 @@ function Main(attrs: {}, context: DynamicContext) {
       </>
     )
   }
-  let params = new URLSearchParams(context.routerMatch?.search ?? '')
-  let project_id = +params.get('project')!
-  if (!project_id) {
+  let project = getContextProject(context)
+  if (!project) {
     return (
       <p class="ion-padding">
         <Locale
@@ -383,6 +382,7 @@ function Main(attrs: {}, context: DynamicContext) {
       </p>
     )
   }
+  let project_id = project.id!
   let labels = filter(proxy.label, { project_id })
   let sortedLabels = [...labels].sort(
     (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),

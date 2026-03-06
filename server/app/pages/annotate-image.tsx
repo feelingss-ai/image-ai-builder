@@ -23,6 +23,12 @@ import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate } from '../../exception.js'
 import { IonButton } from '../components/ion-button.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
+import {
+  getContextLabel,
+  getContextProject,
+  select_project_label,
+} from '../context/project-context.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
 
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
@@ -211,8 +217,9 @@ function Main(attrs: {}, context: DynamicContext) {
       </>
     )
   }
-  let params = new URLSearchParams(context.routerMatch?.search)
-  let project_id = params.get('project') ? +params.get('project')! : null
+  let project = getContextProject(context)
+  if (!project) return <NoProjectMessage />
+  let project_id = project.id!
   let labels = project_id != null
     ? filter(proxy.label, { project_id })
     : [...proxy.label]
