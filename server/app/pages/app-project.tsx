@@ -100,6 +100,7 @@ function delete_project(event) {
 
 function manage_member(event) {
   event.stopPropagation()
+  event.preventDefault()
   let project_id = event.target.id
   const url = new URL(window.location)
   url.searchParams.set('project', project_id)
@@ -109,6 +110,7 @@ function manage_member(event) {
 
 function delete_member(event) {
   event.stopPropagation()
+  event.preventDefault()
   let member_id = event.target.id
   let project_id = +event.target.dataset.project_id
   emit('/project/delete-member', {
@@ -119,6 +121,7 @@ function delete_member(event) {
 
 function add_member(event) {
   event.stopPropagation()
+  event.preventDefault()
   let new_member_name = document.querySelector('#new-member-name').value
   let project_id = +event.target.dataset.project_id
   emit('/project/add-member', {
