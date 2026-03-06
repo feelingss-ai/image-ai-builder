@@ -11,7 +11,7 @@ import {
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { IonButton } from '../components/ion-button.js'
-import { ProjectPageBackButton } from '../components/back-to-project-home-button.js'
+import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'

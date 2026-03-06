@@ -16,7 +16,7 @@ import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy } from '../../../db/proxy.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
-import { ProjectPageBackButton } from '../components/back-to-project-home-button.js'
+import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 
 let pageTitle = (
   <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />

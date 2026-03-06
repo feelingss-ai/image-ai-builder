@@ -32,7 +32,7 @@ import { KB } from '@beenotung/tslib/size.js'
 import { dataURItoFile } from '@beenotung/tslib/image.js'
 import { writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
-import { ProjectPageBackButton } from '../components/back-to-project-home-button.js'
+import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { render } from '@ionic/core/dist/types/stencil-public-runtime.js'
 
 let pageTitle = <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />

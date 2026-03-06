@@ -22,7 +22,7 @@ import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate } from '../../exception.js'
 import { IonButton } from '../components/ion-button.js'
-import { ProjectPageBackButton } from '../components/back-to-project-home-button.js'
+import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
