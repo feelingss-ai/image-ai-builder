@@ -108,6 +108,7 @@ function manage_member(event) {
   emit('/app/project/manage-member', { project_id: project_id })
 }
 
+// TODO use alert to confirm the deletion
 function delete_member(event) {
   event.stopPropagation()
   event.preventDefault()
