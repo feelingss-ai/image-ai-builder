@@ -446,34 +446,6 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
   throw EarlyTerminate
 }
 
-function SelectProject(attrs: {}, context: WsContext) {
-  try {
-    let parser = object({
-      project_id: int(),
-    })
-
-    let user_id = getAuthUserId(context)
-    let body = getContextFormBody(context)
-    let input = parser.parse(body)
-
-    let project_member = find(proxy.project_member, {
-      project_id: input.project_id,
-      user_id: user_id!,
-    })
-    if (!project_member) {
-      context.ws.send([
-        'eval',
-        'document.querySelector("#unauthorized-alert").present()',
-      ])
-    } else {
-      context.ws.send(['redirect', '/app/home?project=' + input.project_id])
-    }
-  } catch (error) {
-    console.error(error)
-  }
-  throw EarlyTerminate
-}
-
 //get all user_id that is in the project like 1,2,3
 let get_current_project_member = db
   .prepare<{ project_id: number }, number>(

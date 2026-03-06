@@ -1,9 +1,28 @@
+import { count } from 'better-sqlite3-proxy'
 import { db } from '../../../db/db.js'
 import { Label, Project, proxy } from '../../../db/proxy.js'
+import { getAuthUser } from '../auth/user.js'
 import { DynamicContext } from '../context.js'
 
-// TODO check the access control of the project and viewer
+// check the access control of the project and viewer
+function checkAccessProject(context: DynamicContext): boolean {
+  let project = getContextProject(context)
+  if (!project) return false
+  // TODO support public/private project
+  let user = getAuthUser(context)
+  if (!user) return false
+  if (user.is_admin) return true
+  if (project.creator_id == user.id) return true
+  let is_member = !!count(proxy.project_member, {
+    project_id: project.id!,
+    user_id: user.id!,
+  })
+  if (is_member) return true
+  // TODO log the invalid attempts
+  return false
+}
 
+// TODO call checkAccessProject to check permission
 export function getContextProject(context: DynamicContext): Project | null {
   let params = new URLSearchParams(context.routerMatch?.search)
 
