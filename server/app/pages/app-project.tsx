@@ -416,7 +416,7 @@ function ModifyProject(attrs: {}, context: DynamicContext) {
 
     broadcast([
       'update-text',
-      'ion-list #project-title-' + input.project_id,
+      '#project-title-' + input.project_id,
       input.project_name,
     ])
   } catch (error) {
@@ -438,7 +438,7 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
 
     delete proxy.project[input.project_id]
 
-    broadcast(['remove', 'ion-list #project-item-' + input.project_id])
+    broadcast(['remove', '#project-item-' + input.project_id])
 
     rmSync(`saved_models/project-${input.project_id}`, {
       recursive: true,
@@ -569,10 +569,7 @@ function DeleteMember(attrs: {}, context: WsContext) {
     sessions.forEach(session => {
       let user_id = session.ws.request.signedCookies.user_id
       if (user_id == input.user_id) {
-        session.ws.send([
-          'remove',
-          'ion-list #project-item-' + input.project_id,
-        ])
+        session.ws.send(['remove', '#project-item-' + input.project_id])
       }
     })
   } catch (error) {
