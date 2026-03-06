@@ -235,9 +235,14 @@ function Main(attrs: {}, context: DynamicContext) {
         Existing <span id="imageCount">{images.length}</span> images.
       </div>
       <form style="text-align: center" data-project-id={project_id}>
-        <ion-button onclick={user ? `pickImage(event)` : 'goto("/login")'}>
+        <ion-button onclick="pickImage(event)" disabled={!user}>
           <ion-icon name="cloud-upload" slot="start"></ion-icon> Upload Photos
         </ion-button>
+        {!user ? (
+          <IonButton url="/login">
+            <ion-icon name="log-in-outline" slot="start"></ion-icon> Login
+          </IonButton>
+        ) : null}
         {images.length > 0 && user ? (
           <div style="display: block; margin-top: 0.5rem">
             <ion-button
