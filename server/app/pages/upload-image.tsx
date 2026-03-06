@@ -491,17 +491,20 @@ async function UploadImage(context: ExpressContext) {
 async function RemoveImage(context: ExpressContext) {
   let { req, res } = context
   try {
-    let { filename, project } = req.query
+    let filename = req.query.filename
     if (typeof filename !== 'string') throw 'filename is required'
+
+    let project_id = +req.query.project!
+    if (!project_id) throw 'missing project id in query'
+
     let image = find(proxy.image, { filename })
-    let project_id = image?.project_id ?? (typeof project === 'string' ? +project : undefined)
     if (image) {
       del(proxy.image_label, { image_id: image.id! })
       del(proxy.image, { filename })
     }
     let file = join(env.UPLOAD_DIR, filename)
     await rm(file, { force: true })
-    let new_count = project_id != null ? count(proxy.image, { project_id }) : 0
+    let new_count = count(proxy.image, { project_id })
     res.json({ count: new_count })
   } catch (error) {
     console.error(error)
