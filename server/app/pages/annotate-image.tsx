@@ -188,14 +188,6 @@ where label_id = :label_id
   )
   .pluck()
 
-let has_previous_annotation = db
-  .prepare<{ label_id: number }, number>(
-    /* sql */ `
-select count(*) from image_label where label_id = :label_id
-`,
-  )
-  .pluck()
-
 // Renders the main UI for image annotation, including label selection and image display
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
@@ -220,18 +212,18 @@ function Main(attrs: {}, context: DynamicContext) {
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
   let project_id = project.id!
-  let labels = project_id != null
-    ? filter(proxy.label, { project_id })
-    : [...proxy.label]
-  let sortedLabels = [...labels].sort(
-    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
-  )
-  let defaultLabelId = sortedLabels[0]?.id ?? 1
-  let label_id = params.get('label') ? +params.get('label')! : defaultLabelId
-  let image = getNextImageForLabel(label_id)
+
+  let label = getContextLabel(context)
+  let label_id = label?.id! || null
+  let image = label ? getNextImageForLabel(label.id!) : null
   let total_images = proxy.image.length
-  let count = has_previous_annotation.get({ label_id }) as number
-  let has_undo = count > 0
+  let has_undo =
+    label &&
+    !!select_previous_image_label.get({
+      user_id: user.id!,
+      label_id: label.id!,
+    })
+  let labels = select_project_label.all({ project_id })
 
   return (
     <>
@@ -245,7 +237,7 @@ function Main(attrs: {}, context: DynamicContext) {
             )}
             id="label_select"
           >
-            {mapArray(sortedLabels, label => {
+            {mapArray(labels, label => {
               let annotated_images = count_annotated_images.get({
                 label_id: label.id!,
               })
