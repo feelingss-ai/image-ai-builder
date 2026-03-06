@@ -26,6 +26,7 @@ import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
 import { pick, del, filter, find, count } from 'better-sqlite3-proxy'
 import { mkdirSync, rmSync } from 'fs'
+import { IonItem } from '../components/ion-item.js'
 
 let pageTitle = <Locale en="Project List" zh_hk="項目列表" zh_cn="项目列表" />
 let manageMemberTitle = (
@@ -95,12 +96,6 @@ function delete_project(event) {
   event.stopPropagation()
   let project_id = event.target.id
   emit('/project/delete-project', {project_id: project_id})
-}
-
-  //send select project id to server
-function select_project(project_id) {
-  let project_id_num = project_id.split('-')[2]
-  emit('/project/select-project', {project_id: project_id_num})
 }
 
 function manage_member(event) {
@@ -186,7 +181,10 @@ function ProjectItem(attrs: { id: number; user_id: number }) {
   let image_count = count(proxy.image, { project_id })
 
   return (
-    <ion-item id={`project-item-${attrs.id}`} onclick="select_project(this.id)">
+    <IonItem
+      id={`project-item-${project_id}`}
+      url={`/app/home?project=${project_id}`}
+    >
       <h2 id={`project-title-${attrs.id}`}>
         {title}{' '}
         <span class="project-title--stats">
@@ -225,7 +223,7 @@ function ProjectItem(attrs: { id: number; user_id: number }) {
           </ion-button>
         </div>
       ) : null}
-    </ion-item>
+    </IonItem>
   )
 }
 
@@ -719,12 +717,6 @@ let routes = {
     title: apiEndpointTitle,
     description: 'TODO',
     node: <DeleteProject />,
-    streaming: false,
-  },
-  '/project/select-project': {
-    title: apiEndpointTitle,
-    description: 'TODO',
-    node: <SelectProject />,
     streaming: false,
   },
   '/project/delete-member': {

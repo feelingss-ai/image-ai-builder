@@ -107,9 +107,9 @@ function Main(attrs: {}, context: DynamicContext) {
               zh_cn="您必须先选择项目"
             />
           </p>
-          <IonButton url="/app/project" color="primary">
+          <ion-button color="primary" onclick='goto("/app/project")'>
             <Locale en="Select Project" zh_hk="選擇項目" zh_cn="选择项目" />
-          </IonButton>
+          </ion-button>
         </div>
       </>
     )
