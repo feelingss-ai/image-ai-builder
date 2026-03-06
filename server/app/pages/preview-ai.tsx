@@ -16,7 +16,7 @@ import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
-import { evalLocale, Locale } from '../components/locale.js'
+import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { filter } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { Script } from '../components/script.js'
@@ -332,7 +332,7 @@ let page = (
       <ion-toolbar>
         <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
-          {pageTitle}
+          <ProjectPageTitle t={pageTitle} short />
         </ion-title>
       </ion-toolbar>
     </ion-header>
@@ -444,14 +444,9 @@ function Main(attrs: {}, context: DynamicContext) {
 
 let routes = {
   '/preview-ai': {
-    resolve(context) {
-      let t = evalLocale(pageTitle, context)
-      return {
-        title: title(t),
-        description: 'TODO',
-        node: page,
-      }
-    },
+    title: <ProjectPageTitle t={pageTitle} />,
+    description: 'TODO',
+    node: page,
   },
 } satisfies Routes
 

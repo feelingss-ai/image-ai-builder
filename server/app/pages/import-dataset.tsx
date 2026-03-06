@@ -12,7 +12,7 @@ import { mapArray } from '../components/fragment.js'
 import { Link } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
-import { evalLocale, Locale } from '../components/locale.js'
+import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy } from '../../../db/proxy.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
@@ -240,7 +240,7 @@ let page = (
       <ion-toolbar>
         <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
-          {pageTitle}
+          <ProjectPageTitle t={pageTitle} short />
         </ion-title>
       </ion-toolbar>
     </ion-header>
@@ -424,14 +424,9 @@ async function ApplyLabels(context: ExpressContext) {
 
 let routes = {
   '/import-dataset': {
-    resolve(context) {
-      let t = evalLocale(pageTitle, context)
-      return {
-        title: title(t),
-        description: 'Upload images and set labels for the batch',
-        node: page,
-      }
-    },
+    title: <ProjectPageTitle t={pageTitle} />,
+    description: 'Upload images and set labels for the batch',
+    node: page,
   },
   '/import-dataset/apply-labels': ajaxRoute({
     description: 'apply batch labels to uploaded images',

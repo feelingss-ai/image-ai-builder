@@ -17,7 +17,7 @@ import { object, string, int } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
-import { Locale, Title } from '../components/locale.js'
+import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { filter, find } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
@@ -45,7 +45,7 @@ let page = (
       <ion-toolbar>
         <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
-          {pageTitle}
+          <ProjectPageTitle t={pageTitle} short />
         </ion-title>
       </ion-toolbar>
     </ion-header>
@@ -94,8 +94,6 @@ function Main(attrs: {}, context: DynamicContext) {
 
   return (
     <>
-      <h2>Project: {project.title}</h2>
-
       {/* Add new label button - at the top like project list */}
       <div style="margin-bottom: 2rem">
         <Link
@@ -242,13 +240,11 @@ function AddPage(attrs: {}, context: DynamicContext) {
             backText={pageTitle}
           />
           <ion-title role="heading" aria-level="1">
-            {addPageTitle}
+            <ProjectPageTitle t={addPageTitle} short />
           </ion-title>
         </ion-toolbar>
       </ion-header>
       <ion-content class="ion-padding">
-        <h2>Project: {project.title}</h2>
-
         <form
           id="add-label-form"
           method="POST"
@@ -356,12 +352,11 @@ function EditPage(attrs: {}, context: DynamicContext) {
             backText={pageTitle}
           />
           <ion-title role="heading" aria-level="1">
-            {editPageTitle}
+            <ProjectPageTitle t={editPageTitle} short />
           </ion-title>
         </ion-toolbar>
       </ion-header>
       <ion-content class="ion-padding">
-        <h2>Project: {project.title}</h2>
 
         <form
           method="POST"
@@ -707,12 +702,12 @@ function ReorderLabel(attrs: {}, context: WsContext) {
 
 let routes = {
   '/manage-labels': {
-    title: <Title t={pageTitle} />,
+    title: <ProjectPageTitle t={pageTitle} />,
     description: 'Manage labels for annotation',
     node: page,
   },
   '/manage-labels/add': {
-    title: <Title t={addPageTitle} />,
+    title: <ProjectPageTitle t={addPageTitle} />,
     description: 'Add a new label',
     node: <AddPage />,
     layout_type: LayoutType.ionic,
@@ -724,7 +719,7 @@ let routes = {
     streaming: false,
   },
   '/manage-labels/edit': {
-    title: <Title t={editPageTitle} />,
+    title: <ProjectPageTitle t={editPageTitle} />,
     description: 'Edit label name and parent',
     node: <EditPage />,
     layout_type: LayoutType.ionic,

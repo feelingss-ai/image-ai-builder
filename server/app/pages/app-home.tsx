@@ -2,7 +2,7 @@ import { loadClientPlugin } from '../../client-plugin.js'
 import { LayoutType, config, title } from '../../config.js'
 import { appIonTabBar } from '../components/app-tab-bar.js'
 import { mapArray } from '../components/fragment.js'
-import { Locale, Title } from '../components/locale.js'
+import { Locale, ProjectPageTitle, Title } from '../components/locale.js'
 import { Link } from '../components/router.js'
 import { Script } from '../components/script.js'
 import Style from '../components/style.js'
@@ -72,7 +72,7 @@ let homePage = (
           </ion-buttons> */}
           <IonBackButton href={`/app/project`} backText="Projects" />
           <ion-title role="heading" aria-level="1">
-            {pageTitle}
+            <ProjectPageTitle t={pageTitle} short />
           </ion-title>
           {/* <ion-buttons slot="end">
             <Link tagName="ion-button" href="/app/about" color="light">
@@ -185,23 +185,13 @@ function Main(attrs: {}, context: DynamicContext) {
 // pre-render into html to reduce time to first contentful paint (FCP)
 // homePage = prerender(homePage)
 
-let homeRoute: PageRoute = {
-  title: <Title t={pageTitle} />,
-  description:
-    'List of fictional characters commonly used as placeholders in discussion about cryptographic systems and protocols.',
-  menuText: 'Ionic App',
-  menuFullNavigate: true,
-  node: homePage,
-  layout_type: LayoutType.ionic,
-}
-
 let routes = {
-  // ...(config.layout_type === LayoutType.ionic
-  //   ? {
-  //       '/': homeRoute,
-  //     }
-  //   : {}),
-  '/app/home': homeRoute,
+  '/app/home': {
+    title: <ProjectPageTitle t={pageTitle} />,
+    description: 'Main menu for the Image AI Workspace',
+    node: homePage,
+    layout_type: LayoutType.ionic,
+  },
 } satisfies Routes
 
 export default { routes }

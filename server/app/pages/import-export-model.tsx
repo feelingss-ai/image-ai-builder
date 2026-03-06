@@ -1,5 +1,5 @@
 import { o } from '../jsx/jsx.js'
-import { evalLocale, Locale, Title } from '../components/locale.js'
+import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
 import { Script } from '../components/script.js'
@@ -47,7 +47,7 @@ let page = (
       <ion-toolbar>
         <IonBackButton href="/" backText="Home" />
         <ion-title role="heading" aria-level="1">
-          {pageTitle}
+          <ProjectPageTitle t={pageTitle} short />
         </ion-title>
       </ion-toolbar>
     </ion-header>
@@ -63,7 +63,7 @@ function Main(attrs: {}, context: Context) {
 
 let routes = {
   '/import-export-model': {
-    title: <Title t={pageTitle} />,
+    title: <ProjectPageTitle t={pageTitle} />,
     description: (
       <Locale
         en="Import/Export model as zip"

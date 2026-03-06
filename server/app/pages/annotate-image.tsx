@@ -14,7 +14,7 @@ import { IonBackButton } from '../components/ion-back-button.js'
 import { id, number, object, values } from 'cast.ts'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
-import { Locale, makeThrows, Title } from '../components/locale.js'
+import { Locale, makeThrows, ProjectPageTitle } from '../components/locale.js'
 import { filter } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
@@ -159,7 +159,7 @@ let page = (
       <ion-toolbar>
         <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
-          {pageTitle}
+          <ProjectPageTitle t={pageTitle} short />
         </ion-title>
       </ion-toolbar>
     </ion-header>
@@ -778,7 +778,7 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
 let routes = {
   // Route for rendering the main annotation page
   '/annotate-image': {
-    title: <Title t={pageTitle} />,
+    title: <ProjectPageTitle t={pageTitle} />,
     description: 'TODO',
     node: page,
   },

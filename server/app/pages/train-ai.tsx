@@ -16,7 +16,7 @@ import { float, int, object, string, values } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
-import { evalLocale, Locale, Title } from '../components/locale.js'
+import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { Script } from '../components/script.js'
 import { Chart, ChartScript } from '../components/chart.js'
 import { toRouteUrl } from '../../url.js'
@@ -172,7 +172,7 @@ let page = (
       <ion-toolbar>
         <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
-          {pageTitle}
+          <ProjectPageTitle t={pageTitle} short />
         </ion-title>
       </ion-toolbar>
     </ion-header>
@@ -813,7 +813,7 @@ function getProjectIDFromURL(context: Context): number {
 
 let routes = {
   '/train-ai': {
-    title: <Title t={pageTitle} />,
+    title: <ProjectPageTitle t={pageTitle} />,
     description: (
       <Locale
         en="View model training progress and submit training request"

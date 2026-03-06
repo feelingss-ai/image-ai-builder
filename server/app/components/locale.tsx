@@ -1,5 +1,6 @@
 import { title } from '../../config.js'
-import { Context, getContextLanguage } from '../context.js'
+import { Context, DynamicContext, getContextLanguage } from '../context.js'
+import { getContextProject } from '../context/project-context.js'
 import { Component, Node } from '../jsx/types.js'
 
 export type LocaleVariants<T = Node> = {
@@ -60,6 +61,22 @@ export function Title(
   return title(t)
 }
 
+export function ProjectPageTitle(
+  attrs: {
+    t: Component<LocaleVariants<string>>
+    short?: boolean
+  },
+  context: DynamicContext,
+) {
+  let project = getContextProject(context)
+  let component = attrs.t
+  let variants = component[1] as LocaleVariants<string>
+  let t = Locale(variants, context)
+  let content = project ? t + ' - ' + project.title : t
+  if (attrs.short) return content
+  return title(content)
+}
+
 export function evalAttrsLocale<T extends object>(
   attrs: T,
   key: keyof T,
@@ -69,7 +86,11 @@ export function evalAttrsLocale<T extends object>(
   let value = attrs[key]
   if (!Array.isArray(value)) return
   let component = value[0]
-  if (component === Locale || component === Title) {
+  if (
+    component === Locale ||
+    component === Title ||
+    component === ProjectPageTitle
+  ) {
     let variants = value[1] as LocaleVariants<string>
     attrs[key] = component(variants, context) as any
   }
@@ -82,7 +103,12 @@ export function evalLocale<T>(
   if (!Array.isArray(node)) return node
   let component = node[0]
   let attrs = node[1]
-  if (component !== Locale && component !== Title) return node as T
+  if (
+    component !== Locale &&
+    component !== Title &&
+    component !== ProjectPageTitle
+  )
+    return node as T
   let variants = attrs
   return component(variants, context)
 }

@@ -1,7 +1,7 @@
 import { count } from 'better-sqlite3-proxy'
 import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
-import { apiEndpointTitle, title } from '../../config.js'
+import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
 import {
   Context,
@@ -16,7 +16,7 @@ import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
-import { evalLocale, Locale } from '../components/locale.js'
+import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 
@@ -74,7 +74,7 @@ let page = (
       <ion-toolbar>
         <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
-          {pageTitle}
+          <ProjectPageTitle t={pageTitle} short />
         </ion-title>
       </ion-toolbar>
     </ion-header>
@@ -206,14 +206,9 @@ function StatsChart(attrs: { yes: number; unknown: number; no: number }) {
 
 let routes = {
   '/stats': {
-    resolve(context) {
-      let t = evalLocale(pageTitle, context)
-      return {
-        title: title(t),
-        description: 'TODO',
-        node: page,
-      }
-    },
+    title: <ProjectPageTitle t={pageTitle} />,
+    description: 'TODO',
+    node: page,
   },
 } satisfies Routes
 

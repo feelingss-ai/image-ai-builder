@@ -17,7 +17,7 @@ import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
-import { evalLocale, Locale } from '../components/locale.js'
+import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy, User } from '../../../db/proxy.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
@@ -196,7 +196,7 @@ let page = (
       <ion-toolbar>
         <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
-          {pageTitle}
+          <ProjectPageTitle t={pageTitle} short />
         </ion-title>
       </ion-toolbar>
     </ion-header>
@@ -532,14 +532,9 @@ async function RemoveAllImages(context: ExpressContext) {
 
 let routes = {
   '/upload-image': {
-    resolve(context) {
-      let t = evalLocale(pageTitle, context)
-      return {
-        title: title(t),
-        description: 'TODO',
-        node: page,
-      }
-    },
+    title: <ProjectPageTitle t={pageTitle} />,
+    description: 'TODO',
+    node: page,
   },
   '/upload-image/submit': ajaxRoute({
     description: 'upload image',
