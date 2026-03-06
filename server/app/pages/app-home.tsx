@@ -170,7 +170,7 @@ function Main(attrs: {}, context: DynamicContext) {
 
   return (
     <ion-content class="ion-padding">
-      <ion-list>
+      <ion-list class="hover-list">
         {mapArray(pages, (page, index) => (
           <Link tagName="ion-item" href={page.href}>
             {index + 1}. {page.title}

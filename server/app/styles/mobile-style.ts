@@ -57,6 +57,19 @@ ion-title.ios {
 .margin-half {
   --ion-margin: 8px;
 }
+
+/* List hover: only for ion-list with class="hover-list" */
+ion-list.hover-list > ion-item {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  --background-hover: var(--ion-color-light);
+  --background-activated: var(--ion-color-light-shade);
+}
+ion-list.hover-list > ion-item:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  --background: var(--ion-color-light);
+}
 `
 
 let themeStyle = readFileSync('public/theme.css').toString()

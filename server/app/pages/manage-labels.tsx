@@ -92,7 +92,7 @@ function Main(attrs: {}, context: DynamicContext) {
 
       {/* Labels list */}
       <h3>Labels ({sortedLabels.length})</h3>
-      <ion-list>
+      <ion-list class="hover-list">
         {mapArray(sortedLabels, (label, index) => (
           <LabelItem
             label={label}

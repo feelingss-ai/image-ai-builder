@@ -38,17 +38,9 @@ let style = Style(/* css */ `
 
 }
 
-ion-item {
-  cursor: pointer;
-  border-radius: 10px;
-  transition: all 0.3s ease;
+#Project ion-item {
   margin: 10px;
   overflow: visible;
-  &:hover {
-    transform: scale(1.02);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-    z-index: 10;
-  }
 }
 
 .project-title--stats {
@@ -323,7 +315,7 @@ function Main(attrs: {}, context: Context) {
         <ion-icon name="add"></ion-icon>
         <Locale en="Create New Project" zh_hk="新增項目" zh_cn="新增项目" />
       </ion-button>
-      <ion-list id="project-list">
+      <ion-list id="project-list" class="hover-list">
         {mapArray(projects, project => (
           <ProjectItem id={project.id!} user_id={user_id!} />
         ))}
@@ -529,7 +521,7 @@ function ManageMember(attrs: {}, context: DynamicContext) {
           zh_cn="当前项目成员"
         />
       </p>
-      <ion-list>
+      <ion-list class="hover-list">
         {mapArray(user_list, user => (
           <MemberItem
             user_id={user.id!}
