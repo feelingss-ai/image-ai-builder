@@ -124,7 +124,7 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
         grayscaleData[i] = (r + g + b) / 3 / 255;
       }
 
-      if (!models_dir || models_dir.length === 0) {
+      if (!modelInfos || modelInfos.length === 0) {
         console.warn('Preview: no models (open the page with ?project= from project home)');
         return;
       }
@@ -135,7 +135,7 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
       const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
 
       let predictions = {};
-      for (let modelInfo of models_dir) {
+      for (let modelInfo of modelInfos) {
         if (modelInfo.dependency_id != null) {
           let depProb = predictions[modelInfo.dependency_id];
           if (depProb == null || depProb < 0.5) {
@@ -175,7 +175,7 @@ async function startRealtimeDetection() {
 
   // Make sure models are loaded
   const models = {};
-  for (let modelInfo of models_dir) {
+  for (let modelInfo of modelInfos) {
     models[modelInfo.id] = await loadLabelModel(modelInfo.path);
   }
 
@@ -214,7 +214,7 @@ async function startRealtimeDetection() {
     // Create input tensor
     const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
 
-    for (let modelInfo of models_dir) {
+    for (let modelInfo of modelInfos) {
       let labelEl = document.querySelector('#label-' + modelInfo.id);
       if (!labelEl) {
         stopWebcam();
@@ -321,7 +321,7 @@ let page = (
 
 function PreviewScript(attrs: {}, context: DynamicContext) {
   let models = getModels(context)
-  return <script>models_dir = {JSON.stringify(models)}</script>
+  return <script>modelInfos = {JSON.stringify(models)}</script>
 }
 
 let select_project_label = db.prepare<
@@ -426,7 +426,7 @@ function Main(attrs: {}, context: DynamicContext) {
         >
           <img width="100%" height="100%" style="object-fit: contain;" />
         </div>
-        {/* labels - same project-scoped list as models_dir so progress ids match */}
+        {/* labels - same project-scoped list as modelInfos so progress ids match */}
         <div style="position: absolute; right: 0; top: 0; display: flex; flex-direction: column; gap: 0.5rem; max-width: 40%;">
           {mapArray(sortedLabels, label => (
             <div class="label-container">
