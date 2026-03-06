@@ -33,6 +33,7 @@ import { dataURItoFile } from '@beenotung/tslib/image.js'
 import { writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { getContextProject } from '../context/project-context.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { render } from '@ionic/core/dist/types/stencil-public-runtime.js'
 
@@ -218,16 +219,7 @@ let items = [
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   let project = getContextProject(context)
-  if (!project) {
-    return (
-      <>
-        {renderError('missing project id in url', context)}
-        <p>
-          <Link href="/app/project">Select Project</Link>
-        </p>
-      </>
-    )
-  }
+  if (!project) return <NoProjectMessage />
   let project_id = project.id!
   let images = filter(proxy.image, { project_id })
   return (

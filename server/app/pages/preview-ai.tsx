@@ -12,6 +12,7 @@ import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { IonButton } from '../components/ion-button.js'
 import { getContextProject } from '../context/project-context.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
@@ -370,18 +371,7 @@ function Main(attrs: {}, context: DynamicContext) {
     )
   }
   let project = getContextProject(context)
-  if (!project) {
-    return (
-      <p class="ion-padding">
-        <Locale
-          en="No project selected. Select a project first to preview AI."
-          zh_hk="未選擇專案。請先選擇專案以預覽 AI。"
-          zh_cn="未选择项目。请先选择项目以预览 AI。"
-        />{' '}
-        <Link href="/app/home">App Home</Link>
-      </p>
-    )
-  }
+  if (!project) return <NoProjectMessage />
   let project_id = project.id!
   let labels = filter(proxy.label, { project_id })
   let sortedLabels = [...labels].sort(

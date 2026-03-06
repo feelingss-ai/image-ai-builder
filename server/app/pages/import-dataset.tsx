@@ -16,7 +16,9 @@ import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy } from '../../../db/proxy.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
+import { getContextProject } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
 import { array, id, object, values } from 'cast.ts'
 
 let pageTitle = (
@@ -258,14 +260,7 @@ function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   let project = getContextProject(context)
   if (!project) {
-    return (
-      <>
-        {renderError('missing project id in url', context)}
-        <p>
-          <Link href="/app/home">Select Project</Link>
-        </p>
-      </>
-    )
+    return <NoProjectMessage />
   }
   let project_id = project.id!
   if (!user) {

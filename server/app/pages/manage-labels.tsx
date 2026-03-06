@@ -25,6 +25,7 @@ import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
 import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
 
 let pageTitle = <Locale en="Manage Labels" zh_hk="管理標籤" zh_cn="管理标签" />
 let addPageTitle = <Locale en="Add Label" zh_hk="添加標籤" zh_cn="添加标签" />
@@ -67,14 +68,7 @@ function Main(attrs: {}, context: DynamicContext) {
   }
 
   let project = getContextProject(context)
-  if (!project) {
-    return (
-      <p>
-        Project not found. Please{' '}
-        <Link href="/app/project">select a valid project</Link>.
-      </p>
-    )
-  }
+  if (!project) return <NoProjectMessage />
   let project_id = project.id!
 
   // Get labels for this project (use proxy filter for DB query, not array loop)
@@ -206,9 +200,7 @@ function AddPage(attrs: {}, context: DynamicContext) {
   if (!user) return <Redirect href="/login" />
 
   let project = getContextProject(context)
-  if (!project) {
-    return <Redirect href="/app/project" />
-  }
+  if (!project) return <NoProjectMessage />
   let project_id = project.id!
 
   // Get existing labels for parent selection (use proxy filter for DB query), sorted by display_order
@@ -311,17 +303,22 @@ function EditPage(attrs: {}, context: DynamicContext) {
     return <NoProjectMessage />
   }
   let project_id = project.id!
+
+  let fallbackUrl = `/manage-labels?project=${project_id}`
+
+  let params = new URLSearchParams(context.routerMatch?.search ?? '')
   let label_id = +params.get('label_id')!
   if (!label_id) {
-    return <Redirect href="/app/project" />
+    return <Redirect href={fallbackUrl} />
   }
 
   let label = proxy.label[label_id]
   if (!label || label.project_id !== project_id) {
-    return <Redirect href={`/manage-labels?project=${project_id}`} />
+    return <Redirect href={fallbackUrl} />
   }
+
   if (project.creator_id !== user.id) {
-    return <Redirect href={`/manage-labels?project=${project_id}`} />
+    return <Redirect href={fallbackUrl} />
   }
 
   // Other labels in project for dependency dropdown, excluding self (proxy filter then exclude current), sorted by display_order
@@ -345,7 +342,6 @@ function EditPage(attrs: {}, context: DynamicContext) {
         </ion-toolbar>
       </ion-header>
       <ion-content class="ion-padding">
-
         <form
           method="POST"
           action={`/manage-labels/modify?project=${project_id}&label_id=${label_id}`}
@@ -414,9 +410,7 @@ function Submit(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = submitParser.parse(body)
 
-    // Check if project exists and user has access
-    let project = proxy.project[project_id]
-    if (!project) throw 'Project not found'
+    // Check project access
     if (project.creator_id !== user.id)
       throw 'You do not have permission to add labels to this project'
 
@@ -495,8 +489,9 @@ function ModifyLabel(attrs: {}, context: WsContext) {
     if (!project) throw 'Project not found'
     let project_id = project.id!
 
-    let body = getContextFormBody(context)
-    let input = modifyParser.parse(body)
+    let params = new URLSearchParams(context.routerMatch?.search ?? '')
+    let label_id = +params.get('label_id')!
+    if (!label_id) throw 'Invalid label'
 
     let label = proxy.label[label_id]
     if (!label || label.project_id !== project_id) {
@@ -505,6 +500,9 @@ function ModifyLabel(attrs: {}, context: WsContext) {
     if (project.creator_id !== user.id) {
       throw 'You do not have permission to edit labels in this project'
     }
+
+    let body = getContextFormBody(context)
+    let input = modifyParser.parse(body)
 
     let dependency_id =
       input.dependency_id &&
