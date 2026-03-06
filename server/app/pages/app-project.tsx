@@ -434,6 +434,8 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
+    // TODO delete all images, annotation, models, etc.
+
     del(proxy.project_member, { project_id: input.project_id })
 
     delete proxy.project[input.project_id]
