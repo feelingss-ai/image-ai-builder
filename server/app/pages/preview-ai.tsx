@@ -11,6 +11,7 @@ import {
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { IonButton } from '../components/ion-button.js'
+import { getContextProject } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
@@ -20,6 +21,7 @@ import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { filter } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { Script } from '../components/script.js'
+import { db } from '../../../db/db.js'
 
 let pageTitle = <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
 
@@ -34,28 +36,7 @@ let style = Style(/* css */ `
 }
 `)
 
-/** Returns model paths and label ids for the current project (from URL ?project=). Uses best checkpoint for inference. Includes dependency_id so preview only runs dependent models when precondition is met. */
-function read_models_by_id(
-  context: DynamicContext,
-): { path: string; id: number; dependency_id: null | number }[] {
-  let params = new URLSearchParams(context.routerMatch?.search ?? '')
-  let project_id = +params.get('project')!
-  if (!project_id) return []
-  let labels = filter(proxy.label, { project_id })
-  return [...labels]
-    .sort((a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999))
-    .filter(label => label.id != null)
-    .map(label => ({
-      path: `project-${project_id}/best/label-${label.id}`,
-      id: label.id as number,
-      dependency_id: label.dependency_id ?? null,
-    }))
-}
-
 let script = Script(/* js */ `
-
-models_dir = window.models_dir
-
 //avoid load model multiple times
 window.modelCache ||= {}
 
@@ -319,12 +300,6 @@ async function toggleWebcam() {
 }
 `)
 
-function PreviewScript(attrs: {}, context: DynamicContext) {
-  return (
-    <script>window.models_dir = {JSON.stringify(read_models_by_id(context))}</script>
-  )
-}
-
 let page = (
   <>
     {style}
@@ -343,6 +318,36 @@ let page = (
     {script}
   </>
 )
+
+function PreviewScript(attrs: {}, context: DynamicContext) {
+  let models = getModels(context)
+  return <script>models_dir = {JSON.stringify(models)}</script>
+}
+
+let select_project_label = db.prepare<
+  { project_id: number },
+  { id: number; dependency_id: null | number }
+>(/* sql */ `
+select
+  id
+, dependency_id
+from label
+where project_id = :project_id
+order by display_order asc
+`)
+
+function getModels(
+  context: DynamicContext,
+): { path: string; id: number; dependency_id: null | number }[] {
+  let project = getContextProject(context)
+  if (!project) return []
+  let project_id = project.id!
+  return select_project_label.all({ project_id }).map(label => ({
+    path: `project-${project_id}/best/label-${label.id}`,
+    id: label.id,
+    dependency_id: label.dependency_id,
+  }))
+}
 
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
