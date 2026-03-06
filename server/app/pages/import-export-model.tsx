@@ -13,6 +13,7 @@ import {
   getContextUrl,
 } from '../context.js'
 import { getAuthUser } from '../auth/user.js'
+import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 
 let pageTitle = (
   <Locale
@@ -45,7 +46,7 @@ let page = (
     {style}
     <ion-header>
       <ion-toolbar>
-        <IonBackButton href="/" backText="Home" />
+        <ProjectPageBackButton />
         <ion-title role="heading" aria-level="1">
           <ProjectPageTitle t={pageTitle} short />
         </ion-title>
