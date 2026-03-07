@@ -202,7 +202,7 @@ let page = (
         </ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content id="UploadImage" class="ion-padding" color="light">
+    <ion-content id="UploadImage" class="ion-padding">
       <Main />
     </ion-content>
     {imagePlugin.node}

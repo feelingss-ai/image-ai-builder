@@ -78,7 +78,7 @@ let page = (
         </ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content id="Stats" class="ion-no-padding" color="light">
+    <ion-content id="Stats" class="ion-no-padding">
       <Main />
     </ion-content>
   </>
