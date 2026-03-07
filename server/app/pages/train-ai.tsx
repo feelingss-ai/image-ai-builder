@@ -272,7 +272,9 @@ function Main(attrs: {}, context: DynamicContext) {
           <div slot="content">
             <form
               method="POST"
-              action={toRouteUrl(routes, '/train-ai/train')}
+              action={toRouteUrl(routes, '/train-ai/train', {
+                query: { project: project_id },
+              })}
               onsubmit="emitForm(event)"
             >
               <ion-item>
