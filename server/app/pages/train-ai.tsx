@@ -1,20 +1,12 @@
 import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
-import { apiEndpointTitle, title } from '../../config.js'
+import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
-import {
-  Context,
-  DynamicContext,
-  getContextFormBody,
-  throwIfInAPI,
-} from '../context.js'
+import { DynamicContext, getContextFormBody } from '../context.js'
 import { getContextProject } from '../context/project-context.js'
-import { mapArray } from '../components/fragment.js'
-import { IonBackButton } from '../components/ion-back-button.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
-import { float, int, object, string, values } from 'cast.ts'
-import { Link, Redirect } from '../components/router.js'
-import { renderError } from '../components/error.js'
+import { float, int, object, values } from 'cast.ts'
+import { Link } from '../components/router.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
 import { getAuthUser } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
@@ -24,9 +16,8 @@ import { toRouteUrl } from '../../url.js'
 import { EarlyTerminate } from '../../exception.js'
 import { sessions } from '../session.js'
 import { ServerMessage } from '../../../client/types.js'
-import { sleep } from '@beenotung/tslib/async/wait.js'
 import { del, filter, notNull, pick } from 'better-sqlite3-proxy'
-import { Label, Project, proxy } from '../../../db/proxy.js'
+import { Label, proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import {
   baseModel,
@@ -40,9 +31,6 @@ import { join } from 'path'
 import { tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
 import { existsSync, rmSync } from 'fs'
-import { scales } from 'chart.js'
-import { log } from 'console'
-import { text } from 'stream/consumers'
 
 let pageTitle = (
   <Locale en="Train AI Model" zh_hk="訓練 AI 模型" zh_cn="训练 AI 模型" />
