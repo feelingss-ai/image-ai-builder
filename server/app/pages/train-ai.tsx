@@ -7,14 +7,15 @@ import {
   DynamicContext,
   getContextFormBody,
   throwIfInAPI,
-  getContextUrl,
 } from '../context.js'
+import { getContextProject } from '../context/project-context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { float, int, object, string, values } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
 import { getAuthUser } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { Script } from '../components/script.js'
@@ -57,7 +58,7 @@ ion-range::part(pin) { /*always show pin number*/
   top: -20px;
 }
 `)
-let project_id: number
+
 let script = Script(/* js */ `
 // Learning Rate Elements
 learning_rate = document.querySelector('#learning_rate'); 
@@ -202,8 +203,10 @@ const count_model = () => {
 
 const MODEL_NO = count_model()
 
-function Main(attrs: {}, context: Context) {
-  project_id = getProjectIDFromURL(context) as number
+function Main(attrs: {}, context: DynamicContext) {
+  let project = getContextProject(context)
+  if (!project) return <NoProjectMessage />
+  let project_id = project.id!
   let user = getAuthUser(context)
   //get data from training_stats table on database and group by label_id (support multiple models)
   let statsByModel: Record<
@@ -530,9 +533,11 @@ let submitTrainParser = object({
 function SubmitTrain(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   if (!user) throw 'You must be logged in to train AI'
+  let project = getContextProject(context)
+  if (!project) throw 'Missing project id in the url'
+  let project_id = project.id!
   let body = getContextFormBody(context)
   let input = submitTrainParser.parse(body)
-  let project_id = getProjectIDFromURL(context)
   let projectLabels = filter(proxy.label, { project_id })
   let labels = [...projectLabels].sort(
     (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
@@ -803,12 +808,6 @@ function shuffleInUnison(a: any, b: any) {
     ;[a[i], a[j]] = [a[j], a[i]]
     ;[b[i], b[j]] = [b[j], b[i]]
   }
-}
-
-function getProjectIDFromURL(context: Context): number {
-  let url = getContextUrl(context)
-  const project_id = Number(url.split('project=')[1])
-  return project_id
 }
 
 let routes = {
