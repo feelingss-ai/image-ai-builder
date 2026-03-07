@@ -245,7 +245,7 @@ function Main(attrs: {}, context: DynamicContext) {
   */
   function getDatasets(key: string) {
     return Object.values(statsByModel).map(model => ({
-      label: `Model ${model.label_title}`,
+      label: model.label_title,
       data: model[key as keyof typeof model] as number[],
     }))
   }
