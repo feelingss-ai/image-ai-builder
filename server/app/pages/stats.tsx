@@ -109,7 +109,6 @@ function Main(attrs: {}, context: Context) {
     [label_id: number]: { yes: number; no: number; unknown: number }
   } = {}
   let rows = select_label_count.all()
-  console.log({ rows })
   for (let row of rows) {
     let { label_id } = row
     let answers = JSON.parse(row.answers) as (1 | 0 | null)[]
