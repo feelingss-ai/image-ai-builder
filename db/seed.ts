@@ -25,26 +25,31 @@ proxy.project[1] = {
 }
 
 proxy.label[1] = {
+  display_order: 1,
   title: '🦞',
   dependency_id: null,
   project_id: 1,
 }
 proxy.label[2] = {
+  display_order: 2,
   title: '🍜',
   dependency_id: null,
   project_id: 1,
 }
 proxy.label[3] = {
+  display_order: 3,
   title: '💩',
   dependency_id: null,
   project_id: 1,
 }
 proxy.label[4] = {
+  display_order: 4,
   title: '開尾',
   dependency_id: 1,
   project_id: 1,
 }
 proxy.label[5] = {
+  display_order: 5,
   title: '舉鉗',
   dependency_id: 1,
   project_id: 1,
