@@ -8,6 +8,7 @@ import { ProjectPageBackButton } from '../components/project-page-back-button.js
 import { float, int, object, values } from 'cast.ts'
 import { Link } from '../components/router.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { showError } from '../components/error.js'
 import { getAuthUser } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { Script } from '../components/script.js'
@@ -720,8 +721,14 @@ async function trainModel(options: {
   }
 
   const total = embeddings.length
+  if (total < 3) {
+    let msg = `Not enough images to train "${label.title}". Need at least 3 images (got ${total}).`
+    console.error(msg)
+    broadcast(showError(msg))
+    return
+  }
   let valCount = Math.floor(total * cross_validation_ratio)
-  if (total >= 2 && valCount == 0) {
+  if (valCount == 0) {
     valCount = 1
   }
   const valEmbeddings = embeddings.slice(0, valCount)
