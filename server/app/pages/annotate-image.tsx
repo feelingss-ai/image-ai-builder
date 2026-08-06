@@ -15,7 +15,7 @@ import { id, number, object, values } from 'cast.ts'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, makeThrows, ProjectPageTitle } from '../components/locale.js'
-import { filter } from 'better-sqlite3-proxy'
+import { filter, count } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
@@ -179,11 +179,13 @@ let page = (
 )
 
 let count_annotated_images = db
-  .prepare<{ label_id: number }, number>(
+  .prepare<{ label_id: number; project_id: number }, number>(
     /* sql */ `
-select count(distinct image_id)
+select count(distinct image_label.image_id)
 from image_label
-where label_id = :label_id
+join image on image.id = image_label.image_id
+where image_label.label_id = :label_id
+and image.project_id = :project_id
 `,
   )
   .pluck()
@@ -215,8 +217,8 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let label = getContextLabel(context)
   let label_id = label?.id! || null
-  let image = label ? getNextImageForLabel(label.id!) : null
-  let total_images = proxy.image.length
+  let image = label ? getNextImageForLabel(label.id!, project_id) : null
+  let total_images = count(proxy.image, { project_id })
   let has_undo =
     label &&
     !!select_previous_image_label.get({
@@ -240,6 +242,7 @@ function Main(attrs: {}, context: DynamicContext) {
             {mapArray(labels, label => {
               let annotated_images = count_annotated_images.get({
                 label_id: label.id!,
+                project_id,
               })
               return (
                 <ion-select-option value={label.id}>
@@ -352,12 +355,13 @@ function Main(attrs: {}, context: DynamicContext) {
 
 // Next image for a label. If dependency_id is set, skip images already marked negative for the dependency (precondition not met).
 let select_next_image = db.prepare<
-  { label_id: number; dependency_id: null | number },
+  { label_id: number; dependency_id: null | number; project_id: number },
   { id: number; filename: string; rotation: number | null }
 >(/* sql */ `
 select image.id, image.filename, image.rotation
 from image
-where id not in (
+where project_id = :project_id
+and id not in (
   select image_id from image_label
   where label_id = :label_id
 )
@@ -370,10 +374,10 @@ and (
 )
 `)
 
-function getNextImageForLabel(label_id: number) {
+function getNextImageForLabel(label_id: number, project_id: number) {
   let label = proxy.label[label_id]
   let dependency_id = label?.dependency_id ?? null
-  return select_next_image.get({ label_id, dependency_id })
+  return select_next_image.get({ label_id, dependency_id, project_id })
 }
 
 // Fetches the next unannotated image for a given label and user
@@ -384,7 +388,10 @@ async function getNextImage(context: ExpressContext) {
     if (!user) throw 'You must be logged in to annotate image'
     let label_id = +req.query.label!
     if (!label_id) throw 'missing label'
-    let image = getNextImageForLabel(label_id)
+    let label = proxy.label[label_id]
+    if (!label) throw 'label not found'
+    let project_id = label.project_id!
+    let image = getNextImageForLabel(label_id, project_id)
     return { image }
   } catch (error) {
     return { error: String(error) }
@@ -439,7 +446,10 @@ function ShowImage(attrs: {}, context: WsContext) {
     ])
 
     // check if label exists (skip images already marked negative for dependency)
-    let next_image = getNextImageForLabel(label_id)
+    let label = proxy.label[label_id]
+    if (!label) throw 'label not found'
+    let project_id = label.project_id!
+    let next_image = getNextImageForLabel(label_id, project_id)
     console.log(`ShowImage: next_image for label_id=${label_id}:`, next_image)
 
     // if no image found, return error
@@ -552,16 +562,19 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
     // Log the deletion of the annotation
     console.log(`UndoAnnotation: Deleted image_label id=${last_annotation!.id}`)
 
-    // Calculate the updated count of annotated images
-    let new_count = count_annotated_images.get({ label_id })
-    // Log the new annotation count for debugging
-    console.log(`UndoAnnotation: new_count=${new_count}, label_id=${label_id}`)
-    // Get total number of images
-    let total_images = proxy.image.length
     // Retrieve label details
     let label = proxy.label[label_id]
     // Throw error if label is not found
     if (!label) throw 'Label not found'
+    // Calculate the updated count of annotated images
+    let new_count = count_annotated_images.get({
+      label_id,
+      project_id: label.project_id!,
+    })
+    // Log the new annotation count for debugging
+    console.log(`UndoAnnotation: new_count=${new_count}, label_id=${label_id}`)
+    // Get total number of images in this project
+    let total_images = count(proxy.image, { project_id: label.project_id! })
     // Construct new text for the label select option
     let newText = `${label.title} (${new_count}/${total_images})`
     // Update the select option text via WebSocket
@@ -699,13 +712,14 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
     // Calculate the updated count of annotated images
     let new_count = count_annotated_images.get({
       label_id: input.label,
+      project_id: label.project_id!,
     })
     // Log the new annotation count for debugging
     console.log(
       `SubmitAnnotation: new_count=${new_count}, label_id=${input.label}`,
     )
-    // Get total number of images
-    let total_images = proxy.image.length
+    // Get total number of images in this project
+    let total_images = count(proxy.image, { project_id: label.project_id! })
     // Construct new text for the label select option
     let newText = `${label.title} (${new_count}/${total_images})`
     // Update the select option text via WebSocket
@@ -725,7 +739,7 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
     ])
 
     // Query the database for the next unannotated image (respecting dependency)
-    let next_image = getNextImageForLabel(input.label)
+    let next_image = getNextImageForLabel(input.label, label.project_id!)
     // Send batch WebSocket messages to update UI elements
     context.ws.send([
       'batch',
