@@ -26,6 +26,8 @@ import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
 import { pick, del, filter, find, count } from 'better-sqlite3-proxy'
 import { mkdirSync, rmSync } from 'fs'
+import { join } from 'path'
+import { env } from '../../env.js'
 import { IonItem } from '../components/ion-item.js'
 
 let pageTitle = <Locale en="Project List" zh_hk="項目列表" zh_cn="项目列表" />
@@ -426,15 +428,35 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
-    // TODO delete all images, annotation, models, etc.
+    let project_id = input.project_id
 
-    del(proxy.project_member, { project_id: input.project_id })
+    // delete all image_label annotations for images in this project
+    let images = filter(proxy.image, { project_id })
+    for (let image of images) {
+      del(proxy.image_label, { image_id: image.id! })
+    }
 
-    delete proxy.project[input.project_id]
+    // delete all images in this project (db rows + files on disk)
+    let uploadDir = env.UPLOAD_DIR || ''
+    for (let image of images) {
+      del(proxy.image, { filename: image.filename })
+      if (uploadDir && image.filename) {
+        rmSync(join(uploadDir, image.filename), { force: true })
+      }
+    }
 
-    broadcast(['remove', '#project-item-' + input.project_id])
+    // delete all labels in this project
+    del(proxy.label, { project_id })
 
-    rmSync(`saved_models/project-${input.project_id}`, {
+    // delete all project members
+    del(proxy.project_member, { project_id })
+
+    // delete the project itself
+    delete proxy.project[project_id]
+
+    broadcast(['remove', '#project-item-' + project_id])
+
+    rmSync(`saved_models/project-${project_id}`, {
       recursive: true,
       force: true,
     })
