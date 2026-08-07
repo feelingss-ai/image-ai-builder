@@ -15,6 +15,7 @@ import { logRequest } from './app/log.js'
 import { clearInvalidUserId } from './app/auth/user.js'
 import { env } from './env.js'
 import { HttpError, EarlyTerminate } from './exception.js'
+import { db } from '../db/db.js'
 
 const log = debugLog('index.ts')
 log.enabled = true
@@ -83,3 +84,13 @@ server.listen(port, () => {
     open(`http://localhost:${port}`)
   }
 })
+
+function shutdown() {
+  log('shutting down...')
+  db.close()
+  server.close()
+  process.exit(0)
+}
+
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)

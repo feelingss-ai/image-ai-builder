@@ -145,6 +145,16 @@ function Main(attrs: {}, context: DynamicContext) {
       title: <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />,
     },
     {
+      href: '/annotate-bounding-box?project=' + project_id,
+      title: (
+        <Locale
+          en="Annotate bounding box"
+          zh_hk="標註邊界框"
+          zh_cn="标注边界框"
+        />
+      ),
+    },
+    {
       href: '/train-ai?project=' + project_id,
       title: <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />,
     },

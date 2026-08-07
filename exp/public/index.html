@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <style>
+      canvas {
+        outline: 1px solid red;
+        width: 100%;
+        height: calc(50dvh - 2rem);
+      }
+      img {
+        display: none;
+      }
+      #debugMessage {
+        white-space: pre-wrap;
+        min-height: 100dvh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <canvas id="map"></canvas>
+      <canvas id="camera"></canvas>
+    </div>
+    <button id="rotateButton">Rotate 45°</button>
+    <div id="debugMessage">
+      <div id="debugStartMessage"></div>
+      <div id="debugMoveMessage"></div>
+      <div id="debugEndMessage"></div>
+    </div>
+    <img id="image" />
+    <script src="bundle.js"></script>
+  </body>
+</html>
