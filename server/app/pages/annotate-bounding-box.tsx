@@ -1304,28 +1304,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 `)
 
-let page = (
-  <>
-    {style}
-    {/* {hammerScript}
-    {hammerInitScript} */}
-    <ion-header>
-      <ion-toolbar>
-        <IonBackButton href="/" backText="Home" />
-        <ion-title role="heading" aria-level="1">
-          {pageTitle}
-        </ion-title>
-      </ion-toolbar>
-    </ion-header>
-    <ion-content id="AnnotateBoundingBox" class="ion-no-padding">
-      {dragUIPlugin.node}
-      {sweetAlertPlugin.node}
-      {script}
-      <Main />
-    </ion-content>
-  </>
-)
-
 let count_label_images = db
   .prepare<{ label_id: number }, number>(
     /* sql */ `
@@ -2520,9 +2498,33 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
 
 let routes = {
   '/annotate-bounding-box': {
-    title: <Title t={pageTitle} />,
-    description: 'Annotate bounding boxes on images',
-    node: page,
+    resolve(context) {
+      let params = new URLSearchParams(context.routerMatch?.search)
+      let project_id = params.get('project') ?? '1'
+      return {
+        title: <Title t={pageTitle} />,
+        description: 'Annotate bounding boxes on images',
+        node: (
+          <>
+            {style}
+            <ion-header>
+              <ion-toolbar>
+                <IonBackButton href={'/app/home?project=' + project_id} backText="Home" />
+                <ion-title role="heading" aria-level="1">
+                  {pageTitle}
+                </ion-title>
+              </ion-toolbar>
+            </ion-header>
+            <ion-content id="AnnotateBoundingBox" class="ion-no-padding">
+              {dragUIPlugin.node}
+              {sweetAlertPlugin.node}
+              {script}
+              <Main project_id={project_id} />
+            </ion-content>
+          </>
+        ),
+      }
+    },
   },
   '/annotate-bounding-box/showImage': {
     title: <Title t={pageTitle} />,
