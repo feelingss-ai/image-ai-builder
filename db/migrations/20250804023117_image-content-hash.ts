@@ -7,5 +7,5 @@ export async function up(knex: Knex): Promise<void> {
 
 // prettier-ignore
 export async function down(knex: Knex): Promise<void> {
-  await knex.schema.alterTable(`image`, table => table.dropColumn(`content_hash`))
+  await knex.raw(`ALTER TABLE image drop COLUMN content_hash`)
 }

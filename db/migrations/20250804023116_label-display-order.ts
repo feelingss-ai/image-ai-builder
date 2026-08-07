@@ -8,5 +8,5 @@ export async function up(knex: Knex): Promise<void> {
 
 // prettier-ignore
 export async function down(knex: Knex): Promise<void> {
-  await knex.schema.alterTable(`label`, table => table.dropColumn(`display_order`))
+  await knex.raw(`ALTER TABLE label drop COLUMN display_order`)
 }
