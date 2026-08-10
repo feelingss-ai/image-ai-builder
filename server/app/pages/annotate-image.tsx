@@ -55,9 +55,11 @@ function showImage(){
     console.error('No label_id selected');
     return;
   }
-  console.log('showImage called with label_id:', labelId);
+  const projectId = getProjectId();
+  console.log('showImage called with label_id:', labelId, 'project_id:', projectId);
   emit('/annotate-image/showImage', {
     label_id: labelId,
+    project_id: projectId,
   })
 }
 
@@ -71,6 +73,7 @@ function submitAnnotation(answer) {
     image: image_id,
     answer,
     rotation,
+    project_id: getProjectId(),
   });
 }
 
@@ -78,13 +81,14 @@ label_select.addEventListener('ionChange', function(event) {
   console.log('label_select changed ', label_select.value)
   emit('/annotate-image/showImage', {
     label_id: label_select.value,
+    project_id: getProjectId(),
   })
 })
 
 // Sends undo annotation request
 function undoAnnotation() {
   let label_id = document.getElementById('label_select').value;
-  emit('/annotate-image/undo', { label_id })
+  emit('/annotate-image/undo', { label_id, project_id: getProjectId() })
 }
 
 function rotateAnnotationImage(image) {
@@ -153,9 +157,15 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('No label_id selected');
       return;
     }
-    emit('/annotate-image/showImage', { label_id: labelId });
+    emit('/annotate-image/showImage', { label_id: labelId, project_id: getProjectId() });
   });
 })
+
+// Helper function to get project_id from URL params
+function getProjectId() {
+  const params = new URLSearchParams(window.location.search)
+  return parseInt(params.get('project') || '1')
+}
 `)
 
 let page = (
@@ -179,11 +189,13 @@ let page = (
 )
 
 let count_annotated_images = db
-  .prepare<{ label_id: number }, number>(
+  .prepare<{ label_id: number; project_id: number }, number>(
     /* sql */ `
 select count(distinct image_id)
 from image_label
+inner join image on image.id = image_label.image_id
 where label_id = :label_id
+and image.project_id = :project_id
 `,
   )
   .pluck()
@@ -215,13 +227,14 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let label = getContextLabel(context)
   let label_id = label?.id! || null
-  let image = label ? getNextImageForLabel(label.id!) : null
-  let total_images = proxy.image.length
+  let image = label ? getNextImageForLabel(label.id!, project_id) : null
+  let total_images = filter(proxy.image, { project_id }).length
   let has_undo =
     label &&
     !!select_previous_image_label.get({
       user_id: user.id!,
       label_id: label.id!,
+      project_id: project_id,
     })
   let labels = select_project_label.all({ project_id })
 
@@ -240,6 +253,7 @@ function Main(attrs: {}, context: DynamicContext) {
             {mapArray(labels, label => {
               let annotated_images = count_annotated_images.get({
                 label_id: label.id!,
+                project_id: project_id,
               })
               return (
                 <ion-select-option value={label.id}>
@@ -254,7 +268,7 @@ function Main(attrs: {}, context: DynamicContext) {
             data-image-id={image?.id}
             data-rotation={image?.rotation || 0}
             id="label_image"
-            src={image ? `/Uploads/${image.filename}` : ''}
+            src={image ? `/uploads/${image.filename}` : ''}
             alt={
               <Locale
                 en="Loading image..."
@@ -352,12 +366,13 @@ function Main(attrs: {}, context: DynamicContext) {
 
 // Next image for a label. If dependency_id is set, skip images already marked negative for the dependency (precondition not met).
 let select_next_image = db.prepare<
-  { label_id: number; dependency_id: null | number },
+  { label_id: number; dependency_id: null | number; project_id: number },
   { id: number; filename: string; rotation: number | null }
 >(/* sql */ `
 select image.id, image.filename, image.rotation
 from image
-where id not in (
+where image.project_id = :project_id
+and id not in (
   select image_id from image_label
   where label_id = :label_id
 )
@@ -370,10 +385,10 @@ and (
 )
 `)
 
-function getNextImageForLabel(label_id: number) {
+function getNextImageForLabel(label_id: number, project_id: number) {
   let label = proxy.label[label_id]
   let dependency_id = label?.dependency_id ?? null
-  return select_next_image.get({ label_id, dependency_id })
+  return select_next_image.get({ label_id, dependency_id, project_id })
 }
 
 // Fetches the next unannotated image for a given label and user
@@ -383,8 +398,9 @@ async function getNextImage(context: ExpressContext) {
     let user = getAuthUser(context)
     if (!user) throw 'You must be logged in to annotate image'
     let label_id = +req.query.label!
+    let project_id = +req.query.project! || 1
     if (!label_id) throw 'missing label'
-    let image = getNextImageForLabel(label_id)
+    let image = getNextImageForLabel(label_id, project_id)
     return { image }
   } catch (error) {
     return { error: String(error) }
@@ -393,18 +409,22 @@ async function getNextImage(context: ExpressContext) {
 
 // Selects the last image_label for the current user (for undo)
 let select_previous_image_label = db.prepare<
-  { user_id: number; label_id: number },
+  { user_id: number; label_id: number; project_id: number },
   { id: number; image_id: number }
 >(/* sql */ `
-select id, image_id
+select image_label.id, image_label.image_id
 from image_label
-where user_id = :user_id and label_id = :label_id
-order by created_at desc
+inner join image on image.id = image_label.image_id
+where image_label.user_id = :user_id
+and image_label.label_id = :label_id
+and image.project_id = :project_id
+order by image_label.created_at desc
 limit 1
 `)
 
 let showImageParser = object({
   label_id: id(),
+  project_id: id(),
 })
 
 // Displays the next image for annotation based on the selected label
@@ -422,8 +442,9 @@ function ShowImage(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = showImageParser.parse(body)
     let label_id = input.label_id
+    let project_id = input.project_id
     console.log(
-      `ShowImage: Processing label_id=${label_id}, user_id=${user_id}`,
+      `ShowImage: Processing label_id=${label_id}, user_id=${user_id}, project_id=${project_id}`,
     )
 
     // clear current image
@@ -439,7 +460,7 @@ function ShowImage(attrs: {}, context: WsContext) {
     ])
 
     // check if label exists (skip images already marked negative for dependency)
-    let next_image = getNextImageForLabel(label_id)
+    let next_image = getNextImageForLabel(label_id, project_id)
     console.log(`ShowImage: next_image for label_id=${label_id}:`, next_image)
 
     // if no image found, return error
@@ -471,6 +492,7 @@ function ShowImage(attrs: {}, context: WsContext) {
     let last_annotation = select_previous_image_label.get({
       user_id,
       label_id,
+      project_id,
     })
     context.ws.send([
       'update-attrs',
@@ -509,6 +531,7 @@ function ShowImage(attrs: {}, context: WsContext) {
 
 let undoAnnotationParser = object({
   label_id: id(),
+  project_id: id(),
 })
 
 // Reverts the last annotation for a label and updates the UI
@@ -531,9 +554,10 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
     // Parse and validate input to extract label_id
     let input = undoAnnotationParser.parse(body)
     let label_id = input.label_id
+    let project_id = input.project_id
 
     // Query the database for the most recent annotation for the label and user
-    let last_annotation = select_previous_image_label.get({ user_id, label_id })
+    let last_annotation = select_previous_image_label.get({ user_id, label_id, project_id })
     // Throw error if no previous annotation exists
     if (!last_annotation) {
       // if no previous image > disable undo button
@@ -553,11 +577,11 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
     console.log(`UndoAnnotation: Deleted image_label id=${last_annotation!.id}`)
 
     // Calculate the updated count of annotated images
-    let new_count = count_annotated_images.get({ label_id })
+    let new_count = count_annotated_images.get({ label_id, project_id })
     // Log the new annotation count for debugging
     console.log(`UndoAnnotation: new_count=${new_count}, label_id=${label_id}`)
-    // Get total number of images
-    let total_images = proxy.image.length
+    // Get total number of images for this project
+    let total_images = filter(proxy.image, { project_id }).length
     // Retrieve label details
     let label = proxy.label[label_id]
     // Throw error if label is not found
@@ -607,6 +631,7 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
     let new_last_annotation = select_previous_image_label.get({
       user_id,
       label_id,
+      project_id,
     })
     // Update the "undo" button's disabled state
     context.ws.send([
@@ -641,6 +666,7 @@ let submitAnnotationParser = object({
       image: id(),
       answer: values([0, 1]),
       rotation: number(),
+      project_id: id(),
     }),
   }),
 })
@@ -697,15 +723,17 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
     }
 
     // Calculate the updated count of annotated images
+    let project_id = image.project_id
     let new_count = count_annotated_images.get({
       label_id: input.label,
+      project_id: project_id!,
     })
     // Log the new annotation count for debugging
     console.log(
       `SubmitAnnotation: new_count=${new_count}, label_id=${input.label}`,
     )
-    // Get total number of images
-    let total_images = proxy.image.length
+    // Get total number of images for this project
+    let total_images = filter(proxy.image, { project_id }).length
     // Construct new text for the label select option
     let newText = `${label.title} (${new_count}/${total_images})`
     // Update the select option text via WebSocket
@@ -725,7 +753,7 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
     ])
 
     // Query the database for the next unannotated image (respecting dependency)
-    let next_image = getNextImageForLabel(input.label)
+    let next_image = getNextImageForLabel(input.label, project_id!)
     // Send batch WebSocket messages to update UI elements
     context.ws.send([
       'batch',
@@ -735,7 +763,7 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
           'update-attrs',
           '#label_image',
           {
-            'src': next_image ? `/Uploads/${next_image.filename}` : '',
+            'src': next_image ? `/uploads/${next_image.filename}` : '',
             'data-image-id': next_image ? next_image.id : '',
             'data-rotation': next_image ? next_image.rotation || 0 : 0,
             'hidden': !next_image,

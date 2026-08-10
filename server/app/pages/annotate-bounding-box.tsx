@@ -4,7 +4,7 @@ import Style from '../components/style.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { mapArray } from '../components/fragment.js'
 import { proxy } from '../../../db/proxy.js'
-import { Locale, makeThrows, Title } from '../components/locale.js'
+import { Locale, makeThrows, ProjectPageTitle, Title } from '../components/locale.js'
 import {
   DynamicContext,
   ExpressContext,
@@ -19,6 +19,10 @@ import { showError } from '../components/error.js'
 import { id, number, object, values } from 'cast.ts'
 import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
+import { getContextProject } from '../context/project-context.js'
+import { ProjectPageBackButton } from '../components/project-page-back-button.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
+import { filter } from 'better-sqlite3-proxy'
 
 let dragUIPlugin = loadClientPlugin({
   entryFile: 'dist/client/drag-ui.js',
@@ -231,7 +235,8 @@ async function showImage() {
     console.error('No label_id selected')
     return
   }
-  console.log('showImage called with label_id:', labelId)
+  const projectId = getProjectId()
+  console.log('showImage called with label_id:', labelId, 'project_id:', projectId)
   
   // Wait for WebSocket to be ready
   if (!(await waitForWebSocket())) {
@@ -241,6 +246,7 @@ async function showImage() {
   
   emit('/annotate-bounding-box/showImage', {
     label_id: labelId,
+    project_id: projectId,
   })
 }
 
@@ -259,7 +265,7 @@ async function fetchBoundingBoxes(image_id, label_id) {
     }
     
     // Send request via WebSocket
-    emit('/annotate-bounding-box/getBoundingBoxes', { image_id, label_id })
+    emit('/annotate-bounding-box/getBoundingBoxes', { image_id, label_id, project_id: getProjectId() })
     
     // Wait for response (poll for data)
     let attempts = 0
@@ -341,6 +347,7 @@ async function addBoundingBox() {
     let data = {
       image_id: image_id,
       label_id: label_id,
+      project_id: getProjectId(),
       x: currentCamera.x,
       y: currentCamera.y,
       width: currentCamera.width,
@@ -678,7 +685,7 @@ if (!window._ionChangeListenerAdded) {
       return
     }
     
-    emit('/annotate-bounding-box/showImage', { label_id });
+    emit('/annotate-bounding-box/showImage', { label_id, project_id: getProjectId() });
   });
   window._ionChangeListenerAdded = true;
 }
@@ -869,7 +876,8 @@ async function deleteBoundingBox() {
   let data = {
     box_id: window.selectedBoundingBoxId,
     image_id: image_id,
-    label_id: label_id
+    label_id: label_id,
+    project_id: getProjectId()
   }
   
   console.log('deleteBoundingBox: Sending data:', data)
@@ -944,7 +952,8 @@ async function submitBoundingBoxes() {
   
   const data = {
     image_id: parseInt(image_id),
-    label_id: parseInt(label_id)
+    label_id: parseInt(label_id),
+    project_id: getProjectId()
   }
   
   console.log('submitBoundingBoxes: Submitting data:', data)
@@ -1289,6 +1298,12 @@ window.selectBoundingBox = selectBoundingBox
 window.cancelEdit = cancelEdit
 window.updateCancelEditButtonVisibility = updateCancelEditButtonVisibility
 
+// Helper function to get project_id from URL params
+function getProjectId() {
+  const params = new URLSearchParams(window.location.search)
+  return parseInt(params.get('project') || '1')
+}
+
 // Initialize the page with the default label when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
   console.log('Page loaded, initializing with default label');
@@ -1305,29 +1320,33 @@ document.addEventListener('DOMContentLoaded', function() {
 `)
 
 let count_label_images = db
-  .prepare<{ label_id: number }, number>(
+  .prepare<{ label_id: number; project_id: number }, number>(
     /* sql */ `
 select count(distinct image_id)
 from image_label
-where label_id = :label_id
-and answer = 1
+inner join image on image.id = image_label.image_id
+where image_label.label_id = :label_id
+and image_label.answer = 1
+and image.project_id = :project_id
 `,
   )
   .pluck()
 
 let count_confirmed_bounding_box_images = db
-  .prepare<{ label_id: number; user_id: number }, number>(
+  .prepare<{ label_id: number; user_id: number; project_id: number }, number>(
     /* sql */ `
-select count(distinct image_id)
+select count(distinct image_bounding_box_confirmation.image_id)
 from image_bounding_box_confirmation
-where label_id = :label_id
-and user_id = :user_id
+inner join image on image.id = image_bounding_box_confirmation.image_id
+where image_bounding_box_confirmation.label_id = :label_id
+and image_bounding_box_confirmation.user_id = :user_id
+and image.project_id = :project_id
 `,
   )
   .pluck()
 
 let select_next_image = db.prepare<
-  { label_id: number },
+  { label_id: number; project_id: number },
   { id: number; filename: string; rotation: number | null }
 >(/* sql */ `
   select image.id, image.filename, image.rotation
@@ -1335,6 +1354,7 @@ let select_next_image = db.prepare<
   inner join image on image.id = image_label.image_id
   where answer = 1
     and image_label.label_id = :label_id
+    and image.project_id = :project_id
     and image_id not in (
       select image_id
       from image_bounding_box_confirmation
@@ -1467,7 +1487,7 @@ let check_bounding_box_confirmation = db.prepare<
 `)
 
 let select_next_unconfirmed_image = db.prepare<
-  { label_id: number; user_id: number },
+  { label_id: number; user_id: number; project_id: number },
   {
     id: number
     filename: string
@@ -1479,6 +1499,7 @@ let select_next_unconfirmed_image = db.prepare<
   INNER JOIN image_label il ON il.image_id = i.id
   WHERE il.label_id = :label_id 
     AND il.answer = 1
+    AND i.project_id = :project_id
     AND i.id NOT IN (
       SELECT ibc.image_id 
       FROM image_bounding_box_confirmation ibc 
@@ -1488,7 +1509,7 @@ let select_next_unconfirmed_image = db.prepare<
   LIMIT 1
 `)
 
-function Main(attrs: {}, context: any) {
+function Main(attrs: { project_id: string }, context: DynamicContext) {
   let user = getAuthUser(context)
   if (!user) {
     return (
@@ -1509,12 +1530,21 @@ function Main(attrs: {}, context: any) {
     )
   }
 
-  let label_id = 1
-  // let image = proxy.image[0]
-  let total_images = proxy.image.length
+  let project = getContextProject(context)
+  if (!project) return <NoProjectMessage />
+  let project_id = project.id!
+
+  // Get labels for this project only
+  let labels = filter(proxy.label, { project_id })
+  let sortedLabels = [...labels].sort(
+    (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
+  )
+
+  let label_id = sortedLabels[0]?.id ?? 1
   let image = select_next_unconfirmed_image.get({
     label_id: label_id,
     user_id: user.id!,
+    project_id: project_id,
   })
 
   return (
@@ -1529,13 +1559,15 @@ function Main(attrs: {}, context: any) {
             )}
             id="label_select"
           >
-            {mapArray(proxy.label, label => {
+            {mapArray(sortedLabels, label => {
               let label_images = count_label_images.get({
                 label_id: label.id!,
+                project_id: project_id,
               })
               let confirmed_images = count_confirmed_bounding_box_images.get({
                 label_id: label.id!,
                 user_id: user.id!,
+                project_id: project_id,
               })
               return (
                 <ion-select-option value={label.id}>
@@ -1749,11 +1781,13 @@ function Main(attrs: {}, context: any) {
 
 let showImageParser = object({
   label_id: id(),
+  project_id: id(),
 })
 
 let addBoundingBoxParser = object({
   image_id: id(),
   label_id: id(),
+  project_id: id(),
   x: number(),
   y: number(),
   width: number(),
@@ -1765,17 +1799,20 @@ let deleteBoundingBoxParser = object({
   box_id: id(),
   image_id: id(),
   label_id: id(),
+  project_id: id(),
 })
 
 let getBoundingBoxesParser = object({
   image_id: id(),
   label_id: id(),
+  project_id: id(),
 })
 
 let updateBoundingBoxParser = object({
   box_id: id(),
   image_id: id(),
   label_id: id(),
+  project_id: id(),
   x: number(),
   y: number(),
   width: number(),
@@ -1786,6 +1823,7 @@ let updateBoundingBoxParser = object({
 let submitBoundingBoxParser = object({
   image_id: id(),
   label_id: id(),
+  project_id: id(),
 })
 
 // Displays the next image for annotation based on the selected label
@@ -1803,15 +1841,17 @@ function ShowImage(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = showImageParser.parse(body)
     let label_id = input.label_id
-    console.log('label_id', label_id)
+    let project_id = input.project_id
+    console.log('label_id', label_id, 'project_id', project_id)
     console.log(
-      `ShowImage: Processing label_id=${label_id}, user_id=${user_id}`,
+      `ShowImage: Processing label_id=${label_id}, user_id=${user_id}, project_id=${project_id}`,
     )
 
     // check if label exists and get next unconfirmed image for current user
     let next_image = select_next_unconfirmed_image.get({
       label_id: label_id,
       user_id: user_id,
+      project_id: project_id,
     })
     console.log(
       `ShowImage: next_image for label_id=${label_id}, user_id=${user_id}:`,
@@ -2374,9 +2414,11 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
     let updated_confirmed = count_confirmed_bounding_box_images.get({
       label_id: input.label_id,
       user_id: user_id,
+      project_id: input.project_id,
     })
     let total_images = count_label_images.get({
       label_id: input.label_id,
+      project_id: input.project_id,
     })
 
     // Send success message and update label count
@@ -2404,6 +2446,7 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
     let next_image = select_next_unconfirmed_image.get({
       label_id: input.label_id,
       user_id: user_id,
+      project_id: input.project_id,
     })
 
     if (next_image) {
@@ -2502,14 +2545,14 @@ let routes = {
       let params = new URLSearchParams(context.routerMatch?.search)
       let project_id = params.get('project') ?? '1'
       return {
-        title: <Title t={pageTitle} />,
+        title: <ProjectPageTitle t={pageTitle} />,
         description: 'Annotate bounding boxes on images',
         node: (
           <>
             {style}
             <ion-header>
               <ion-toolbar>
-                <IonBackButton href={'/app/home?project=' + project_id} backText="Home" />
+                <ProjectPageBackButton />
                 <ion-title role="heading" aria-level="1">
                   {pageTitle}
                 </ion-title>
