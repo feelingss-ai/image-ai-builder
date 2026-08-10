@@ -1,4 +1,4 @@
-import { count } from 'better-sqlite3-proxy'
+import { count, filter } from 'better-sqlite3-proxy'
 import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle } from '../../config.js'
@@ -19,8 +19,10 @@ import { getAuthUser } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
+import { getContextProject } from '../context/project-context.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
 
-let pageTitle = <Locale en="Stats Data" zh_hk="统计数据" zh_cn="统计数据" />
+let pageTitle = <Locale en="Stats Data" zh_hk="統計數據" zh_cn="统计数据" />
 
 let style = Style(/* css */ `
 #Stats {
@@ -85,7 +87,7 @@ let page = (
 )
 
 let select_label_count = db.prepare<
-  void[],
+  { project_id: number },
   { image_id: number; label_id: number; answers: string }
 >(/* sql */ `
 select
@@ -94,21 +96,28 @@ select
 , json_group_array(image_label.answer) as answers
 from image
 inner join label
+  on label.project_id = :project_id
 left join image_label
   on image.id = image_label.image_id
  and label.id = image_label.label_id
+where image.project_id = :project_id
 group by label.id, image.id
 `)
 
-function Main(attrs: {}, context: Context) {
+function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
-  let totalCount = <span class="stats-label-count">{proxy.label.length}</span>
+  let project = getContextProject(context)
+  if (!project) return <NoProjectMessage />
+  let project_id = project.id!
+
+  let projectLabels = filter(proxy.label, { project_id })
+  let totalCount = <span class="stats-label-count">{projectLabels.length}</span>
 
   // label -> {yes, no, unknown}
   let labels: {
     [label_id: number]: { yes: number; no: number; unknown: number }
   } = {}
-  let rows = select_label_count.all()
+  let rows = select_label_count.all({ project_id })
   for (let row of rows) {
     let { label_id } = row
     let answers = JSON.parse(row.answers) as (1 | 0 | null)[]
@@ -155,7 +164,7 @@ function Main(attrs: {}, context: Context) {
         </div>
       </div>
       {mapArray(
-        [...proxy.label].sort(
+        [...projectLabels].sort(
           (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
         ),
         label => {
