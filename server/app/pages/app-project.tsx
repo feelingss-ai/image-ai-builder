@@ -25,7 +25,9 @@ import { ServerMessage } from '../../../client/types.js'
 import { sessions } from '../session.js'
 import { Link, Redirect } from '../components/router.js'
 import { pick, del, filter, find, count } from 'better-sqlite3-proxy'
-import { mkdirSync, rmSync } from 'fs'
+import { mkdirSync, rmSync, unlinkSync } from 'fs'
+import { join } from 'path'
+import { env } from '../../env.js'
 import { IonItem } from '../components/ion-item.js'
 
 let pageTitle = <Locale en="Project List" zh_hk="項目列表" zh_cn="项目列表" />
@@ -85,9 +87,11 @@ function create_project() {
 
   //send delete project id to server
 function delete_project(event) {
+  event.preventDefault()
   event.stopPropagation()
-  let project_id = event.target.id
+  let project_id = event.currentTarget.id
   emit('/project/delete-project', {project_id: project_id})
+  goto('/app/project')
 }
 
 function manage_member(event) {
@@ -426,15 +430,62 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
-    // TODO delete all images, annotation, models, etc.
+    let project_id = input.project_id
 
-    del(proxy.project_member, { project_id: input.project_id })
+    // Get all images in the project to delete their files
+    let project_images = filter(proxy.image, { project_id })
+    let uploadDir = env.UPLOAD_DIR || './uploads'
 
-    delete proxy.project[input.project_id]
+    // Delete image files from uploads directory
+    for (let img of project_images) {
+      if (img.filename) {
+        let filePath = join(uploadDir, img.filename)
+        try {
+          unlinkSync(filePath)
+        } catch (err) {
+          // File may not exist, ignore error
+          console.warn(`Failed to delete image file: ${filePath}`, err)
+        }
+      }
+    }
 
-    broadcast(['remove', '#project-item-' + input.project_id])
+    // Delete all bounding box confirmations for images in this project
+    for (let img of project_images) {
+      del(proxy.image_bounding_box_confirmation, { image_id: img.id! })
+    }
 
-    rmSync(`saved_models/project-${input.project_id}`, {
+    // Delete all bounding boxes for images in this project
+    for (let img of project_images) {
+      del(proxy.image_bounding_box, { image_id: img.id! })
+    }
+
+    // Delete all image labels for images in this project
+    for (let img of project_images) {
+      del(proxy.image_label, { image_id: img.id! })
+    }
+
+    // Delete all training stats for labels in this project
+    let project_labels = filter(proxy.label, { project_id })
+    for (let label of project_labels) {
+      del(proxy.training_stats, { label_id: label.id! })
+    }
+
+    // Delete all labels in this project
+    del(proxy.label, { project_id })
+
+    // Delete all images in this project
+    del(proxy.image, { project_id })
+
+    // Delete all project members
+    del(proxy.project_member, { project_id })
+
+    // Delete the project itself
+    delete proxy.project[project_id]
+
+    broadcast(['remove', '#project-item-' + project_id])
+
+    // Delete saved models directory
+    rmSync(`saved_models/project-${project_id}`, {
       recursive: true,
       force: true,
     })
