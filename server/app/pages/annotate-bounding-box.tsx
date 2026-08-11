@@ -1086,8 +1086,8 @@ function zoomInImage() {
   let camera = window.camera
   console.log('zoomInImage: Current camera state:', camera)
   
-  // Calculate zoom factor (reduce width and height by 20%)
-  let zoomFactor = 0.8
+  // Calculate zoom factor (reduce width and height by 5%)
+  let zoomFactor = 0.95
   
   // Update camera dimensions
   let newWidth = camera.width * zoomFactor
@@ -1133,8 +1133,8 @@ function zoomOutImage() {
   let camera = window.camera
   console.log('zoomOutImage: Current camera state:', camera)
   
-  // Calculate zoom factor (increase width and height by 25%)
-  let zoomFactor = 1.25
+  // Calculate zoom factor (increase width and height by 5%)
+  let zoomFactor = 1.05
   
   // Update camera dimensions
   let newWidth = camera.width * zoomFactor
@@ -1170,6 +1170,164 @@ function zoomOutImage() {
     console.log('zoomOutImage: Image zoomed out by', (zoomFactor - 1) * 100, '%')
   } else {
     console.log('zoomOutImage: Already at maximum zoom out level')
+  }
+}
+
+// Function to zoom in vertically (only camera height)
+function zoomVerticalIn() {
+  console.log('zoomVerticalIn called')
+  
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  
+  // Get current camera state
+  let camera = window.camera
+  
+  // Calculate zoom factor (reduce height by 5%)
+  let zoomFactor = 0.95
+  
+  // Update camera height only
+  let newHeight = camera.height * zoomFactor
+  
+  // Ensure minimum size to prevent zooming too much
+  let minSize = 0.1
+  if (newHeight < minSize) {
+    newHeight = minSize
+  }
+  
+  camera.height = newHeight
+  
+  // Keep the view within the image bounds
+  camera.y = Math.max(newHeight / 2, Math.min(1 - newHeight / 2, camera.y))
+  
+  // Force immediate re-render
+  if (typeof window.render === 'function') {
+    window.render()
+  }
+}
+
+// Function to zoom out vertically (only camera height)
+function zoomVerticalOut() {
+  console.log('zoomVerticalOut called')
+  
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  
+  // Get current camera state
+  let camera = window.camera
+  
+  // Calculate zoom factor (increase height by 5%)
+  let zoomFactor = 1.05
+  
+  // Update camera height only
+  let newHeight = camera.height * zoomFactor
+  
+  // Ensure maximum size so we never zoom out past the full image
+  let maxSize = 1.0
+  if (newHeight > maxSize) {
+    newHeight = maxSize
+  }
+  
+  camera.height = newHeight
+  
+  // Keep the view within the image bounds
+  camera.y = Math.max(newHeight / 2, Math.min(1 - newHeight / 2, camera.y))
+  
+  // Force immediate re-render
+  if (typeof window.render === 'function') {
+    window.render()
+  }
+}
+
+// Function to zoom in horizontally (only camera width)
+function zoomHorizontalIn() {
+  console.log('zoomHorizontalIn called')
+  
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  
+  // Get current camera state
+  let camera = window.camera
+  
+  // Calculate zoom factor (reduce width by 5%)
+  let zoomFactor = 0.95
+  
+  // Update camera width only
+  let newWidth = camera.width * zoomFactor
+  
+  // Ensure minimum size to prevent zooming too much
+  let minSize = 0.1
+  if (newWidth < minSize) {
+    newWidth = minSize
+  }
+  
+  camera.width = newWidth
+  
+  // Keep the view within the image bounds
+  camera.x = Math.max(newWidth / 2, Math.min(1 - newWidth / 2, camera.x))
+  
+  // Force immediate re-render
+  if (typeof window.render === 'function') {
+    window.render()
+  }
+}
+
+// Function to zoom out horizontally (only camera width)
+function zoomHorizontalOut() {
+  console.log('zoomHorizontalOut called')
+  
+  if (!window.camera) {
+    console.error('Camera not initialized')
+    return
+  }
+  
+  // Get current camera state
+  let camera = window.camera
+  
+  // Calculate zoom factor (increase width by 5%)
+  let zoomFactor = 1.05
+  
+  // Update camera width only
+  let newWidth = camera.width * zoomFactor
+  
+  // Ensure maximum size so we never zoom out past the full image
+  let maxSize = 1.0
+  if (newWidth > maxSize) {
+    newWidth = maxSize
+  }
+  
+  camera.width = newWidth
+  
+  // Keep the view within the image bounds
+  camera.x = Math.max(newWidth / 2, Math.min(1 - newWidth / 2, camera.x))
+  
+  // Force immediate re-render
+  if (typeof window.render === 'function') {
+    window.render()
+  }
+}
+
+// Interval id for press-and-hold repeating zoom
+let zoomIntervalId = null
+
+// Start a repeating zoom action (fires once immediately, then on an interval while held)
+function startZoom(zoomFn) {
+  stopZoom()
+  zoomFn()
+  zoomIntervalId = setInterval(zoomFn, 150)
+}
+
+// Stop the repeating zoom action
+function stopZoom() {
+  if (zoomIntervalId !== null) {
+    clearInterval(zoomIntervalId)
+    zoomIntervalId = null
   }
 }
 
@@ -1671,7 +1829,12 @@ function Main(attrs: { project_id: string }, context: DynamicContext) {
             <ion-button
               color="secondary"
               style="flex: 1;"
-              onclick="zoomInImage()"
+              onmousedown="startZoom(zoomInImage)"
+              onmouseup="stopZoom()"
+              onmouseleave="stopZoom()"
+              ontouchstart="startZoom(zoomInImage)"
+              ontouchend="stopZoom()"
+              ontouchcancel="stopZoom()"
               title={<Locale en="Zoom In" zh_hk="放大" zh_cn="放大" />}
             >
               <ion-icon name="expand" slot="icon-only"></ion-icon>
@@ -1679,10 +1842,91 @@ function Main(attrs: { project_id: string }, context: DynamicContext) {
             <ion-button
               color="tertiary"
               style="flex: 1;"
-              onclick="zoomOutImage()"
+              onmousedown="startZoom(zoomOutImage)"
+              onmouseup="stopZoom()"
+              onmouseleave="stopZoom()"
+              ontouchstart="startZoom(zoomOutImage)"
+              ontouchend="stopZoom()"
+              ontouchcancel="stopZoom()"
               title={<Locale en="Zoom Out" zh_hk="縮小" zh_cn="缩小" />}
             >
               <ion-icon name="contract" slot="icon-only"></ion-icon>
+            </ion-button>
+            <ion-button
+              color="secondary"
+              style="flex: 1;"
+              onmousedown="startZoom(zoomVerticalIn)"
+              onmouseup="stopZoom()"
+              onmouseleave="stopZoom()"
+              ontouchstart="startZoom(zoomVerticalIn)"
+              ontouchend="stopZoom()"
+              ontouchcancel="stopZoom()"
+              title={
+                <Locale
+                  en="Zoom In Vertically"
+                  zh_hk="上下放大"
+                  zh_cn="上下放大"
+                />
+              }
+            >
+              <ion-icon name="chevron-up" slot="icon-only"></ion-icon>
+            </ion-button>
+            <ion-button
+              color="tertiary"
+              style="flex: 1;"
+              onmousedown="startZoom(zoomVerticalOut)"
+              onmouseup="stopZoom()"
+              onmouseleave="stopZoom()"
+              ontouchstart="startZoom(zoomVerticalOut)"
+              ontouchend="stopZoom()"
+              ontouchcancel="stopZoom()"
+              title={
+                <Locale
+                  en="Zoom Out Vertically"
+                  zh_hk="上下縮小"
+                  zh_cn="上下缩小"
+                />
+              }
+            >
+              <ion-icon name="chevron-down" slot="icon-only"></ion-icon>
+            </ion-button>
+            <ion-button
+              color="secondary"
+              style="flex: 1;"
+              onmousedown="startZoom(zoomHorizontalIn)"
+              onmouseup="stopZoom()"
+              onmouseleave="stopZoom()"
+              ontouchstart="startZoom(zoomHorizontalIn)"
+              ontouchend="stopZoom()"
+              ontouchcancel="stopZoom()"
+              title={
+                <Locale
+                  en="Zoom In Horizontally"
+                  zh_hk="左右放大"
+                  zh_cn="左右放大"
+                />
+              }
+            >
+              <ion-icon name="chevron-back" slot="icon-only"></ion-icon>
+            </ion-button>
+            <ion-button
+              color="tertiary"
+              style="flex: 1;"
+              onmousedown="startZoom(zoomHorizontalOut)"
+              onmouseup="stopZoom()"
+              onmouseleave="stopZoom()"
+              ontouchstart="startZoom(zoomHorizontalOut)"
+              ontouchend="stopZoom()"
+              ontouchcancel="stopZoom()"
+              title={
+                <Locale
+                  en="Zoom Out Horizontally"
+                  zh_hk="左右縮小"
+                  zh_cn="左右缩小"
+                />
+              }
+            >
+              <ion-icon name="chevron-forward" slot="icon-only"></ion-icon>
             </ion-button>
             <ion-button
               color="medium"
