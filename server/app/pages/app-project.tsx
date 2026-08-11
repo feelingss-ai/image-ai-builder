@@ -56,18 +56,22 @@ alert = document.querySelector('#please-enter-new-project-name-alert')
 
 // get new project name by alert input
 function create_modify_project_alert(event) {
+  event.preventDefault()
   event.stopPropagation()
-  let project_id = event.target.id
+  let project_id = event.currentTarget.id
   let new_project_name = ''
 
-  alert.buttons = [{text:'OK', handler: (event) => {
-    new_project_name = event[0]
+  alert.buttons = [{text:'OK', handler: (values) => {
+    new_project_name = values.new_project_name
     emit('/project/modify-project', {project_id: project_id, project_name: new_project_name})
 
   }}, {text:'Cancel', role: 'cancel'}];
 
   alert.inputs = [
     {
+      type: 'text',
+      name: 'new_project_name',
+      placeholder: 'New project name',
     },
   ];
 
@@ -186,7 +190,7 @@ function ProjectItem(attrs: { id: number; user_id: number }) {
       url={`/app/home?project=${project_id}`}
     >
       <h2 id={`project-title-${attrs.id}`}>
-        {title}{' '}
+        <span id={`project-name-${attrs.id}`}>{title}</span>{' '}
         <span class="project-title--stats">
           ({label_count || 'no'}{' '}
           <Locale en="labels" zh_hk="標籤" zh_cn="标签" />,{' '}
@@ -412,7 +416,7 @@ function ModifyProject(attrs: {}, context: DynamicContext) {
 
     broadcast([
       'update-text',
-      '#project-title-' + input.project_id,
+      '#project-name-' + input.project_id,
       input.project_name,
     ])
   } catch (error) {
