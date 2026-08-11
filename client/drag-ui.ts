@@ -320,6 +320,56 @@ function setupDragUI(options: {
         }
       }
     })
+
+    // Mouse drag support: pan like touch drag (left-click only, no zoom)
+    let isMouseDown = false
+    let lastMouseX = 0
+    let lastMouseY = 0
+
+    cameraCanvas.addEventListener('mousedown', event => {
+      if (event.button !== 0) return // only left click
+      isMouseDown = true
+      lastMouseX = event.clientX
+      lastMouseY = event.clientY
+    })
+
+    cameraCanvas.addEventListener('mousemove', event => {
+      if (!isMouseDown) return
+      let rect = cameraCanvas.getBoundingClientRect()
+      let deltaX = event.clientX - lastMouseX
+      let deltaY = event.clientY - lastMouseY
+
+      let rotatedDeltaX =
+        deltaX * Math.cos(camera.rotate * 2 * Math.PI) +
+        deltaY * Math.sin(camera.rotate * 2 * Math.PI)
+      let rotatedDeltaY =
+        -deltaX * Math.sin(camera.rotate * 2 * Math.PI) +
+        deltaY * Math.cos(camera.rotate * 2 * Math.PI)
+
+      camera.x -= ((rotatedDeltaX / rect.width) * camera.width)
+      camera.y -= ((rotatedDeltaY / rect.height) * camera.height)
+
+      // Clamp to image bounds
+      {
+        let width = camera.width * image.naturalWidth
+        let height = camera.height * image.naturalHeight
+        let left = camera.x * image.naturalWidth - width / 2
+        let top = camera.y * image.naturalHeight - height / 2
+        let right = left + width
+        let bottom = top + height
+        if (left < 0) camera.x = camera.width / 2
+        if (top < 0) camera.y = camera.height / 2
+        if (right >= image.naturalWidth) camera.x = 1 - camera.width / 2
+        if (bottom >= image.naturalHeight) camera.y = 1 - camera.height / 2
+      }
+
+      lastMouseX = event.clientX
+      lastMouseY = event.clientY
+      render()
+    })
+
+    cameraCanvas.addEventListener('mouseup', () => { isMouseDown = false })
+    cameraCanvas.addEventListener('mouseleave', () => { isMouseDown = false })
   }
 
   cameraContext.setTransform()
