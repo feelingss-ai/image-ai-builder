@@ -26,9 +26,14 @@ import { Script } from '../components/script.js'
 import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { loadClientPlugin } from '../../client-plugin.js'
 
 let pageTitle = <Locale en="Manage Labels" zh_hk="管理標籤" zh_cn="管理标签" />
 let addPageTitle = <Locale en="Add Label" zh_hk="添加標籤" zh_cn="添加标签" />
+
+let sweetAlertPlugin = loadClientPlugin({
+  entryFile: 'dist/client/sweetalert.js',
+})
 
 let style = Style(/* css */ `
 #ManageLabels {
@@ -37,6 +42,28 @@ let style = Style(/* css */ `
 .label-image-count {
   font-size: 0.8rem;
   color: var(--ion-color-medium);
+}
+`)
+
+let script = Script(/* js */ `
+function moveLabel(label_id, project_id, direction) {
+  var item = document.getElementById('label-item-' + label_id);
+  if (!item) return;
+  var list = item.parentNode;
+  if (!list) return;
+  var items = Array.prototype.filter.call(list.querySelectorAll('ion-item'), function(el) {
+    return el.id && el.id.indexOf('label-item-') === 0;
+  });
+  var index = items.indexOf(item);
+  if (direction === 'up' && index === 0) {
+    showToast('Already at the top', 'info');
+    return;
+  }
+  if (direction === 'down' && index === items.length - 1) {
+    showToast('Already at the bottom', 'info');
+    return;
+  }
+  emit('/manage-labels/reorder', { label_id: label_id, project_id: project_id, direction: direction });
 }
 `)
 
@@ -54,6 +81,8 @@ let page = (
     <ion-content id="ManageLabels" class="ion-padding">
       <Main />
     </ion-content>
+    {sweetAlertPlugin.node}
+    {script}
   </>
 )
 
@@ -123,13 +152,9 @@ function LabelItem(attrs: {
 }) {
   let label = attrs.label
   let project_id = attrs.project_id
-  let index = attrs.index
-  let totalCount = attrs.totalCount
   if (!label) return null
   let dependency = label.dependency
   let dependencyText = dependency ? ` (depends on: ${dependency.title})` : ''
-  let canMoveUp = index > 0
-  let canMoveDown = index < totalCount - 1
 
   let image_count = count(proxy.image_label, { label_id: label.id })
 
@@ -149,12 +174,7 @@ function LabelItem(attrs: {
           size="small"
           slot="end"
           title="Move up"
-          disabled={!canMoveUp}
-          onclick={
-            canMoveUp
-              ? `emit('/manage-labels/reorder', { label_id: ${label.id}, project_id: ${project_id}, direction: 'up' })`
-              : undefined
-          }
+          onclick={`moveLabel(${label.id}, ${project_id}, 'up')`}
         >
           <ion-icon name="chevron-up-outline"></ion-icon>
         </ion-button>
@@ -164,12 +184,7 @@ function LabelItem(attrs: {
           size="small"
           slot="end"
           title="Move down"
-          disabled={!canMoveDown}
-          onclick={
-            canMoveDown
-              ? `emit('/manage-labels/reorder', { label_id: ${label.id}, project_id: ${project_id}, direction: 'down' })`
-              : undefined
-          }
+          onclick={`moveLabel(${label.id}, ${project_id}, 'down')`}
         >
           <ion-icon name="chevron-down-outline"></ion-icon>
         </ion-button>
@@ -662,15 +677,6 @@ function ReorderLabel(attrs: {}, context: WsContext) {
     parent.insertBefore(cur, other);
   } else {
     parent.insertBefore(cur, other.nextSibling);
-  }
-  var list = document.querySelector('#ManageLabels ion-list');
-  if (!list) return;
-  var items = list.querySelectorAll('ion-item[id^="label-item-"]');
-  for (var i = 0; i < items.length; i++) {
-    var up = items[i].querySelector('.label-move-up');
-    var down = items[i].querySelector('.label-move-down');
-    if (up) up.disabled = (i === 0);
-    if (down) down.disabled = (i === items.length - 1);
   }
 })();
 `
