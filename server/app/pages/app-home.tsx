@@ -125,67 +125,153 @@ function Main(attrs: {}, context: DynamicContext) {
     )
   }
 
-  let pages: { href: string; title: string }[] = [
-    {
-      href: '/manage-labels?project=' + project_id,
-      title: <Locale en="Manage Labels" zh_hk="管理標籤" zh_cn="管理标签" />,
-    },
-    {
-      href: '/upload-image?project=' + project_id,
-      title: <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />,
-    },
-    {
-      href: '/import-dataset?project=' + project_id,
-      title: (
-        <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />
-      ),
-    },
-    {
-      href: '/annotate-image?project=' + project_id,
-      title: <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />,
-    },
-    {
-      href: '/annotate-bounding-box?project=' + project_id,
-      title: (
-        <Locale
-          en="Annotate bounding box"
-          zh_hk="標註邊界框"
-          zh_cn="标注边界框"
-        />
-      ),
-    },
-    {
-      href: '/train-ai?project=' + project_id,
-      title: <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />,
-    },
-    {
-      href: '/preview-ai?project=' + project_id,
-      title: <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />,
-    },
-    {
-      href: '/stats?project=' + project_id,
-      title: <Locale en="Stats" zh_hk="統計" zh_cn="统计" />,
-    },
-    {
-      href: '/import-export-model?project=' + project_id,
-      title: (
-        <Locale
-          en="Import/Export Model"
-          zh_hk="匯入/匯出模型"
-          zh_cn="导入/导出模型"
-        />
-      ),
-    },
-  ]
+  // let pages: { href: string; title: string }[] = [
+  //   {
+  //     href: '/manage-labels?project=' + project_id,
+  //     title: <Locale en="Manage Labels" zh_hk="管理標籤" zh_cn="管理标签" />,
+  //   },
+  //   {
+  //     href: '/upload-image?project=' + project_id,
+  //     title: <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />,
+  //   },
+  //   {
+  //     href: '/import-dataset?project=' + project_id,
+  //     title: (
+  //       <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />
+  //     ),
+  //   },
+  //   {
+  //     href: '/annotate-image?project=' + project_id,
+  //     title: <Locale en="Annotate Image" zh_hk="標註圖片" zh_cn="注释图像" />,
+  //   },
+  //   {
+  //     href: '/annotate-bounding-box?project=' + project_id,
+  //     title: (
+  //       <Locale
+  //         en="Annotate bounding box"
+  //         zh_hk="標註邊界框"
+  //         zh_cn="标注边界框"
+  //       />
+  //     ),
+  //   },
+  //   {
+  //     href: '/train-ai?project=' + project_id,
+  //     title: <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />,
+  //   },
+  //   {
+  //     href: '/preview-ai?project=' + project_id,
+  //     title: <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />,
+  //   },
+  //   {
+  //     href: '/stats?project=' + project_id,
+  //     title: <Locale en="Stats" zh_hk="統計" zh_cn="统计" />,
+  //   },
+  //   {
+  //     href: '/import-export-model?project=' + project_id,
+  //     title: (
+  //       <Locale
+  //         en="Import/Export Model"
+  //         zh_hk="匯入/匯出模型"
+  //         zh_cn="导入/导出模型"
+  //       />
+  //     ),
+  //   },
+  // ]
+  // return (
+  //   <ion-content class="ion-padding">
+  //     <ion-list class="hover-list">
+  //       {mapArray(pages, (page, index) => (
+  //         <Link tagName="ion-item" href={page.href}>
+  //           {index + 1}. {page.title}
+  //         </Link>
+  //       ))}
+  //     </ion-list>
+  //     {wsStatus.safeArea}
+  //   </ion-content>
+  // )
 
   return (
     <ion-content class="ion-padding">
       <ion-list class="hover-list">
-        {mapArray(pages, (page, index) => (
-          <Link tagName="ion-item" href={page.href}>
-            {index + 1}. {page.title}
-          </Link>
-        ))}
+        <Link tagName="ion-item" href={'/manage-labels?project=' + project_id}>
+          1. <Locale en="Manage Labels" zh_hk="管理標籤" zh_cn="管理标签" />
+        </Link>
+        <Link tagName="ion-item" href={'/upload-image?project=' + project_id}>
+          2. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
+        </Link>
+        <Link tagName="ion-item" href={'/import-dataset?project=' + project_id}>
+          3.{' '}
+          <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />
+        </Link>
+        <ion-item>
+          4.{' '}
+          <Locale en="Image Classification" zh_hk="圖像分類" zh_cn="图像分类" />
+          <ion-buttons slot="end">
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/annotate-image?project=' + project_id}
+            >
+              <Locale en="Annotate" zh_hk="標註" zh_cn="注释" />
+            </IonButton>
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/train-ai?project=' + project_id}
+            >
+              <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
+            </IonButton>
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/preview-ai?project=' + project_id}
+            >
+              <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
+            </IonButton>
+          </ion-buttons>
+        </ion-item>
+        <ion-item>
+          5.{' '}
+          <Locale
+            en="Bounding Box Classification"
+            zh_hk="邊界框分類"
+            zh_cn="边界框分类"
+          />
+          <ion-buttons slot="end">
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/annotate-bounding-box?project=' + project_id}
+            >
+              <Locale en="Annotate" zh_hk="標註" zh_cn="注释" />
+            </IonButton>
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/train-ai?project=' + project_id}
+            >
+              <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
+            </IonButton>
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/preview-ai?project=' + project_id}
+            >
+              <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
+            </IonButton>
+          </ion-buttons>
+        </ion-item>
+        <Link
+          tagName="ion-item"
+          href={'/import-export-model?project=' + project_id}
+        >
+          6.{' '}
+          <Locale
+            en="Import/Export Model"
+            zh_hk="匯入/匯出模型"
+            zh_cn="导入/导出模型"
+          />
+        </Link>
       </ion-list>
       {wsStatus.safeArea}
     </ion-content>
