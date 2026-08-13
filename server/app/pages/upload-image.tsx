@@ -90,6 +90,7 @@ async function pickImage(event) {
     multiple: true,
   })
   for (let _file of files) {
+    // TODO skip compression, or at least keep the same resolution
     let { dataUrl, file } = await compressImageFile(_file)
     let imageItem = imageItemTemplate.cloneNode(true)
     let image = imageItem.querySelector('img')

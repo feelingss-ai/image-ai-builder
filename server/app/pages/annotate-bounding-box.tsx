@@ -4,7 +4,12 @@ import Style from '../components/style.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { mapArray } from '../components/fragment.js'
 import { proxy } from '../../../db/proxy.js'
-import { Locale, makeThrows, ProjectPageTitle, Title } from '../components/locale.js'
+import {
+  Locale,
+  makeThrows,
+  ProjectPageTitle,
+  Title,
+} from '../components/locale.js'
 import {
   DynamicContext,
   ExpressContext,
@@ -155,6 +160,43 @@ ion-popover.select-popover ion-radio-group ion-item ion-label {
 
 #cancel-edit-button ion-icon {
   font-size: 18px;
+}
+
+#canvas-mode-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+#canvas-mode-toggle button {
+  border: none;
+  background: transparent;
+  color: #333;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#canvas-mode-toggle button.active {
+  background: #3880ff;
+  color: #fff;
+}
+
+/* In fit-bounding-box mode, the canvas pixel size matches the camera view's
+   aspect ratio. Use object-fit:contain so the canvas is displayed without
+   distortion, preserving the correct proportions of the bounding box. */
+#editorContainer.fit-bounding-box #previewCanvas {
+  width: 100%;
+  height: calc(68dvh - 6rem);
+  object-fit: contain;
 }
 
 `)
@@ -486,6 +528,21 @@ async function setupEditorUI() {
   
   // Update bounding box select options
   updateBoundingBoxSelect(bounding_boxes)
+
+  // Set initial canvas mode toggle active state
+  const currentMode = window._canvasMode || 'fitBoundingBox'
+  document.querySelectorAll('#canvas-mode-toggle button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === currentMode)
+  })
+
+  // Apply the initial fit-bounding-box display class
+  const container = document.getElementById('editorContainer')
+  if (container) {
+    container.classList.toggle(
+      'fit-bounding-box',
+      currentMode === 'fitBoundingBox',
+    )
+  }
 }
 
 // Function to update bounding box select dropdown options
@@ -976,6 +1033,11 @@ function enterEditMode(boundingBox) {
     window.camera.rotate = boundingBox.rotate
     window.camera.rotate_angle = boundingBox.rotate_angle || (boundingBox.rotate * 2 * Math.PI)
   }
+
+  // In fitBoundingBox mode, resize canvas to the selected box
+  if (window._canvasMode === 'fitBoundingBox' && typeof window.resizeCanvas === 'function') {
+    window.resizeCanvas()
+  }
   
   // Update the bounding box select dropdown to match the selected box
   if (typeof window.updateBoundingBoxSelectValue === 'function' && boundingBox.id) {
@@ -1108,8 +1170,10 @@ function zoomInImage() {
   
   console.log('zoomInImage: Updated camera state:', camera)
   
-  // Force immediate re-render
-  if (typeof window.render === 'function') {
+  // Force immediate re-render (resize preview to follow the zoom in fitBoundingBox mode)
+  if (typeof window.resizePreviewToCamera === 'function') {
+    window.resizePreviewToCamera()
+  } else if (typeof window.render === 'function') {
     window.render()
     console.log('zoomInImage: Render function called')
   } else {
@@ -1158,8 +1222,10 @@ function zoomOutImage() {
     
     console.log('zoomOutImage: Updated camera state:', camera)
     
-    // Force immediate re-render
-    if (typeof window.render === 'function') {
+    // Force immediate re-render (resize preview to follow the zoom in fitBoundingBox mode)
+    if (typeof window.resizePreviewToCamera === 'function') {
+      window.resizePreviewToCamera()
+    } else if (typeof window.render === 'function') {
       window.render()
       console.log('zoomOutImage: Render function called')
     } else {
@@ -1202,8 +1268,10 @@ function zoomVerticalIn() {
   // Keep the view within the image bounds
   camera.y = Math.max(newHeight / 2, Math.min(1 - newHeight / 2, camera.y))
   
-  // Force immediate re-render
-  if (typeof window.render === 'function') {
+  // Force immediate re-render (resize preview to follow the zoom in fitBoundingBox mode)
+  if (typeof window.resizePreviewToCamera === 'function') {
+    window.resizePreviewToCamera()
+  } else if (typeof window.render === 'function') {
     window.render()
   }
 }
@@ -1237,8 +1305,10 @@ function zoomVerticalOut() {
   // Keep the view within the image bounds
   camera.y = Math.max(newHeight / 2, Math.min(1 - newHeight / 2, camera.y))
   
-  // Force immediate re-render
-  if (typeof window.render === 'function') {
+  // Force immediate re-render (resize preview to follow the zoom in fitBoundingBox mode)
+  if (typeof window.resizePreviewToCamera === 'function') {
+    window.resizePreviewToCamera()
+  } else if (typeof window.render === 'function') {
     window.render()
   }
 }
@@ -1272,8 +1342,10 @@ function zoomHorizontalIn() {
   // Keep the view within the image bounds
   camera.x = Math.max(newWidth / 2, Math.min(1 - newWidth / 2, camera.x))
   
-  // Force immediate re-render
-  if (typeof window.render === 'function') {
+  // Force immediate re-render (resize preview to follow the zoom in fitBoundingBox mode)
+  if (typeof window.resizePreviewToCamera === 'function') {
+    window.resizePreviewToCamera()
+  } else if (typeof window.render === 'function') {
     window.render()
   }
 }
@@ -1307,8 +1379,10 @@ function zoomHorizontalOut() {
   // Keep the view within the image bounds
   camera.x = Math.max(newWidth / 2, Math.min(1 - newWidth / 2, camera.x))
   
-  // Force immediate re-render
-  if (typeof window.render === 'function') {
+  // Force immediate re-render (resize preview to follow the zoom in fitBoundingBox mode)
+  if (typeof window.resizePreviewToCamera === 'function') {
+    window.resizePreviewToCamera()
+  } else if (typeof window.render === 'function') {
     window.render()
   }
 }
@@ -1354,8 +1428,10 @@ function resetZoom() {
   
   console.log('resetZoom: Reset camera state:', camera)
   
-  // Force immediate re-render
-  if (typeof window.render === 'function') {
+  // Force immediate re-render (resize preview to follow the zoom in fitBoundingBox mode)
+  if (typeof window.resizePreviewToCamera === 'function') {
+    window.resizePreviewToCamera()
+  } else if (typeof window.render === 'function') {
     window.render()
     console.log('resetZoom: Render function called')
   } else {
@@ -1448,6 +1524,29 @@ if (!window._rotationListenersAdded) {
   window._rotationListenersAdded = true
 }
 
+// Function to switch between fit-image and fit-bounding-box canvas modes
+function switchCanvasMode(mode) {
+  console.log('switchCanvasMode called with mode:', mode)
+
+  if (typeof window.setCanvasMode === 'function') {
+    window.setCanvasMode(mode)
+  } else {
+    console.error('switchCanvasMode: drag-ui setCanvasMode not available')
+    return
+  }
+
+  // Update toggle button active state
+  document.querySelectorAll('#canvas-mode-toggle button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode)
+  })
+
+  // Toggle the fit-bounding-box display class on the editor container
+  const container = document.getElementById('editorContainer')
+  if (container) {
+    container.classList.toggle('fit-bounding-box', mode === 'fitBoundingBox')
+  }
+}
+
 window.setupEditorUI = setupEditorUI
 window.updateDeleteButton = updateDeleteButton
 window.updateBoundingBoxSelect = updateBoundingBoxSelect
@@ -1455,6 +1554,7 @@ window.updateBoundingBoxSelectValue = updateBoundingBoxSelectValue
 window.selectBoundingBox = selectBoundingBox
 window.cancelEdit = cancelEdit
 window.updateCancelEditButtonVisibility = updateCancelEditButtonVisibility
+window.switchCanvasMode = switchCanvasMode
 
 // Helper function to get project_id from URL params
 function getProjectId() {
@@ -1752,6 +1852,22 @@ function Main(attrs: { project_id: string }, context: DynamicContext) {
               >
                 {/* Options will be populated dynamically */}
               </ion-select>
+            </div>
+            <div id="canvas-mode-toggle">
+              <button
+                type="button"
+                data-mode="fitImage"
+                onclick="switchCanvasMode('fitImage')"
+              >
+                <Locale en="Fit Image" zh_hk="全圖" zh_cn="全图" />
+              </button>
+              <button
+                type="button"
+                data-mode="fitBoundingBox"
+                onclick="switchCanvasMode('fitBoundingBox')"
+              >
+                <Locale en="Fit Box" zh_hk="邊界框" zh_cn="边界框" />
+              </button>
             </div>
             <canvas id="minimapCanvas"></canvas>
             <div id="preview-container">
