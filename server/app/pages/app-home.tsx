@@ -247,25 +247,30 @@ function Main(attrs: {}, context: DynamicContext) {
             </IonButton>
             <IonButton
               fill="solid"
-              color="primary"
+              color="medium"
+              disabled={true}
               url={'/train-ai?project=' + project_id}
             >
               <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
             </IonButton>
             <IonButton
               fill="solid"
-              color="primary"
+              color="medium"
+              disabled={true}
               url={'/preview-ai?project=' + project_id}
             >
               <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
             </IonButton>
           </ion-buttons>
         </ion-item>
+        <Link tagName="ion-item" href={'/stats?project=' + project_id}>
+          6. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
+        </Link>
         <Link
           tagName="ion-item"
           href={'/import-export-model?project=' + project_id}
         >
-          6.{' '}
+          7.{' '}
           <Locale
             en="Import/Export Model"
             zh_hk="匯入/匯出模型"
