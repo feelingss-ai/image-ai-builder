@@ -468,9 +468,13 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
       del(proxy.image_label, { image_id: img.id! })
     }
 
-    // Delete all training stats for labels in this project
+    // Delete all training stats and referencing rows for labels in this project
+    // (also covers orphaned images that still reference these labels by label_id)
     let project_labels = filter(proxy.label, { project_id })
     for (let label of project_labels) {
+      del(proxy.image_bounding_box_confirmation, { label_id: label.id! })
+      del(proxy.image_bounding_box, { label_id: label.id! })
+      del(proxy.image_label, { label_id: label.id! })
       del(proxy.training_stats, { label_id: label.id! })
     }
 
