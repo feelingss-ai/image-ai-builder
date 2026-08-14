@@ -40,6 +40,7 @@ let style = Style(/* css */ `
 let script = Script(/* js */ `
 //avoid load model multiple times
 window.modelCache ||= {}
+window.baseModelCache = null
 
 function loadLabelModel(modelPath) {
   let url = '/saved_models/' + modelPath + '/model.json'
@@ -50,6 +51,18 @@ function loadLabelModel(modelPath) {
     delete window.modelCache[url]
   })
   return p
+}
+
+async function loadBaseModel() {
+  if (window.baseModelCache) return window.baseModelCache
+  let tf = await loadTF()
+  let url = '/saved_models/mobilenet-v3-large-100/model.json'
+  window.baseModelCache = tf.loadGraphModel(url).catch(err => {
+    console.error('failed to load base model:', { url, err })
+    window.baseModelCache = null
+    throw err
+  })
+  return window.baseModelCache
 }
 
 async function loadTF() {
@@ -65,6 +78,38 @@ async function loadTF() {
     }
     loop()
   })
+}
+
+// Convert an image/video element to a MobileNet embedding (1280-dim feature vector)
+async function imageToEmbedding(tf, baseModel, imageSource) {
+  // Resize to 224x224 (MobileNet input size) and convert to RGB tensor
+  const width = 224
+  const height = 224
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(imageSource, 0, 0, width, height)
+
+  // Get pixel data as RGB tensor [1, 224, 224, 3], normalized to [0, 1]
+  const pixels = tf.browser.fromPixels(canvas) // [224, 224, 3], uint8
+  const normalized = pixels.toFloat().div(255) // normalize to [0, 1]
+  const batched = normalized.expandDims(0) // [1, 224, 224, 3]
+
+  // Run through MobileNet to get embedding [1, 1280]
+  const embedding = baseModel.predict(batched)
+
+  // Clean up intermediate tensors
+  pixels.dispose()
+  normalized.dispose()
+  batched.dispose()
+
+  return embedding // [1, 1280]
+}
+
+function showLoading(show) {
+  let el = document.querySelector('#previewLoading')
+  if (el) el.style.display = show ? 'block' : 'none'
 }
 
 document.querySelector('#webcamOutput').style.display = 'none';
@@ -83,7 +128,6 @@ function pickPreviewPhoto() {
 }
 
 document.querySelector('#previewPhotoInput').onchange = async function(event) {
-  
   let file = event.target.files[0];
   if (!file) return;
   let reader = new FileReader();
@@ -98,42 +142,17 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
 
     img.onload = async function() {
       try {
-      // 1. Resize image to 40x32 (width=40, height=32) to match input size 1280 = 40*32
-      const width = 40;
-      const height = 32;
-
-      // Create a hidden canvas to draw the resized image
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-
-      // Draw resized image on canvas
-      ctx.drawImage(img, 0, 0, width, height);
-
-      // Get pixel data - returns an Uint8ClampedArray with RGBA (4 values per pixel)
-      const imageData = ctx.getImageData(0, 0, width, height);
-      const data = imageData.data;
-
-      // Convert to grayscale and normalize
-      const grayscaleData = new Float32Array(width * height);
-      for (let i = 0; i < width * height; i++) {
-        const r = data[i * 4];
-        const g = data[i * 4 + 1];
-        const b = data[i * 4 + 2];
-        // Simple grayscale: average of RGB
-        grayscaleData[i] = (r + g + b) / 3 / 255;
-      }
-
       if (!modelInfos || modelInfos.length === 0) {
         console.warn('Preview: no models (open the page with ?project= from project home)');
         return;
       }
 
-      // prevent use tf before it is loaded
+      showLoading(true)
       let tf = await loadTF();
-      // Create input tensor shaped [1, 1280]
-      const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
+      let baseModel = await loadBaseModel();
+
+      // Extract MobileNet embedding from the image
+      const embedding = await imageToEmbedding(tf, baseModel, img);
 
       let predictions = {};
       for (let modelInfo of modelInfos) {
@@ -146,18 +165,23 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
           }
         }
         let model = await loadLabelModel(modelInfo.path);
-        const prediction = model.predict(inputTensor);
-        const probabilities = prediction.arraySync()[0];
-        predictions[modelInfo.id] = probabilities[0];
+        const prediction = model.predict(embedding);
+        // Apply softmax since the output layer uses 'linear' activation
+        const softmax = tf.softmax(prediction);
+        const probabilities = softmax.arraySync()[0];
+        predictions[modelInfo.id] = probabilities[1];
 
         let labelEl = document.querySelector('#label-' + modelInfo.id);
-        if (labelEl) labelEl.value = Math.round(probabilities[0] * 100);
+        if (labelEl) labelEl.value = Math.round(probabilities[1] * 100);
 
         prediction.dispose && prediction.dispose();
+        softmax.dispose && softmax.dispose();
       }
-      inputTensor.dispose && inputTensor.dispose();
+      embedding.dispose && embedding.dispose();
       } catch (err) {
         console.error('Preview prediction failed:', err);
+      } finally {
+        showLoading(false)
       }
     }
   }
@@ -174,75 +198,71 @@ shouldUpdateProgress = false;
 async function startRealtimeDetection() {
   shouldUpdateProgress = true
 
-  // Make sure models are loaded
-  const models = {};
-  for (let modelInfo of modelInfos) {
-    models[modelInfo.id] = await loadLabelModel(modelInfo.path);
-  }
+  showLoading(true)
+  try {
+    let tf = await loadTF()
+    let baseModel = await loadBaseModel()
 
-  const video = document.querySelector('video');
-  const width = 40, height = 32;
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-
-  let predictions = {};
-  async function detectLoop() {
-    if (video.readyState < 2) {
-      detectionLoopHandle = requestAnimationFrame(detectLoop);
-      return; // wait for camera to be ready
-    }
-
-    if (!shouldUpdateProgress) return;
-
-    // Draw current video frame to canvas
-    ctx.drawImage(video, 0, 0, width, height);
-
-    // Get pixel data
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-
-    // Convert to grayscale and normalize
-    const grayscaleData = new Float32Array(width * height);
-    for (let i = 0; i < width * height; i++) {
-      const r = data[i * 4];
-      const g = data[i * 4 + 1];
-      const b = data[i * 4 + 2];
-      grayscaleData[i] = (r + g + b) / 3 / 255;
-    }
-
-    // Create input tensor
-    const inputTensor = tf.tensor2d(grayscaleData, [1, width * height]);
-
+    // Make sure models are loaded
+    const models = {};
     for (let modelInfo of modelInfos) {
-      let labelEl = document.querySelector('#label-' + modelInfo.id);
-      if (!labelEl) {
-        stopWebcam();
-        return;
-      }
-      if (modelInfo.dependency_id != null) {
-        let depProb = predictions[modelInfo.dependency_id];
-        if (depProb == null || depProb < 0.5) {
-          if (shouldUpdateProgress) labelEl.value = 0;
-          continue;
-        }
-      }
-      const model = models[modelInfo.id];
-      if (!model) continue;
-      const prediction = model.predict(inputTensor);
-      const probabilities = (await prediction.array())[0];
-      predictions[modelInfo.id] = probabilities[0];
-      if (shouldUpdateProgress) {
-        labelEl.value = Math.round(probabilities[0] * 100);
-      }
-      prediction.dispose && prediction.dispose();
+      models[modelInfo.id] = await loadLabelModel(modelInfo.path);
     }
-    inputTensor.dispose && inputTensor.dispose();
+    showLoading(false)
 
+    const video = document.querySelector('video');
+
+    let predictions = {};
+    async function detectLoop() {
+      if (video.readyState < 2) {
+        detectionLoopHandle = requestAnimationFrame(detectLoop);
+        return; // wait for camera to be ready
+      }
+
+      if (!shouldUpdateProgress) return;
+
+      try {
+        // Extract MobileNet embedding from the video frame
+        const embedding = await imageToEmbedding(tf, baseModel, video);
+
+        for (let modelInfo of modelInfos) {
+          let labelEl = document.querySelector('#label-' + modelInfo.id);
+          if (!labelEl) {
+            stopWebcam();
+            return;
+          }
+          if (modelInfo.dependency_id != null) {
+            let depProb = predictions[modelInfo.dependency_id];
+            if (depProb == null || depProb < 0.5) {
+              if (shouldUpdateProgress) labelEl.value = 0;
+              continue;
+            }
+          }
+          const model = models[modelInfo.id];
+          if (!model) continue;
+          const prediction = model.predict(embedding);
+          // Apply softmax since the output layer uses 'linear' activation
+          const softmax = tf.softmax(prediction);
+          const probabilities = (await softmax.array())[0];
+          predictions[modelInfo.id] = probabilities[1];
+          if (shouldUpdateProgress) {
+            labelEl.value = Math.round(probabilities[1] * 100);
+          }
+          prediction.dispose && prediction.dispose();
+          softmax.dispose && softmax.dispose();
+        }
+        embedding.dispose && embedding.dispose();
+      } catch (err) {
+        console.error('Detection loop error:', err);
+      }
+
+      detectionLoopHandle = requestAnimationFrame(detectLoop);
+    }
     detectionLoopHandle = requestAnimationFrame(detectLoop);
+  } catch (err) {
+    console.error('Failed to start detection:', err)
+    showLoading(false)
   }
-  detectionLoopHandle = requestAnimationFrame(detectLoop);
 }
 
 // To stop detection when webcam is off:
@@ -400,6 +420,17 @@ function Main(attrs: {}, context: DynamicContext) {
         </div>
       </div>
       <div style="position: relative; width: 100%; height: 100%;">
+        {/* loading indicator */}
+        <div
+          id="previewLoading"
+          style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10; background: rgba(0,0,0,0.6); color: white; padding: 1rem 2rem; border-radius: 0.5rem; font-size: 1rem;"
+        >
+          <Locale
+            en="Loading AI model..."
+            zh_hk="載入 AI 模型中..."
+            zh_cn="加载 AI 模型中..."
+          />
+        </div>
         {/* webcam output */}
         <div
           style="border-radius: 0.5rem; box-shadow: 0 2px 8px #0001; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 200px;"
