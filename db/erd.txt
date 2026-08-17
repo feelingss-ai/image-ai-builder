@@ -198,6 +198,53 @@ user_id integer FK >0- user.id
 label_id integer FK >0- label.id
 
 
+<<<<<<< HEAD
+project_member
+--------------
+id integer PK
+project_id integer FK >0- project.id
+user_id integer FK >0- user.id
+
+
+training_stats
+--------------
+id integer PK
+user_id integer FK >0- user.id
+label_id integer FK >0- label.id
+epoch integer
+learning_rate real
+train_accuracy real
+train_loss real
+val_accuracy real
+val_loss real
+
+
+=======
+>>>>>>> review-bounding-box
+image_bounding_box
+------------------
+id integer PK
+image_id integer FK >0- image.id
+user_id integer FK >0- user.id
+label_id integer FK >0- label.id
+x real
+y real
+height real
+width real
+rotate real
+
+
+<<<<<<< HEAD
+image_bounding_box_confirmation
+-------------------------------
+id integer PK
+image_id integer FK >0- image.id
+user_id integer FK >0- user.id
+label_id integer FK >0- label.id
+
+
+=======
+>>>>>>> review-bounding-box
 # zoom: 1.000
 # text-bg: #6495ed
 # text-color: #000000
