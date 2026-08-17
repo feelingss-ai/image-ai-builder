@@ -3,7 +3,6 @@ import { commonTemplatePageText } from '../components/common-template.js'
 import { Link, Redirect } from '../components/router.js'
 import {
   DynamicContext,
-  ExpressContext,
   getContextFormBody,
   getContextSearchParams,
 } from '../context.js'
@@ -267,7 +266,11 @@ ${toastPlugin.script}
   )
 }
 
-function Logout(_attrs: {}, context: ExpressContext) {
+function Logout(_attrs: {}, context: DynamicContext) {
+  if (context.type === 'ws') {
+    // cannot set the cookie in ws context, ask the browser to redirect
+    throw new MessageException(['eval', `window.location.href = '/logout'`])
+  }
   eraseUserIdFromCookie(context.res)
   return <Redirect href="/login" />
 }
