@@ -283,8 +283,8 @@ export function UserMessageInGuestView(attrs: { user_id: number }) {
         You have login as <b>{getDisplayName(user)}</b>.
       </p>
       <p>
-        You can go to <Link href="/profile">profile page</Link> to manage your
-        public profile and exclusive content.
+        You can go to <Link href="/app/project">project list</Link> to explore
+        and manage your projects.
       </p>
     </>
   )
