@@ -21,7 +21,12 @@ import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
 import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
-import { pick } from 'better-sqlite3-proxy'
+import { filter, pick } from 'better-sqlite3-proxy'
+import {
+  getContextProject,
+  select_project_label,
+} from '../context/project-context.js'
+import { NoProjectMessage } from '../components/no-project-message.js'
 
 let pageTitle = (
   <Locale en="Review Bounding Box" zh_hk="審視邊界框" zh_cn="审阅边界框" />
@@ -59,6 +64,12 @@ let script = Script(/* js */ `
   let label_id = 1;
   let box_count = 1;
 
+  function getProjectId() {
+    const params = new URLSearchParams(window.location.search);
+    return +params.get('project') || 0;
+  }
+  let project_id = getProjectId();
+
   function readSelectValues() {
     const label_select = getLabelSelect();
     const box_count_select = getBoxCountSelect();
@@ -85,7 +96,7 @@ let script = Script(/* js */ `
         window.history.pushState({}, '', url);
         submitBoxCount();
         if (typeof emit === 'function') {
-          emit('/review-bounding-box/label-changed', { label_id })
+          emit('/review-bounding-box/label-changed', { label_id, project_id })
         }
       })
       label_select.dataset.bound = '1'
@@ -110,6 +121,7 @@ let script = Script(/* js */ `
     emit('/review-bounding-box/submit-box-count', {
       label_id,
       box_count,
+      project_id,
     })
   }
 
@@ -246,11 +258,27 @@ let page = (
 )
 
 let count_annotated_images = db
-  .prepare<{ label_id: number }, number>(
+  .prepare<{ label_id: number; project_id: number }, number>(
     /* sql */ `
-select count(distinct image_id)
+select count(distinct image_label.image_id)
 from image_label
-where label_id = :label_id
+join image on image.id = image_label.image_id
+where image_label.label_id = :label_id
+and image_label.answer = 1
+and image.project_id = :project_id
+`,
+  )
+  .pluck()
+
+// count images that have finished marking bounding box for a label in a project
+let count_box_annotated_images = db
+  .prepare<{ label_id: number; project_id: number }, number>(
+    /* sql */ `
+select count(distinct image_bounding_box.image_id)
+from image_bounding_box
+join image on image.id = image_bounding_box.image_id
+where image_bounding_box.label_id = :label_id
+and image.project_id = :project_id
 `,
   )
   .pluck()
@@ -263,13 +291,18 @@ where label_id = :label_id
 ]
 */
 let getBoxImageCounts = db.prepare<
-  { label_id: number },
+  { label_id: number; project_id: number },
   { box_count: number; image_count: number }
 >(/* sql */ `
-    with list as ( select image_id, label_id, count(*) as count 
+    with list as ( select image_bounding_box.image_id, image_bounding_box.label_id, count(distinct image_bounding_box.id) as count 
     from image_bounding_box 
-    where label_id = :label_id 
-    group by image_id, label_id ) 
+    join image on image.id = image_bounding_box.image_id
+    join image_label on image_label.image_id = image_bounding_box.image_id
+      and image_label.label_id = image_bounding_box.label_id
+      and image_label.answer = 1
+    where image_bounding_box.label_id = :label_id 
+    and image.project_id = :project_id
+    group by image_bounding_box.image_id, image_bounding_box.label_id ) 
     select count as box_count, count(*) as image_count 
     from list 
     group by count
@@ -280,14 +313,20 @@ let getImageIdsUserIdsByLabelAndBoxCount = db.prepare<
   {
     label_id: number
     box_count: number
+    project_id: number
   },
   { image_id: number; user_ids: string }
 >(/* sql */ `
-  select image_id, group_concat(distinct user_id) as  user_ids
+  select image_bounding_box.image_id, group_concat(distinct image_bounding_box.user_id) as  user_ids
   from image_bounding_box
-  where label_id = :label_id
-  group by image_id
-  having count(*) = :box_count
+  join image on image.id = image_bounding_box.image_id
+  join image_label on image_label.image_id = image_bounding_box.image_id
+    and image_label.label_id = image_bounding_box.label_id
+    and image_label.answer = 1
+  where image_bounding_box.label_id = :label_id
+  and image.project_id = :project_id
+  group by image_bounding_box.image_id
+  having count(distinct image_bounding_box.id) = :box_count
 `)
 
 // get image bounding boxes by image_id and label_id
@@ -296,7 +335,7 @@ let getImageIdsUserIdsByLabelAndBoxCount = db.prepare<
   { x: 0.5, y: 0.6, width: 0.2, height: 0.6, rotate: 0.125 },
 ] */
 let getImageBoundingBoxes = db.prepare<
-  { image_id: number; label_id: number },
+  { image_id: number; label_id: number; project_id: number },
   {
     x: number
     y: number
@@ -305,16 +344,22 @@ let getImageBoundingBoxes = db.prepare<
     rotate: number
   }
 >(/* sql */ `
-  select x, y, width, height, rotate
+  select distinct x, y, width, height, rotate
   from image_bounding_box
-  where image_id = :image_id and label_id = :label_id
+  join image on image.id = image_bounding_box.image_id
+  join image_label on image_label.image_id = image_bounding_box.image_id
+    and image_label.label_id = image_bounding_box.label_id
+    and image_label.answer = 1
+  where image_bounding_box.image_id = :image_id and image_bounding_box.label_id = :label_id
+  and image.project_id = :project_id
   `)
 
 // return a list of ImageItem by label_id and box_count
-function getImageItem(label_id: number, box_count: number) {
+function getImageItem(label_id: number, box_count: number, project_id: number) {
   let image_ids = getImageIdsUserIdsByLabelAndBoxCount.all({
     label_id: label_id,
     box_count: box_count,
+    project_id: project_id,
   })
 
   // format image_ids to [ { image_id: 1, user_ids: [1,2] } ]
@@ -324,7 +369,7 @@ function getImageItem(label_id: number, box_count: number) {
   }))
 
   type Image = (typeof images)[number]
-  let images = pick(proxy.image, ['id', 'filename', 'original_filename'])
+  let images = filter(proxy.image, { project_id })
   let items = images.filter(image =>
     formatted_image_ids.map(item => item.image_id).includes(image.id!),
   )
@@ -362,6 +407,7 @@ function getImageItem(label_id: number, box_count: number) {
     let boxes = getImageBoundingBoxes.all({
       image_id: item.id!,
       label_id: label_id,
+      project_id: project_id,
     })
     return renderImage(item, boxes, imageIdToUserMap.get(item.id!))
   })
@@ -439,11 +485,16 @@ function Main(attrs: {}, context: DynamicContext) {
   }
 
   let params = new URLSearchParams(context.routerMatch?.search)
-  let label_id = +params.get('label')! || 1
-  let box_count = +params.get('box_count')! || 1
-  let total_images = proxy.image.length
 
-  let images_items = getImageItem(label_id, box_count)
+  let project = getContextProject(context)
+  if (!project) return <NoProjectMessage />
+  let project_id = project.id!
+
+  let labels = select_project_label.all({ project_id })
+  let label_id = +params.get('label')! || labels[0]?.id || 1
+  let box_count = +params.get('box_count')! || 1
+
+  let images_items = getImageItem(label_id, box_count, project_id)
 
   return (
     <>
@@ -456,13 +507,18 @@ function Main(attrs: {}, context: DynamicContext) {
           )}
           id="label_select"
         >
-          {mapArray(proxy.label, label => {
+          {mapArray(labels, label => {
             let annotated_images = count_annotated_images.get({
               label_id: label.id!,
+              project_id,
+            })
+            let box_annotated_images = count_box_annotated_images.get({
+              label_id: label.id!,
+              project_id,
             })
             return (
               <ion-select-option value={label.id}>
-                {label.title} ({annotated_images}/{total_images})
+                {label.title} ({box_annotated_images}/{annotated_images})
               </ion-select-option>
             )
           })}
@@ -481,13 +537,16 @@ function Main(attrs: {}, context: DynamicContext) {
           value={box_count}
           id="box_count_select"
         >
-          {mapArray(getBoxImageCounts.all({ label_id: label_id }), item => {
-            return (
-              <ion-select-option value={item.box_count}>
-                {item.box_count} ({item.image_count})
-              </ion-select-option>
-            )
-          })}
+          {mapArray(
+            getBoxImageCounts.all({ label_id: label_id, project_id }),
+            item => {
+              return (
+                <ion-select-option value={item.box_count}>
+                  {item.box_count} ({item.image_count})
+                </ion-select-option>
+              )
+            },
+          )}
         </ion-select>
       </ion-item>
       <ion-grid>
@@ -500,6 +559,7 @@ function Main(attrs: {}, context: DynamicContext) {
 let submitReviewParser = object({
   label_id: id(),
   box_count: number(),
+  project_id: id(),
 })
 
 function SubmitReviewBoundingBox(attrs: {}, context: WsContext) {
@@ -508,11 +568,12 @@ function SubmitReviewBoundingBox(attrs: {}, context: WsContext) {
     let user = getAuthUser(context)
     let body = getContextFormBody(context)
     let input = submitReviewParser.parse(body)
-    let { label_id, box_count } = input
+    let { label_id, box_count, project_id } = input
     console.log('label_id', label_id)
     console.log('box_count', box_count)
+    console.log('project_id', project_id)
 
-    let images_items = getImageItem(label_id, box_count)
+    let images_items = getImageItem(label_id, box_count, project_id)
 
     context.ws.send([
       'update-in',
@@ -530,11 +591,13 @@ function LabelChanged(attrs: {}, context: WsContext) {
     console.log('LabelChanged')
     let parser = object({
       label_id: id(),
+      project_id: id(),
     })
     let body = getContextFormBody(context)
     let input = parser.parse(body)
-    let { label_id } = input
+    let { label_id, project_id } = input
     console.log('label_id', label_id)
+    console.log('project_id', project_id)
 
     let new_box_count_select = (
       <ion-select
@@ -549,13 +612,16 @@ function LabelChanged(attrs: {}, context: WsContext) {
         value={1}
         id="box_count_select"
       >
-        {mapArray(getBoxImageCounts.all({ label_id: label_id }), item => {
-          return (
-            <ion-select-option value={item.box_count}>
-              {item.box_count} ({item.image_count})
-            </ion-select-option>
-          )
-        })}
+        {mapArray(
+          getBoxImageCounts.all({ label_id: label_id, project_id }),
+          item => {
+            return (
+              <ion-select-option value={item.box_count}>
+                {item.box_count} ({item.image_count})
+              </ion-select-option>
+            )
+          },
+        )}
       </ion-select>
     )
 
