@@ -206,7 +206,9 @@ function Main(attrs: {}, context: DynamicContext) {
         <ion-item>
           4.{' '}
           <Locale en="Image Classification" zh_hk="圖像分類" zh_cn="图像分类" />
-          <ion-buttons slot="end">
+        </ion-item>
+        <ion-item>
+          <ion-buttons slot="start">
             <IonButton
               fill="solid"
               color="primary"
@@ -237,13 +239,22 @@ function Main(attrs: {}, context: DynamicContext) {
             zh_hk="邊界框分類"
             zh_cn="边界框分类"
           />
-          <ion-buttons slot="end">
+        </ion-item>
+        <ion-item>
+          <ion-buttons slot="start">
             <IonButton
               fill="solid"
               color="primary"
               url={'/annotate-bounding-box?project=' + project_id}
             >
               <Locale en="Annotate" zh_hk="標註" zh_cn="注释" />
+            </IonButton>
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/review-bounding-box?project=' + project_id}
+            >
+              <Locale en="Review" zh_hk="審視" zh_cn="审阅" />
             </IonButton>
             <IonButton
               fill="solid"
