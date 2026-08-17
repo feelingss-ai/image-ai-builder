@@ -1,4 +1,4 @@
-import { apiEndpointTitle, config, title } from '../../config.js'
+import { apiEndpointTitle, config } from '../../config.js'
 import { Link, Redirect } from '../components/router.js'
 import {
   Context,
@@ -23,6 +23,7 @@ import { Field } from '../components/field.js'
 import { is_ionic, is_web, Page } from '../components/page.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { IonButton } from '../components/ion-button.js'
+import { Locale, Title } from '../components/locale.js'
 
 let style = Style(/* css */ `
 #login .field {
@@ -40,13 +41,19 @@ let LoginPage = (
     {style}
     <Page
       id="login"
-      title="Login"
+      title={<Title t={<Locale en="Login" zh_hk="登入" zh_cn="登录" />} />}
       backHref="/"
-      backText="Home"
+      backText={<Locale en="Home" zh_hk="主頁" zh_cn="主页" />}
       backColor="light"
       headerColor="primary"
     >
-      <p>Welcome back to {config.short_site_name}!</p>
+      <p>
+        <Locale
+          en={`Welcome back to ${config.short_site_name}!`}
+          zh_hk={`歡迎回來 ${config.short_site_name}！`}
+          zh_cn={`欢迎回来 ${config.short_site_name}！`}
+        />
+      </p>
       <Main />
       {sweetAlertPlugin.node}
       {is_ionic && wsStatus.safeArea}
@@ -63,7 +70,7 @@ let verifyFormBody = (
   <>
     {config.enable_email && (
       <Field
-        label="Email"
+        label={<Locale en="Email" zh_hk="電郵地址" zh_cn="电子邮件地址" />}
         type="email"
         name="email"
         msgId="emailMsg"
@@ -79,13 +86,17 @@ let verifyFormBody = (
     {config.enable_email &&
       config.enable_sms &&
       (is_web ? (
-        <div style="margin: 0.5rem 0">or</div>
+        <div style="margin: 0.5rem 0">
+          <Locale en="or" zh_hk="或" zh_cn="或" />
+        </div>
       ) : (
-        <div style="margin-inline-start: 1rem; margin-top: 1rem">or</div>
+        <div style="margin-inline-start: 1rem; margin-top: 1rem">
+          <Locale en="or" zh_hk="或" zh_cn="或" />
+        </div>
       ))}
     {config.enable_sms && (
       <Field
-        label="Phone number"
+        label={<Locale en="Phone number" zh_hk="電話號碼" zh_cn="电话号码" />}
         type="tel"
         name="tel"
         msgId="telMsg"
@@ -101,23 +112,40 @@ let verifyFormBody = (
     {is_web ? (
       <div class="field">
         <label>
-          <input type="checkbox" name="include_link" /> Include magic link (more
-          convince but may be treated as spam)
+          <input type="checkbox" name="include_link" />{' '}
+          <Locale
+            en="Include magic link (more convenient but may be treated as spam)"
+            zh_hk="包含登入鏈接 (更方便但可能被視為垃圾郵件)"
+            zh_cn="包含登录链接 (更方便但可能被视为垃圾邮件)"
+          />
         </label>
       </div>
     ) : (
       <>
         <ion-item>
           <ion-checkbox slot="start" name="include_link"></ion-checkbox>
-          <ion-label style="pointer-events: none">Include magic link</ion-label>
+          <ion-label style="pointer-events: none">
+            <Locale
+              en="Include magic link"
+              zh_hk="包含登入鏈接"
+              zh_cn="包含登录链接"
+            />
+          </ion-label>
         </ion-item>
         <ion-note color="dark">
-          (More convince but may be treated as spam)
+          <Locale
+            en="(More convenient but may be treated as spam)"
+            zh_hk="(更方便但可能被視為垃圾郵件)"
+            zh_cn="(更方便但可能被视为垃圾邮件)"
+          />
         </ion-note>
       </>
     )}
     {is_web ? (
-      <input type="submit" value="Verify" />
+      <input
+        type="submit"
+        value={<Locale en="Verify" zh_hk="驗證" zh_cn="验证" />}
+      />
     ) : (
       <ion-button
         type="submit"
@@ -125,7 +153,7 @@ let verifyFormBody = (
         fill="block"
         color="tertiary"
       >
-        Verify
+        <Locale en="Verify" zh_hk="驗證" zh_cn="验证" />
       </ion-button>
     )}
   </>
@@ -134,14 +162,20 @@ let verifyFormBody = (
 let passwordFormBody = (
   <>
     <Field
-      label="Username, email or phone number"
+      label={
+        <Locale
+          en="Username, email, or phone number"
+          zh_hk="用戶名, 電郵地址, 或電話號碼"
+          zh_cn="用户名, 电子邮件地址, 或电话号码"
+        />
+      }
       name="loginId"
       msgId="loginIdMsg"
       autocomplete="username"
       required
     />
     <Field
-      label="Password"
+      label={<Locale en="Password" zh_hk="密碼" zh_cn="密码" />}
       name="password"
       msgId="passwordMsg"
       type="password"
@@ -150,12 +184,15 @@ let passwordFormBody = (
     />
     {is_web ? (
       <div class="input-container">
-        <input type="submit" value="Login" />
+        <input
+          type="submit"
+          value={<Locale en="Login" zh_hk="登入" zh_cn="登录" />}
+        />
       </div>
     ) : (
       <div class="ion-text-center ion-margin">
         <ion-button type="submit" fill="block" color="primary">
-          Login
+          <Locale en="Login" zh_hk="登入" zh_cn="登录" />
         </ion-button>
       </div>
     )}
@@ -165,9 +202,35 @@ let passwordFormBody = (
 
 let guestView = (
   <>
+    <p hidden>
+      <Locale
+        en={
+          <>
+            By continuing to use this service, you agree to our{' '}
+            <a href="/privacy">privacy policy</a>.
+          </>
+        }
+        zh_hk={
+          <>
+            繼續使用本服務即表示您同意我們的<a href="/privacy">私隱政策</a>。
+          </>
+        }
+        zh_cn={
+          <>
+            继续使用本服务即表示您同意我们的<a href="/privacy">隐私政策</a>。
+          </>
+        }
+      />
+    </p>
     {config.use_social_login && (
       <>
-        <div class="separator-line flex-center">Login with social network</div>
+        <div class="separator-line flex-center">
+          <Locale
+            en="Login with social network"
+            zh_hk="使用社交網絡登入"
+            zh_cn="使用社交网络登录"
+          />
+        </div>
         <div class="flex-center flex-column">{oauthProviderList}</div>
       </>
     )}
@@ -175,7 +238,11 @@ let guestView = (
       (config.enable_email || config.enable_sms) && (
         <>
           <div class="separator-line flex-center">
-            Login with verification code
+            <Locale
+              en="Login with verification code"
+              zh_hk="使用驗證碼登入"
+              zh_cn="使用验证码登录"
+            />
           </div>
           <form
             method="POST"
@@ -186,16 +253,32 @@ let guestView = (
           </form>
         </>
       )}
-    <div class="separator-line flex-center">Login with password</div>
-    <form method="post" action="/login/submit">
-      {passwordFormBody}
-    </form>
+    {config.use_password_login && (
+      <>
+        <div class="separator-line flex-center">
+          <Locale
+            en="Login with password"
+            zh_hk="使用密碼登入"
+            zh_cn="使用密码登录"
+          />
+        </div>
+        <form method="post" action="/login/submit">
+          {passwordFormBody}
+        </form>
+      </>
+    )}
     <div class="separator-line flex-center">
-      New to {config.short_site_name}?
+      <Locale
+        en={`New to ${config.short_site_name}?`}
+        zh_hk={`新來 ${config.short_site_name}？`}
+        zh_cn={`新来 ${config.short_site_name}？`}
+      />
     </div>
     <div style="margin-bottom: 1rem">
       {is_web ? (
-        <Link href="/register">Create an account</Link>
+        <Link href="/register">
+          <Locale en="Create an account" zh_hk="註冊帳號" zh_cn="注册账号" />
+        </Link>
       ) : (
         <IonButton
           url="/register"
@@ -203,7 +286,7 @@ let guestView = (
           class="ion-margin"
           color="secondary"
         >
-          Create an account
+          <Locale en="Create an account" zh_hk="註冊帳號" zh_cn="注册账号" />
         </IonButton>
       )}
     </div>
@@ -281,9 +364,15 @@ async function submit(context: ExpressContext) {
 
 let routes = {
   '/login': {
-    title: title('Login'),
-    description: `Login to access exclusive content and functionality. Welcome back to our community on ${config.short_site_name}.`,
-    menuText: 'Login',
+    title: <Locale en="Login" zh_hk="登入" zh_cn="登录" />,
+    description: (
+      <Locale
+        en={`Login to access exclusive content and features. Welcome back to our community on ${config.short_site_name}.`}
+        zh_hk={`登入以獲取專屬內容及功能。歡迎回到我們的社區，${config.short_site_name}。`}
+        zh_cn={`登录以获取专属内容和功能。欢迎回到我们的社区，${config.short_site_name}。`}
+      />
+    ),
+    menuText: <Locale en="Login" zh_hk="登入" zh_cn="登录" />,
     menuUrl: '/login',
     guestOnly: true,
     node: LoginPage,
