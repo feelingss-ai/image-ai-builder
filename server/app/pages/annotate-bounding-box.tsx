@@ -21,7 +21,7 @@ import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { IonButton } from '../components/ion-button.js'
 import { EarlyTerminate } from '../../exception.js'
 import { showError } from '../components/error.js'
-import { id, number, object, values } from 'cast.ts'
+import { id, number, object, optional, string, values } from 'cast.ts'
 import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { getContextProject } from '../context/project-context.js'
@@ -278,7 +278,9 @@ async function showImage() {
     return
   }
   const projectId = getProjectId()
-  console.log('showImage called with label_id:', labelId, 'project_id:', projectId)
+  const params = new URLSearchParams(window.location.search)
+  const imageId = params.get('image')
+  console.log('showImage called with label_id:', labelId, 'project_id:', projectId, 'image_id:', imageId)
   
   // Wait for WebSocket to be ready
   if (!(await waitForWebSocket())) {
@@ -286,10 +288,14 @@ async function showImage() {
     return
   }
   
-  emit('/annotate-bounding-box/showImage', {
+  let payload: any = {
     label_id: labelId,
     project_id: projectId,
-  })
+  }
+  if (imageId) {
+    payload.image_id = parseInt(imageId)
+  }
+  emit('/annotate-bounding-box/showImage', payload)
 }
 
 // Function to fetch bounding boxes from server
@@ -1007,10 +1013,13 @@ async function submitBoundingBoxes() {
     return
   }
   
-  const data = {
+  const data: any = {
     image_id: parseInt(image_id),
     label_id: parseInt(label_id),
     project_id: getProjectId()
+  }
+  if (isFromReview()) {
+    data.from = 'review'
   }
   
   console.log('submitBoundingBoxes: Submitting data:', data)
@@ -1562,9 +1571,33 @@ function getProjectId() {
   return parseInt(params.get('project') || '1')
 }
 
+// Helper function to get image_id from URL params (when navigating from review page)
+function getImageIdFromUrl() {
+  const params = new URLSearchParams(window.location.search)
+  const imageId = params.get('image')
+  return imageId ? parseInt(imageId) : null
+}
+
+// Helper function to check if we came from review page
+function isFromReview() {
+  const params = new URLSearchParams(window.location.search)
+  return params.get('from') === 'review'
+}
+
 // Initialize the page with the default label when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
   console.log('Page loaded, initializing with default label');
+  // If navigated from review page, update submit button tooltip
+  if (isFromReview()) {
+    const submitBtn = document.querySelector('ion-button[onclick="submitBoundingBoxes()"]');
+    if (submitBtn) {
+      submitBtn.title = 'Save & Back';
+    }
+    // When from review, the server already rendered the selected image ("cut in line").
+    // The <img onLoad> will trigger setupEditorUI -> fetchBoundingBoxes automatically.
+    // Skip the showImage() call to avoid a redundant WS round-trip that could cause a flicker.
+    return;
+  }
   // Small delay to ensure WebSocket is ready
   setTimeout(() => {
     const label_select = document.getElementById('label_select');
@@ -1680,8 +1713,10 @@ let ensure_image_label = db.prepare<
   RETURNING id
 `)
 
-let get_bounding_boxes = db.prepare<
-  { image_id: number; label_id: number },
+// Get only the current user's bounding boxes for an image+label
+// (used in annotate page so users only edit their own boxes)
+let get_my_bounding_boxes = db.prepare<
+  { image_id: number; label_id: number; user_id: number },
   {
     id: number
     image_id: number
@@ -1695,7 +1730,7 @@ let get_bounding_boxes = db.prepare<
 >(/* sql */ `
   SELECT id, image_id, x, y, width, height, rotate, label_id
   FROM image_bounding_box
-  WHERE image_id = :image_id AND label_id = :label_id
+  WHERE image_id = :image_id AND label_id = :label_id AND user_id = :user_id
   ORDER BY id
 `)
 
@@ -1744,6 +1779,20 @@ let check_bounding_box_confirmation = db.prepare<
   LIMIT 1
 `)
 
+// Revoke confirmation when bounding boxes are edited (add/update/delete)
+// so the user must re-confirm after changes
+let delete_bounding_box_confirmation = db.prepare<
+  {
+    image_id: number
+    user_id: number
+    label_id: number
+  },
+  { changes: number }
+>(/* sql */ `
+  DELETE FROM image_bounding_box_confirmation
+  WHERE image_id = :image_id AND user_id = :user_id AND label_id = :label_id
+`)
+
 let select_next_unconfirmed_image = db.prepare<
   { label_id: number; user_id: number; project_id: number },
   {
@@ -1767,7 +1816,30 @@ let select_next_unconfirmed_image = db.prepare<
   LIMIT 1
 `)
 
-function Main(attrs: { project_id: string }, context: DynamicContext) {
+// Load a specific image by id (used when navigating from review page to edit)
+// Does not filter by confirmation status, so already-confirmed images can be edited
+let select_image_by_id = db.prepare<
+  { image_id: number; label_id: number; project_id: number },
+  {
+    id: number
+    filename: string
+    rotation: number | null
+  } | null
+>(/* sql */ `
+  SELECT i.id, i.filename, i.rotation
+  FROM image i
+  INNER JOIN image_label il ON il.image_id = i.id
+  WHERE i.id = :image_id
+    AND il.label_id = :label_id
+    AND il.answer = 1
+    AND i.project_id = :project_id
+  LIMIT 1
+`)
+
+function Main(
+  attrs: { project_id: string; label_id: string; image_id: string },
+  context: DynamicContext,
+) {
   let user = getAuthUser(context)
   if (!user) {
     return (
@@ -1798,12 +1870,26 @@ function Main(attrs: { project_id: string }, context: DynamicContext) {
     (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
 
-  let label_id = sortedLabels[0]?.id ?? 1
-  let image = select_next_unconfirmed_image.get({
-    label_id: label_id,
-    user_id: user.id!,
-    project_id: project_id,
-  })
+  // Use label_id from URL if provided (e.g. from review page), else default to first label
+  let url_label_id = attrs.label_id ? +attrs.label_id : null
+  let label_id =
+    (url_label_id && sortedLabels.find(l => l.id === url_label_id)?.id) ||
+    sortedLabels[0]?.id ||
+    1
+  // If image_id is provided (from review page), load that specific image ("cut in line");
+  // otherwise get the next unconfirmed image from the normal annotation queue
+  let url_image_id = attrs.image_id ? +attrs.image_id : null
+  let image = url_image_id
+    ? select_image_by_id.get({
+        image_id: url_image_id,
+        label_id: label_id,
+        project_id: project_id,
+      })
+    : select_next_unconfirmed_image.get({
+        label_id: label_id,
+        user_id: user.id!,
+        project_id: project_id,
+      })
 
   return (
     <>
@@ -2142,6 +2228,7 @@ function Main(attrs: { project_id: string }, context: DynamicContext) {
 let showImageParser = object({
   label_id: id(),
   project_id: id(),
+  image_id: optional(id()),
 })
 
 let addBoundingBoxParser = object({
@@ -2184,6 +2271,7 @@ let submitBoundingBoxParser = object({
   image_id: id(),
   label_id: id(),
   project_id: id(),
+  from: optional(string()),
 })
 
 // Displays the next image for annotation based on the selected label
@@ -2202,17 +2290,32 @@ function ShowImage(attrs: {}, context: WsContext) {
     let input = showImageParser.parse(body)
     let label_id = input.label_id
     let project_id = input.project_id
-    console.log('label_id', label_id, 'project_id', project_id)
+    let image_id = input.image_id
     console.log(
-      `ShowImage: Processing label_id=${label_id}, user_id=${user_id}, project_id=${project_id}`,
+      'label_id',
+      label_id,
+      'project_id',
+      project_id,
+      'image_id',
+      image_id,
+    )
+    console.log(
+      `ShowImage: Processing label_id=${label_id}, user_id=${user_id}, project_id=${project_id}, image_id=${image_id}`,
     )
 
-    // check if label exists and get next unconfirmed image for current user
-    let next_image = select_next_unconfirmed_image.get({
-      label_id: label_id,
-      user_id: user_id,
-      project_id: project_id,
-    })
+    // If image_id is provided (e.g. from review page), load that specific image
+    // regardless of confirmation status; otherwise get next unconfirmed image
+    let next_image = image_id
+      ? select_image_by_id.get({
+          image_id: image_id,
+          label_id: label_id,
+          project_id: project_id,
+        })
+      : select_next_unconfirmed_image.get({
+          label_id: label_id,
+          user_id: user_id,
+          project_id: project_id,
+        })
     console.log(
       `ShowImage: next_image for label_id=${label_id}, user_id=${user_id}:`,
       next_image,
@@ -2463,6 +2566,13 @@ function AddBoundingBox(attrs: {}, context: WsContext) {
       })
     }
 
+    // Revoke any existing confirmation since boxes have changed
+    delete_bounding_box_confirmation.run({
+      image_id: input.image_id,
+      user_id: user_id,
+      label_id: input.label_id,
+    })
+
     // Send success message to client
     context.ws.send([
       'update-text',
@@ -2523,6 +2633,13 @@ function DeleteBoundingBox(attrs: {}, context: WsContext) {
     }
 
     console.log(`DeleteBoundingBox: Deleted ${result.changes} bounding box(es)`)
+
+    // Revoke any existing confirmation since boxes have changed
+    delete_bounding_box_confirmation.run({
+      image_id: input.image_id,
+      user_id: user_id,
+      label_id: input.label_id,
+    })
 
     // Send success message first
     context.ws.send([
@@ -2591,10 +2708,12 @@ function GetBoundingBoxes(attrs: {}, context: WsContext) {
 
     console.log('GetBoundingBoxes: Processing input:', input)
 
-    // Get bounding boxes from database
-    let boxes = get_bounding_boxes.all({
+    // Get only the current user's bounding boxes from database
+    // (users only edit their own boxes)
+    let boxes = get_my_bounding_boxes.all({
       image_id: input.image_id,
       label_id: input.label_id,
+      user_id: user_id,
     })
 
     console.log('GetBoundingBoxes: Found', boxes.length, 'boxes')
@@ -2690,6 +2809,13 @@ function UpdateBoundingBox(attrs: {}, context: WsContext) {
     }
 
     console.log(`UpdateBoundingBox: Updated ${result.changes} bounding box(es)`)
+
+    // Revoke any existing confirmation since boxes have changed
+    delete_bounding_box_confirmation.run({
+      image_id: input.image_id,
+      user_id: user_id,
+      label_id: input.label_id,
+    })
 
     // Send success message
     context.ws.send([
@@ -2802,6 +2928,18 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
       `,
     ])
 
+    // If navigated from review page, redirect back to review after saving
+    if (input.from === 'review') {
+      context.ws.send([
+        'eval',
+        `
+        console.log('SubmitBoundingBox: from=review, redirecting back to review page');
+        goto('/review-bounding-box?project=${input.project_id}&label=${input.label_id}');
+        `,
+      ])
+      throw EarlyTerminate
+    }
+
     // Find next unconfirmed image
     let next_image = select_next_unconfirmed_image.get({
       label_id: input.label_id,
@@ -2904,6 +3042,8 @@ let routes = {
     resolve(context) {
       let params = new URLSearchParams(context.routerMatch?.search)
       let project_id = params.get('project') ?? '1'
+      let label_id = params.get('label') ?? ''
+      let image_id = params.get('image') ?? ''
       return {
         title: <ProjectPageTitle t={pageTitle} />,
         description: 'Annotate bounding boxes on images',
@@ -2922,7 +3062,11 @@ let routes = {
               {dragUIPlugin.node}
               {sweetAlertPlugin.node}
               {script}
-              <Main project_id={project_id} />
+              <Main
+                project_id={project_id}
+                label_id={label_id}
+                image_id={image_id}
+              />
             </ion-content>
           </>
         ),

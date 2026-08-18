@@ -388,6 +388,8 @@ function getImageItem(label_id: number, box_count: number, project_id: number) {
       rotate: number
     }[],
     user_ids: number[] | undefined,
+    label_id: number,
+    project_id: number,
   ) {
     // Map user_ids to usernames
     let user_names =
@@ -397,6 +399,8 @@ function getImageItem(label_id: number, box_count: number, project_id: number) {
         filename={image.filename}
         original_filename={image.original_filename}
         image_id={image.id!}
+        label_id={label_id}
+        project_id={project_id}
         boxes={boxes}
         user_names={user_names as string[]}
       />
@@ -409,7 +413,13 @@ function getImageItem(label_id: number, box_count: number, project_id: number) {
       label_id: label_id,
       project_id: project_id,
     })
-    return renderImage(item, boxes, imageIdToUserMap.get(item.id!))
+    return renderImage(
+      item,
+      boxes,
+      imageIdToUserMap.get(item.id!),
+      label_id,
+      project_id,
+    )
   })
 
   return images_items
@@ -419,6 +429,8 @@ function ImageItem(attrs: {
   filename: string
   original_filename: string | null
   image_id: number
+  label_id: number
+  project_id: number
   boxes: {
     /** 0..1: 1 is image width */
     x: number
@@ -433,6 +445,7 @@ function ImageItem(attrs: {
   }[]
   user_names: string[]
 }) {
+  let editUrl = `/annotate-bounding-box?project=${attrs.project_id}&label=${attrs.label_id}&image=${attrs.image_id}&from=review`
   return (
     <ion-col size="12">
       <div class="image-item" style="text-align: center">
@@ -457,6 +470,15 @@ function ImageItem(attrs: {
               {attrs.user_names.join(', ')}
             </span>
           )}
+        </div>
+        <div style="margin-top: 0.5rem;">
+          <ion-button
+            color="primary"
+            size="small"
+            onclick={`goto("${editUrl}")`}
+          >
+            <Locale en="Edit" zh_hk="編輯" zh_cn="编辑" />
+          </ion-button>
         </div>
       </div>
     </ion-col>
