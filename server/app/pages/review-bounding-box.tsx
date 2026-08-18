@@ -178,7 +178,7 @@ let script = Script(/* js */ `
       context.translate(left + width / 2, top + height / 2);
 
       // Rotate context
-      let degrees = box.rotate * 360
+      let degrees = -box.rotate * 360
       let radians = degrees / 180 * Math.PI
       context.rotate(radians);
 
