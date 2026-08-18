@@ -29,10 +29,6 @@ let style = Style(/* css */ `
 }
 .stats-label-count {
   color: var(--ion-color-primary);
-  text-decoration: underline;
-  text-decoration-color: var(--ion-color-primary);
-  text-decoration-thickness: 0.125rem;
-  text-underline-offset: 0.25rem;
 }
 .stats-item {
   margin-bottom: 1.5rem;
