@@ -2416,7 +2416,8 @@ function ShowImage(attrs: {}, context: WsContext) {
         document.getElementById('previewCanvas').style.display = 'none';
         
         // Clear debug messages
-        document.getElementById('debugMessage').innerHTML = '';
+        let debugMsgEl2 = document.getElementById('debugMessage');
+        if (debugMsgEl2) debugMsgEl2.innerHTML = '';
         
         // Show completion message (already rendered in Main function)
         document.getElementById('no-image-message').hidden = false;
@@ -2931,10 +2932,13 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
       `
       console.log('Bounding boxes submitted successfully!');
       // Show brief success message
-      document.getElementById('debugMessage').textContent = 'Submitted successfully!';
-      setTimeout(() => {
-        document.getElementById('debugMessage').textContent = '';
-      }, 3000);
+      let debugMsgEl = document.getElementById('debugMessage');
+      if (debugMsgEl) {
+        debugMsgEl.textContent = 'Submitted successfully!';
+        setTimeout(() => {
+          debugMsgEl.textContent = '';
+        }, 3000);
+      }
       
       // Update the label option text with new count
       const labelOption = document.querySelector('ion-select-option[value="${input.label_id}"]');
@@ -3024,7 +3028,8 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
         document.getElementById('previewCanvas').style.display = 'none';
         
         // Clear debug messages
-        document.getElementById('debugMessage').innerHTML = '';
+        let debugMsgEl3 = document.getElementById('debugMessage');
+        if (debugMsgEl3) debugMsgEl3.innerHTML = '';
         
         // Show completion message (already rendered in Main function)
         document.getElementById('no-image-message').hidden = false;
