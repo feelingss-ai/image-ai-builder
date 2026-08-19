@@ -53,6 +53,17 @@ function setupDragUI(options: {
   console.log('  minimapCanvas id:', options.minimap_canvas.id, 'width:', options.minimap_canvas.width, 'height:', options.minimap_canvas.height, 'offsetW:', options.minimap_canvas.offsetWidth, 'clientW:', options.minimap_canvas.clientWidth)
   console.log('  previewCanvas id:', options.preview_canvas.id, 'width:', options.preview_canvas.width, 'height:', options.preview_canvas.height, 'offsetW:', options.preview_canvas.offsetWidth, 'clientW:', options.preview_canvas.clientWidth)
   console.log('  window._canvasMode:', window._canvasMode, 'window.camera:', JSON.stringify(window.camera))
+
+  // Image-load guard: if the image is not fully loaded yet, defer setup
+  // until the load event fires. This prevents 0×0 canvas dimensions and
+  // broken render transforms (scale = Infinity) when setupDragUI is called
+  // before the browser has decoded the image.
+  if (!options.image.complete || !options.image.naturalWidth || !options.image.naturalHeight) {
+    console.log('setupDragUI: image not loaded yet, deferring until load event')
+    options.image.addEventListener('load', () => setupDragUI(options), { once: true })
+    return
+  }
+
   let { image, minimap_canvas, preview_canvas } = options
   let mapCanvas = options.minimap_canvas
   let cameraCanvas = options.preview_canvas
@@ -532,12 +543,17 @@ function setupDragUI(options: {
   window.render = render
 
   function renderMap() {
+    // Skip rendering if the image is not loaded yet
+    if (!image.complete || !image.naturalWidth) return
     mapContext.drawImage(image, 0, 0)
     drawCameraBorder()
     drawBoundingBoxes()
   }
 
   function renderCamera() {
+    // Skip rendering if the image is not loaded yet (prevents 0×0 view
+    // dimensions and Infinity scale values that break the transform)
+    if (!image.complete || !image.naturalWidth) return
     let viewWidth = camera.width * image.naturalWidth
     let viewHeight = camera.height * image.naturalHeight
     let viewLeft = camera.x * image.naturalWidth - viewWidth / 2

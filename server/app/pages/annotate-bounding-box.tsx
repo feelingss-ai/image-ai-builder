@@ -288,7 +288,7 @@ async function showImage() {
     return
   }
   
-  let payload: any = {
+  let payload = {
     label_id: labelId,
     project_id: projectId,
   }
@@ -734,8 +734,6 @@ if (!window._ionChangeListenerAdded) {
     let image = document.getElementById('label_image')
     if (image) {
       image.dataset.imageId = ''
-      image.src = ''
-      image.hidden = true
     }
     
     // Clear previous bounding box data when switching labels
@@ -1013,7 +1011,7 @@ async function submitBoundingBoxes() {
     return
   }
   
-  const data: any = {
+  const data = {
     image_id: parseInt(image_id),
     label_id: parseInt(label_id),
     project_id: getProjectId()
@@ -1976,7 +1974,6 @@ function Main(
             <div id="debugEndMessage"></div>
           </div>
           <img
-            hidden
             data-image-id={image?.id}
             data-rotation={image?.rotation || 0}
             id="label_image"
@@ -1988,8 +1985,7 @@ function Main(
                 zh_cn="加载图像中..."
               />
             }
-            style="width: 100vw; max-width: 100vw; height: auto; max-height: 60vh; object-fit: contain;"
-            // hidden={!image}
+            style="position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none;"
             onLoad="setTimeout(() => { if (typeof setupEditorUI === 'function') setupEditorUI(); }, 100);"
           />
           <div
@@ -2330,8 +2326,6 @@ function ShowImage(attrs: {}, context: WsContext) {
           'src': `/uploads/${next_image.filename}`,
           'data-image-id': next_image.id,
           'data-rotation': next_image.rotation || 0,
-          // Keep image element hidden always; canvases handle rendering
-          'hidden': true,
         },
       ])
 
@@ -2378,7 +2372,6 @@ function ShowImage(attrs: {}, context: WsContext) {
           'src': '',
           'data-image-id': '',
           'data-rotation': 0,
-          'hidden': true,
         },
       ])
 
@@ -2983,10 +2976,9 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
         // Clear cached data to force fresh fetch
         window.boundingBoxesData = null;
         
-        // Force complete refresh of editor UI
-        if (typeof setupEditorUI === 'function') {
-          console.log('Server: Calling setupEditorUI for next image');
-          setupEditorUI();
+        // Clear bounding box select options for consistency with ShowImage
+        if (typeof window.updateBoundingBoxSelect === 'function') {
+          window.updateBoundingBoxSelect([]);
         }
         `,
       ])
@@ -2997,8 +2989,8 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
         `
         console.log('All images completed for this label');
         
-        // Hide the image
-        document.getElementById('label_image').hidden = true;
+        // Hide the image (off-screen element, use display:none)
+        document.getElementById('label_image').style.display = 'none';
         document.getElementById('label_image').src = '';
         document.getElementById('label_image').dataset.imageId = '';
         
