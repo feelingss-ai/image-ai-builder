@@ -532,6 +532,20 @@ async function setupEditorUI() {
     window._deleteButtonUpdateInterval = setInterval(updateDeleteButton, 500)
   }
   
+  // When navigating from the review page, automatically enter edit mode
+  // for the first (top) bounding box so the user can start editing immediately
+  if (isFromReview() && bounding_boxes.length > 0 && !window._autoEditTriggered) {
+    window._autoEditTriggered = true
+    let firstBox = bounding_boxes[0]
+    console.log('setupEditorUI: from review, auto-entering edit mode for first box:', firstBox)
+    // Use setTimeout to ensure the drag UI and render are fully initialized
+    setTimeout(() => {
+      if (typeof window.enterEditMode === 'function') {
+        window.enterEditMode(firstBox)
+      }
+    }, 100)
+  }
+  
   // Update bounding box select options
   updateBoundingBoxSelect(bounding_boxes)
 
@@ -2873,11 +2887,22 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
     })
 
     if (existing_confirmation) {
-      throws({
-        en: 'This image has already been confirmed',
-        zh_hk: '此圖片已經確認過了',
-        zh_cn: '此图片已经确认过了',
-      })
+      // When editing from the review page, the image may already be confirmed.
+      // Allow re-confirmation by deleting the old record and inserting a new one.
+      if (input.from === 'review') {
+        console.log('SubmitBoundingBox: from=review, re-confirming already confirmed image')
+        delete_bounding_box_confirmation.run({
+          image_id: input.image_id,
+          user_id: user_id,
+          label_id: input.label_id,
+        })
+      } else {
+        throws({
+          en: 'This image has already been confirmed',
+          zh_hk: '此圖片已經確認過了',
+          zh_cn: '此图片已经确认过了',
+        })
+      }
     }
 
     // Insert confirmation record
