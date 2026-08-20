@@ -6,7 +6,7 @@ import Style from '../components/style.js'
 import { Locale, LocaleVariants } from '../components/locale.js'
 import { Context } from '../context.js'
 import { getAuthUser } from '../auth/user.js'
-import { Redirect } from '../components/router.js'
+import { Redirect, Link } from '../components/router.js'
 import { PickLanguage } from '../components/ui-language.js'
 
 let style = Style(/* css */ `
@@ -190,16 +190,16 @@ function Landing(attrs: {}, context: Context) {
               />
             </p>
             <div class="landing-cta">
-              <a href="/register" class="cta-btn primary">
+              <Link href="/register" class="cta-btn primary">
                 <Locale
                   en="Get Started Free"
                   zh_hk="免費開始"
                   zh_cn="免费开始"
                 />
-              </a>
-              <a href="/login" class="cta-btn secondary">
+              </Link>
+              <Link href="/login" class="cta-btn secondary">
                 <Locale en="Login" zh_hk="登入" zh_cn="登录" />
-              </a>
+              </Link>
             </div>
           </div>
 
