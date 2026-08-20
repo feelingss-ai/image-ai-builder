@@ -55,8 +55,10 @@ ion-col {
 
 let script = Script(/* js */ `
 (function(){
-  if (window.__reviewBoundingBoxInit) return;
-  window.__reviewBoundingBoxInit = true;
+  // Note: do NOT early-return here. On SPA navigation the page content is
+  // replaced via WebSocket, which creates new <ion-select> elements that
+  // need their ionChange handlers bound. The MutationObserver attachment
+  // below is guarded separately so it is only attached once.
 
   const getLabelSelect = () => document.querySelector('#label_select');
   const getBoxCountSelect = () => document.querySelector('#box_count_select');
@@ -145,6 +147,8 @@ let script = Script(/* js */ `
     }
 
     if(!image.clientWidth || !image.clientHeight) {
+      // Stop retrying if the image has been removed from the DOM
+      if (!document.body.contains(image)) return
       setTimeout(() => {
         _drawBoundingBoxes(image)
       }, 33)
@@ -223,19 +227,39 @@ let script = Script(/* js */ `
   window.addEventListener('resize', () => debounce(redrawAllBoundingBoxes, 100))
 
   // Observe DOM updates from WebSocket replace-in/update-in
-  const mo = new MutationObserver(() => {
-    readSelectValues()
-    bindSelectHandlers()
-    debounce(redrawAllBoundingBoxes, 50)
-  })
-  window.addEventListener('load', () => {
+  // Guard the observer so it is only attached once per page lifetime.
+  if (!window.__reviewBoundingBoxObserver) {
+    const mo = new MutationObserver(() => {
+      readSelectValues()
+      bindSelectHandlers()
+      debounce(redrawAllBoundingBoxes, 50)
+    })
+    window.__reviewBoundingBoxObserver = mo
+  }
+
+  // Initialization: run immediately if the document is already loaded
+  // (SPA navigation scenario), otherwise wait for DOMContentLoaded.
+  // Using window.load only would miss SPA navigations because the load
+  // event does not fire again after the first full page load.
+  function init() {
     const root = document.getElementById('ReviewBoundingBox') || document.body
-    mo.observe(root, { childList: true, subtree: true, attributes: true })
-    // initial attempt in case images already loaded before script
+    if (root) {
+      window.__reviewBoundingBoxObserver.observe(root, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+      })
+    }
     readSelectValues()
     bindSelectHandlers()
     redrawAllBoundingBoxes()
-  })
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init)
+  } else {
+    init()
+  }
 })();
 `)
 

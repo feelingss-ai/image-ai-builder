@@ -533,7 +533,16 @@ async function setupEditorUI() {
   }
   
   // When navigating from the review page, automatically enter edit mode
-  // for the first (top) bounding box so the user can start editing immediately
+  // for the first (top) bounding box so the user can start editing immediately.
+  // Reset the auto-edit trigger when the image changes so it fires for
+  // every new image navigated from the review page (SPA navigation does
+  // not reload the page, so window._autoEditTriggered would otherwise
+  // stay true from a previous visit and skip auto-edit).
+  let current_image_id = label_image.dataset.imageId
+  if (current_image_id && window._autoEditImageId !== current_image_id) {
+    window._autoEditImageId = current_image_id
+    window._autoEditTriggered = false
+  }
   if (isFromReview() && bounding_boxes.length > 0 && !window._autoEditTriggered) {
     window._autoEditTriggered = true
     let firstBox = bounding_boxes[0]
@@ -1596,8 +1605,10 @@ function isFromReview() {
   return params.get('from') === 'review'
 }
 
-// Initialize the page with the default label when DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
+// Initialize the page with the default label when DOM is ready.
+// Use a readyState check so this also runs on SPA navigation (where
+// DOMContentLoaded has already fired and won't fire again).
+function initPage() {
   console.log('Page loaded, initializing with default label');
   // If navigated from review page, update submit button tooltip
   if (isFromReview()) {
@@ -1618,7 +1629,12 @@ document.addEventListener('DOMContentLoaded', function() {
       showImage();
     }
   }, 500);
-});
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initPage);
+} else {
+  initPage();
+}
 
 `)
 
