@@ -300,7 +300,12 @@ let routes = {
     resolve(context) {
       let user = getAuthUser(context)
       if (user) {
-        return <Redirect href="/app/project" />
+        let localized = Locale(route, context)
+        return {
+          ...localized,
+          node: <Redirect href="/app/project" />,
+          status: 302,
+        }
       }
       return Locale(route, context)
     },
