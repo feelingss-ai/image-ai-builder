@@ -587,39 +587,38 @@ let submitTrainParser = object({
 })
 
 async function DeleteAllTrainingData(context: ExpressContext) {
-  let { req, res } = context
-  try {
-    let user_id = getAuthUserId(context)
-    if (!user_id) throw 'not login'
-    let { project } = req.query
-    if (typeof project !== 'string') throw 'project is required'
-    let project_id = +project
-    if (!project_id) throw 'invalid project id'
+  let { req } = context
+  let user_id = getAuthUserId(context)
+  if (!user_id) throw 'not login'
+  let { project } = req.query
+  if (typeof project !== 'string') throw 'project is required'
+  let project_id = +project
+  if (!project_id) throw 'invalid project id'
 
-    // Delete training stats
-    del(proxy.training_stats, { id: notNull })
-
-    // Delete saved model directories
-    let labels = filter(proxy.label, { project_id })
-    for (let label of labels) {
-      let latest = `saved_models/project-${project_id}/latest/label-${label.id}`
-      let best = `saved_models/project-${project_id}/best/label-${label.id}`
-      if (existsSync(latest)) {
-        rmSync(latest, { recursive: true, force: true })
-      }
-      if (existsSync(best)) {
-        rmSync(best, { recursive: true, force: true })
-      }
-      // Clear model cache
-      delete classifierModelCache[`project-${project_id}-${label.title}`]
-      delete classifierModelCache[`project-${project_id}-${label.title}-best`]
+  // Delete training stats scoped to this project's labels
+  let labels = filter(proxy.label, { project_id })
+  for (let label of labels) {
+    if (label.id != null) {
+      del(proxy.training_stats, { label_id: label.id })
     }
-
-    res.json({ success: true })
-  } catch (error) {
-    console.error(error)
-    res.json({ error: String(error) })
   }
+
+  // Delete saved model directories
+  for (let label of labels) {
+    let latest = `saved_models/project-${project_id}/latest/label-${label.id}`
+    let best = `saved_models/project-${project_id}/best/label-${label.id}`
+    if (existsSync(latest)) {
+      rmSync(latest, { recursive: true, force: true })
+    }
+    if (existsSync(best)) {
+      rmSync(best, { recursive: true, force: true })
+    }
+    // Clear model cache
+    delete classifierModelCache[`project-${project_id}-${label.title}`]
+    delete classifierModelCache[`project-${project_id}-${label.title}-best`]
+  }
+
+  return { success: true }
 }
 
 function SubmitTrain(attrs: {}, context: DynamicContext) {
@@ -636,7 +635,12 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
   )
 
   if (input.training_mode === 'scratch') {
-    del(proxy.training_stats, { id: notNull })
+    for (let i = 0; i < labels.length; i++) {
+      let label_id = labels[i]!.id
+      if (label_id != null) {
+        del(proxy.training_stats, { label_id })
+      }
+    }
 
     for (let i = 0; i < labels.length; i++) {
       retrainModel(labels[i]!, project_id)
