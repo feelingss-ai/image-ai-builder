@@ -2,14 +2,14 @@ import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
-import { DynamicContext, getContextFormBody } from '../context.js'
+import { DynamicContext, ExpressContext, getContextFormBody } from '../context.js'
 import { getContextProject } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { float, int, object, values } from 'cast.ts'
 import { Link } from '../components/router.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
 import { showError } from '../components/error.js'
-import { getAuthUser } from '../auth/user.js'
+import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { Script } from '../components/script.js'
 import { Chart, ChartScript } from '../components/chart.js'
@@ -32,6 +32,7 @@ import { join } from 'path'
 import { tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
 import { existsSync, rmSync } from 'fs'
+import { ajaxRoute } from '../routes.js'
 
 let pageTitle = (
   <Locale en="Train AI Model" zh_hk="訓練 AI 模型" zh_cn="训练 AI 模型" />
@@ -146,6 +147,45 @@ batch_size_input.addEventListener('ionChange', ({ detail }) => {
     return input;
   }
 });
+
+async function deleteAllTrainingData(event) {
+  if (event.target.disabled) return
+  let form = event.target.closest('form')
+  let project_id = form ? form.dataset.projectId : new URLSearchParams(window.location.search).get('project')
+  if (!project_id) { showError('Missing project'); return }
+  let isConfirmed
+  if (typeof showConfirm === 'function') {
+    isConfirmed = await showConfirm({
+      title: 'Delete all training data?',
+      text: 'This cannot be undone. All training stats, saved models and chart data will be removed.',
+      icon: 'warning',
+      confirmButtonText: 'Delete all',
+      cancelButtonText: 'Cancel',
+    })
+  } else {
+    isConfirmed = confirm('Delete all training data? This cannot be undone. All training stats, saved models and chart data will be removed.')
+  }
+  if (!isConfirmed) return
+  event.target.disabled = true
+  let json = await fetch_json('/train-ai/delete-all?project=' + project_id)
+  if (json.error) {
+    showError(json.error)
+    event.target.disabled = false
+    return
+  }
+  // Clear charts
+  let charts = ['train_loss_canvas', 'val_loss_canvas', 'train_accuracy_canvas', 'val_accuracy_canvas']
+  for (let id of charts) {
+    let canvas = document.getElementById(id)
+    if (canvas && canvas.chart) {
+      canvas.chart.data.labels = []
+      canvas.chart.data.datasets.forEach(ds => ds.data = [])
+      canvas.chart.update()
+    }
+  }
+  if (typeof showToast === 'function') showToast('All training data deleted', 'success')
+  event.target.disabled = false
+}
 
 //ignore enter key to submit form
 function cancelEnterSubmit(event) {
@@ -263,6 +303,7 @@ function Main(attrs: {}, context: DynamicContext) {
           <div slot="content">
             <form
               method="POST"
+              data-project-id={project_id}
               action={toRouteUrl(routes, '/train-ai/train', {
                 query: { project: project_id },
               })}
@@ -448,6 +489,22 @@ function Main(attrs: {}, context: DynamicContext) {
           </div>
         </ion-accordion>
       </ion-accordion-group>
+      {user ? (
+        <div style="margin-block: 1rem; text-align: center">
+          <ion-button
+            color="danger"
+            fill="outline"
+            onclick="deleteAllTrainingData(event)"
+          >
+            <ion-icon name="trash" slot="start"></ion-icon>
+            <Locale
+              en="Delete all training data"
+              zh_hk="刪除全部訓練數據"
+              zh_cn="删除全部训练数据"
+            />
+          </ion-button>
+        </div>
+      ) : null}
       <h2>
         <Locale
           en="Model Evaluation over Epoch"
@@ -522,6 +579,42 @@ let submitTrainParser = object({
   epoch_no: int(),
   training_mode: values(['continue' as const, 'scratch' as const]),
 })
+
+async function DeleteAllTrainingData(context: ExpressContext) {
+  let { req, res } = context
+  try {
+    let user_id = getAuthUserId(context)
+    if (!user_id) throw 'not login'
+    let { project } = req.query
+    if (typeof project !== 'string') throw 'project is required'
+    let project_id = +project
+    if (!project_id) throw 'invalid project id'
+
+    // Delete training stats
+    del(proxy.training_stats, { id: notNull })
+
+    // Delete saved model directories
+    let labels = filter(proxy.label, { project_id })
+    for (let label of labels) {
+      let latest = `saved_models/project-${project_id}/latest/label-${label.id}`
+      let best = `saved_models/project-${project_id}/best/label-${label.id}`
+      if (existsSync(latest)) {
+        rmSync(latest, { recursive: true, force: true })
+      }
+      if (existsSync(best)) {
+        rmSync(best, { recursive: true, force: true })
+      }
+      // Clear model cache
+      delete classifierModelCache[`project-${project_id}-${label.title}`]
+      delete classifierModelCache[`project-${project_id}-${label.title}-best`]
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error(error)
+    res.json({ error: String(error) })
+  }
+}
 
 function SubmitTrain(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
@@ -828,6 +921,10 @@ let routes = {
     node: <SubmitTrain />,
     streaming: false,
   },
+  '/train-ai/delete-all': ajaxRoute({
+    description: 'delete all training data for a project',
+    api: DeleteAllTrainingData,
+  }),
 } satisfies Routes
 
 export default { routes }

@@ -23,8 +23,13 @@ import { filter } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { Script } from '../components/script.js'
 import { db } from '../../../db/db.js'
+import { loadClientPlugin } from '../../client-plugin.js'
 
 let pageTitle = <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
+
+let sweetAlertPlugin = loadClientPlugin({
+  entryFile: 'dist/client/sweetalert.js',
+})
 
 let style = Style(/* css */ `
 #PreviewAI .label-container {
@@ -44,13 +49,17 @@ window.baseModelCache = null
 
 function loadLabelModel(modelPath) {
   let url = '/saved_models/' + modelPath + '/model.json'
-  window.modelCache[url] ||= loadTF().then(tf => tf.loadLayersModel(url))
-  let p = window.modelCache[url]
-  p.catch(err => {
-    console.error('failed to load label model:', { url, err })
+  window.modelCache[url] ||= loadTF().then(tf => tf.loadLayersModel(url)).catch(err => {
+    if (err && err.message && (err.message.includes('404') || err.message.includes('Not Found'))) {
+      console.warn('Model not found (needs training):', url)
+      if (typeof showToast === 'function') showToast('Model not found. Please go to Train AI page and train the model first.', 'warning')
+    } else {
+      console.error('failed to load label model:', { url, err })
+    }
     delete window.modelCache[url]
+    return null
   })
-  return p
+  return window.modelCache[url]
 }
 
 async function loadBaseModel() {
@@ -165,6 +174,11 @@ document.querySelector('#previewPhotoInput').onchange = async function(event) {
           }
         }
         let model = await loadLabelModel(modelInfo.path);
+        if (!model) {
+          let labelEl = document.querySelector('#label-' + modelInfo.id);
+          if (labelEl) labelEl.value = 0;
+          continue;
+        }
         const prediction = model.predict(embedding);
         // Apply softmax since the output layer uses 'linear' activation
         const softmax = tf.softmax(prediction);
@@ -206,7 +220,14 @@ async function startRealtimeDetection() {
     // Make sure models are loaded
     const models = {};
     for (let modelInfo of modelInfos) {
-      models[modelInfo.id] = await loadLabelModel(modelInfo.path);
+      let model = await loadLabelModel(modelInfo.path)
+      if (!model) {
+        if (typeof showToast === 'function') showToast('Model not found. Please train AI first.', 'warning')
+        stopWebcam()
+        showLoading(false)
+        return
+      }
+      models[modelInfo.id] = model
     }
     showLoading(false)
 
@@ -335,6 +356,7 @@ let page = (
     <ion-content id="PreviewAI" class="ion-no-padding">
       <Main />
     </ion-content>
+    {sweetAlertPlugin.node}
     <PreviewScript />
     {script}
   </>
