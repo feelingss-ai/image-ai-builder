@@ -719,7 +719,6 @@ let projectListRoute: PageRoute = {
 }
 
 let routes = {
-  '/': projectListRoute,
   '/app/project': projectListRoute,
   '/app/project/manage-member': {
     title: <Title t={manageMemberTitle} />,
