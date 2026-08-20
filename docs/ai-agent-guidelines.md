@@ -140,3 +140,8 @@ Use **`<Locale />`** in JSX for translatable UI text. Use **`t = makeText(contex
 
 **Prefer JSX over HTML-in-string for DOM**  
 When building UI that gets inserted into the page, use **JSX markup with `id` or stable selectors** and reference those elements in code. Do not use `innerHTML`, template literals that build tags, or string concatenation for markup. JSX gives type safety, auto-escaping (XSS safety), easier passing of server-side variables, syntax highlighting, and better tooling. Don't add new string-based markup.
+
+---
+
+**Route `resolve()` must return a full `ResolvedPageRoute`**  
+When a route uses `resolve(context)`, the return value must be a `ResolvedPageRoute` object with `title`, `description`, and `node` fields. Do **not** return a bare component (e.g. `<Redirect />`) directly — it lacks `description` and will crash at runtime when `app.tsx` calls `route.description.replace(...)`. For redirects inside `resolve()`, return an explicit object with all fields, e.g. `{ title: <Locale en="Home" zh_hk="主頁" zh_cn="主页" />, description: <Locale en="Redirect to ..." zh_hk="重新導向至..." zh_cn="重定向至..." />, node: <Redirect href="..." />, status: 302 }`.
