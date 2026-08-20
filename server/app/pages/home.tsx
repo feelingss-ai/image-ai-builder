@@ -310,6 +310,12 @@ let routes = {
       return Locale(route, context)
     },
   },
+  '/landing': {
+    menuText: <Locale en="Home" zh_hk="主頁" zh_cn="主页" />,
+    resolve(context) {
+      return Locale(route, context)
+    },
+  },
 } satisfies Routes
 
 export default { routes }
