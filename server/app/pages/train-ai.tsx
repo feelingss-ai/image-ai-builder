@@ -33,10 +33,15 @@ import { tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
 import { existsSync, rmSync } from 'fs'
 import { ajaxRoute } from '../routes.js'
+import { loadClientPlugin } from '../../client-plugin.js'
 
 let pageTitle = (
   <Locale en="Train AI Model" zh_hk="訓練 AI 模型" zh_cn="训练 AI 模型" />
 )
+
+let sweetAlertPlugin = loadClientPlugin({
+  entryFile: 'dist/client/sweetalert.js',
+})
 
 let style = Style(/* css */ `
 #TrainAI {
@@ -207,6 +212,7 @@ let page = (
       </ion-toolbar>
     </ion-header>
     <Main />
+    {sweetAlertPlugin.node}
     {script}
   </>
 )
@@ -655,18 +661,30 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
     broadcast(['eval', code])
   }
 
-  for (let i = 0; i < labels.length; i++) {
-    trainModel({
-      label_index: labels[i]['id']!,
-      label: labels[i],
-      userID: user!.id!,
-      epochs: input.epoch_no,
-      learning_rate: input.learning_rate,
-      batchSize: input.batch_size,
-      cross_validation_ratio: input.cross_validation_ratio / 100,
-      project_id: project_id,
-    })
-  }
+  broadcast([
+    'eval',
+    `if (typeof showToast === 'function') showToast('Training started, please wait...', 'info')`,
+  ])
+
+  ;(async () => {
+    for (let i = 0; i < labels.length; i++) {
+      await trainModel({
+        label_index: labels[i]['id']!,
+        label: labels[i],
+        userID: user!.id!,
+        epochs: input.epoch_no,
+        learning_rate: input.learning_rate,
+        batchSize: input.batch_size,
+        cross_validation_ratio: input.cross_validation_ratio / 100,
+        project_id: project_id,
+      })
+    }
+    broadcast([
+      'eval',
+      `if (typeof showToast === 'function') showToast('Training complete!', 'success')`,
+    ])
+    broadcast(['eval', `setTimeout(() => location.reload(), 1500)`])
+  })()
 
   throw EarlyTerminate
 }
