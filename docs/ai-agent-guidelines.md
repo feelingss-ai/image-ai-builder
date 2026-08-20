@@ -24,7 +24,7 @@ When extending a feature, keep client and server validation aligned and don't ch
 Change only what the task needs. Don't reformat, rewrap, or "fix" unrelated style; don't reorder imports or touch unused code. Smaller diffs are easier to review and less risky.
 
 **JSX requires `o` in scope**  
-This project uses a custom JSX runtime. Any file that contains JSX (e.g. `<Component />`) must have **`o`** in scope — typically `import { o } from '../jsx/jsx.js'` (or the correct path to the project's jsx module). Do **not** remove the `o` import when cleaning up or refactoring; the compiler/runtime expects it for JSX tags. If the linter reports "This JSX tag requires 'o' to be in scope", add or restore the `o` import.
+Keep **`import { o } from '../jsx/jsx.js'`** in page files that use JSX/TSX; required for the runtime. Do not remove it as "unused."
 
 ---
 
@@ -141,7 +141,71 @@ Use **`<Locale />`** in JSX for translatable UI text. Use **`t = makeText(contex
 **Prefer JSX over HTML-in-string for DOM**  
 When building UI that gets inserted into the page, use **JSX markup with `id` or stable selectors** and reference those elements in code. Do not use `innerHTML`, template literals that build tags, or string concatenation for markup. JSX gives type safety, auto-escaping (XSS safety), easier passing of server-side variables, syntax highlighting, and better tooling. Don't add new string-based markup.
 
+**When string-building is unavoidable** (e.g. rendering a calendar grid where the structure depends on runtime data), use **`data-*` attributes** for passing runtime values and **`onclick="handler(event)"`** for event binding. Read parameters from `event.target.dataset.*` or `event.target.closest('[data-x]').dataset.x`. Do not build inline JavaScript expressions in string attributes — complex escaping is error-prone and fragile.
+
+---
+
+**Use `.js` extension for imports**  
+Always use `.js` extension in import paths (e.g. `'./locale.js'`, `'../components/foo.js'`), even for `.tsx` files. Do not use `.jsx` or `.ts` extensions in imports.
+
+---
+
+**`Script()` block patterns**
+
+**Plain JavaScript only:** Code in ``Script(/* js */ `...`)`` must be **plain JavaScript** — no TypeScript syntax (`as`, type annotations, `as const`, etc.). The code in the string is minified with esbuild, so TypeScript syntax will cause runtime errors like `<stdin>:3:28: Expected ";" but found "as"`. Dev mode skips minify, so the bug may not appear until production. Use `/* js */` on the template literal as a reminder. `${...}` interpolation from the surrounding `.tsx` file is fine — it runs server-side before the script is sent to the client.
+
+**Use `var` at top level:** The script re-runs on every WebSocket page load (server render + WS connect + re-navigation), so use **`var`** instead of `const`/`let` at top level — `let`/`const` would throw redeclaration errors. Variables inside functions can still use `let`.
+
+**Top-level functions, not callback props:** Do not pass callback functions in markup — the UI is transformed to HTML or JSX objects over the wire, so no executable functions can be sent (unlike most frontend frameworks). Define named functions in `Script()` and reference them from plain attribute strings (`onclick="handler(event)"`). Never nest function definitions inside string-concatenated HTML attributes. Keep inline script blocks only for dynamic data initialization and simple calls; put logic in top-level functions. For event binding in string-built HTML, see the `data-*` + `onclick="handler(event)"` pattern above.
+
 ---
 
 **Route `resolve()` must return a full `ResolvedPageRoute`**  
 When a route uses `resolve(context)`, the return value must be a `ResolvedPageRoute` object with `title`, `description`, and `node` fields. Do **not** return a bare component (e.g. `<Redirect />`) directly — it lacks `description` and will crash at runtime when `app.tsx` calls `route.description.replace(...)`. For redirects inside `resolve()`, return an explicit object with all fields, e.g. `{ title: <Locale en="Home" zh_hk="主頁" zh_cn="主页" />, description: <Locale en="Redirect to ..." zh_hk="重新導向至..." zh_cn="重定向至..." />, node: <Redirect href="..." />, status: 302 }`.
+
+---
+
+**Commit messages**  
+Use format: `{tag}: {description}` with tags like `feat:`, `ui:`, `db:`, `chore:`, `patch:`. Examples:
+
+Single tag (end-to-end flow - no need to repeat ui/db):
+
+```
+feat: support image thumbnail in <Swiper>
+```
+
+Multiple tags (only when commit spans independent areas, each tag on its own line):
+
+```
+feat: support custom wrap-size and edge-page-count
+demo: add demo page for <Pagination> component
+```
+
+Or with repeated tag for related changes:
+
+```
+ui: hide the view/edit field even using custom display
+ui: show the save button in the same line of input field
+```
+
+With bullet points (for explaining purpose or providing detail):
+
+```
+feat: add ServerMessage type remove-attr, show, hide
+- making it easier to toggle DOM state
+```
+
+Guidelines:
+
+- Small, self-contained commits are preferred
+- Case by case - use one tag for end-to-end flow, multiple tags only when commit spans independent areas
+- Always use a tag - no plain messages without tag
+- Bullets for sub-details under a tag
+
+---
+
+**Git staging**
+
+- **NEVER run `git add -A` or `git add .`** — always review changes before staging
+- Stage specific files: `git add path/to/file.ts`
+- Review with `git diff` or `git diff --cached` before committing
