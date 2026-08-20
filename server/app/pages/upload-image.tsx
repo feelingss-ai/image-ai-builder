@@ -529,6 +529,8 @@ async function RemoveAllImages(context: ExpressContext) {
     let uploadDir = env.UPLOAD_DIR || ''
     for (let image of images) {
       del(proxy.image_label, { image_id: image.id! })
+      del(proxy.image_bounding_box, { image_id: image.id! })
+      del(proxy.image_bounding_box_confirmation, { image_id: image.id! })
       del(proxy.image, { filename: image.filename })
       if (uploadDir && image.filename) {
         let file = join(uploadDir, image.filename)
