@@ -74,7 +74,7 @@
     "swiper": "^11.2.10",
     "tensorflow-helpers": "^2.0.1",
     "timezone-date.ts": "^2.1.1",
-    "url-router.ts": "^1.2.1",
+    "url-router.ts": "^1.2.2",
     "ws": "^8.21.3"
   },
   "devDependencies": {
