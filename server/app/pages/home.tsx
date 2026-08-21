@@ -87,6 +87,18 @@ let style = Style(/* css */ `
   transform: scale(1.03);
 }
 
+#landing .landing-screenshot {
+  max-width: 700px;
+  width: 100%;
+  margin-bottom: 40px;
+}
+
+#landing .landing-screenshot img {
+  width: 100%;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+}
+
 #landing .features {
   display: flex;
   flex-wrap: wrap;
@@ -203,6 +215,13 @@ function Landing(attrs: {}, context: Context) {
             </div>
           </div>
 
+          <div class="landing-screenshot">
+            <img
+              src="/landing-screenshot.webp"
+              alt="Image AI Builder screenshot"
+            />
+          </div>
+
           <div class="features">
             <div class="feature-card">
               <div class="icon">📱</div>
@@ -259,14 +278,14 @@ function Landing(attrs: {}, context: Context) {
             </div>
           </div>
 
-        <div class="landing-footer">
-          <PickLanguage style="margin-bottom: 12px;" />
-          <Locale
-            en="Made with 💝 by Feelings AI"
-            zh_hk="由 Feelings AI 用💝製作"
-            zh_cn="由 Feelings AI 用💝制作"
-          />
-        </div>
+          <div class="landing-footer">
+            <PickLanguage style="margin-bottom: 12px;" />
+            <Locale
+              en="Made with 💝 by Feelings AI"
+              zh_hk="由 Feelings AI 用💝製作"
+              zh_cn="由 Feelings AI 用💝制作"
+            />
+          </div>
         </div>
       </ion-content>
     </>
