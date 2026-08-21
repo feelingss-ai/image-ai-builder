@@ -199,12 +199,18 @@ function Main(attrs: {}, context: DynamicContext) {
         <Link tagName="ion-item" href={'/upload-image?project=' + project_id}>
           2. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
         </Link>
+
         <Link tagName="ion-item" href={'/import-dataset?project=' + project_id}>
           3.{' '}
           <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />
         </Link>
-        <ion-item>
+                <Link tagName="ion-item" href={'/manage-dataset?project=' + project_id}>
           4.{' '}
+          <Locale en="Manage Dataset" zh_hk="管理數據集" zh_cn="管理数据集"
+          />
+        </Link>
+        <ion-item>
+          5.{' '}
           <Locale en="Image Classification" zh_hk="圖像分類" zh_cn="图像分类" />
         </ion-item>
         <ion-item>
@@ -233,7 +239,7 @@ function Main(attrs: {}, context: DynamicContext) {
           </ion-buttons>
         </ion-item>
         <ion-item>
-          5.{' '}
+          6.{' '}
           <Locale
             en="Bounding Box Classification"
             zh_hk="邊界框分類"
@@ -275,13 +281,13 @@ function Main(attrs: {}, context: DynamicContext) {
           </ion-buttons>
         </ion-item>
         <Link tagName="ion-item" href={'/stats?project=' + project_id}>
-          6. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
+          7. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
         </Link>
         <Link
           tagName="ion-item"
           href={'/import-export-model?project=' + project_id}
         >
-          7.{' '}
+          8.{' '}
           <Locale
             en="Import/Export Model"
             zh_hk="匯入/匯出模型"
