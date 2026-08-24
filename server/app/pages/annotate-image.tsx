@@ -166,6 +166,44 @@ function getProjectId() {
   const params = new URLSearchParams(window.location.search)
   return parseInt(params.get('project') || '1')
 }
+
+// Keyboard shortcuts for annotating images:
+//   ArrowLeft  -> annotate as NO  (reject)
+//   ArrowRight -> annotate as YES (agree)
+//   ArrowUp    -> undo last annotation
+document.addEventListener('keydown', function(event) {
+  // Ignore shortcuts when typing in an input/select/textarea or contentEditable
+  const target = event.target
+  const tag = target && target.tagName ? target.tagName.toLowerCase() : ''
+  const isEditable =
+    tag === 'input' ||
+    tag === 'textarea' ||
+    tag === 'select' ||
+    tag === 'ion-select' ||
+    (target && target.isContentEditable)
+  if (isEditable) return
+
+  const key = event.key
+  if (key === 'ArrowLeft') {
+    const btn = document.getElementById('btn_submit_reject')
+    if (btn && !btn.disabled) {
+      event.preventDefault()
+      submitAnnotation(0)
+    }
+  } else if (key === 'ArrowRight') {
+    const btn = document.getElementById('btn_submit_agree')
+    if (btn && !btn.disabled) {
+      event.preventDefault()
+      submitAnnotation(1)
+    }
+  } else if (key === 'ArrowUp') {
+    const btn = document.getElementById('btn_undo')
+    if (btn && !btn.disabled) {
+      event.preventDefault()
+      undoAnnotation()
+    }
+  }
+})
 `)
 
 let page = (
@@ -557,7 +595,11 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
     let project_id = input.project_id
 
     // Query the database for the most recent annotation for the label and user
-    let last_annotation = select_previous_image_label.get({ user_id, label_id, project_id })
+    let last_annotation = select_previous_image_label.get({
+      user_id,
+      label_id,
+      project_id,
+    })
     // Throw error if no previous annotation exists
     if (!last_annotation) {
       // if no previous image > disable undo button
