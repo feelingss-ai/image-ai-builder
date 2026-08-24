@@ -37,6 +37,9 @@ import { NoProjectMessage } from '../components/no-project-message.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { render } from '@ionic/core/dist/types/stencil-public-runtime.js'
 
+let ITEMS_PER_PAGE = 10
+let PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
+
 let pageTitle = <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
 let addPageTitle = (
   <Locale
@@ -48,10 +51,12 @@ let addPageTitle = (
 
 let style = Style(/* css */ `
 #UploadImage #imageList {
-  display: flex;
-  flex-direction: column-reverse;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 1rem;
+}
+#UploadImage #imageList.single-column {
+  grid-template-columns: 1fr;
 }
 #UploadImage #imageList .image-item {
   text-align: center;
@@ -61,12 +66,49 @@ let style = Style(/* css */ `
   border-radius: 0.5rem;
   max-width: 100%;
 }
+#UploadImage #imageList .image-item img {
+  max-width: 250px;
+  max-height: 250px;
+  width: 250px;
+  height: 250px;
+  object-fit: contain;
+}
 #UploadImage #imageList .image-item--buttons {
   position: absolute;
   top: 0;
   right: 0
 }
 #UploadImage #imageList .image-item--filename {
+}
+#UploadImage #pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-block: 1rem;
+}
+#UploadImage #pagination .page-btn {
+  min-width: 2.5rem;
+}
+#UploadImage #pagination .page-btn.active {
+  font-weight: bold;
+}
+#UploadImage #pagination .page-ellipsis {
+  align-self: center;
+  padding-inline: 0.25rem;
+}
+#UploadImage #pagination .page-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline-start: 0.5rem;
+}
+#UploadImage #pagination .page-jump input {
+  width: 4.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 0.25rem;
+  font-size: 0.9rem;
 }
 `)
 
@@ -129,6 +171,8 @@ async function pickImage(event) {
     }
     imageCount.textContent = json.count.toLocaleString()
   }
+  // Reload to update pagination
+  location.reload()
   } catch (error) {
     showError(error)
   }
@@ -153,6 +197,8 @@ async function removeImage(button) {
     imageCount.textContent = json.count.toLocaleString()
   }
   imageItem.remove()
+  // Reload to update pagination
+  location.reload()
 }
 
 async function removeAllImages(event) {
@@ -188,6 +234,52 @@ async function removeAllImages(event) {
   if (countEl) countEl.textContent = '0'
   if (typeof showToast === 'function') showToast('All images deleted', 'success')
   event.target.disabled = false
+  location.reload()
+}
+
+function changePage(delta) {
+  let params = new URLSearchParams(window.location.search)
+  let currentPage = parseInt(params.get('page') || '1', 10)
+  let newPage = currentPage + delta
+  if (newPage < 1) return
+  params.set('page', String(newPage))
+  let newUrl = window.location.pathname + '?' + params.toString()
+  window.location.href = newUrl
+}
+
+function changePageTo(page) {
+  let params = new URLSearchParams(window.location.search)
+  params.set('page', String(page))
+  let newUrl = window.location.pathname + '?' + params.toString()
+  window.location.href = newUrl
+}
+
+function toggleLayout() {
+  let params = new URLSearchParams(window.location.search)
+  let currentLayout = params.get('layout')
+  if (currentLayout === 'single') {
+    params.delete('layout')
+  } else {
+    params.set('layout', 'single')
+  }
+  let newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '')
+  window.location.href = newUrl
+}
+
+function changePerPage(size) {
+  let params = new URLSearchParams(window.location.search)
+  params.set('per_page', String(size))
+  params.set('page', '1') // reset to first page
+  let newUrl = window.location.pathname + '?' + params.toString()
+  window.location.href = newUrl
+}
+
+function goToPage() {
+  let input = document.getElementById('pageJumpInput')
+  if (!input) return
+  let page = parseInt(input.value, 10)
+  if (!page || page < 1) return
+  changePageTo(page)
 }
 
 `)
@@ -217,16 +309,84 @@ let items = [
   { title: 'iOS', slug: 'ios' },
 ]
 
+// Returns a list of page numbers to show, with '...' as ellipsis markers.
+// e.g. for 10 pages, current=1 -> [1,2,3,4,'...',7,8,9,10]
+function getPageNumbers(
+  currentPage: number,
+  totalPages: number,
+): (number | '...')[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1)
+  }
+  let pages: (number | '...')[] = []
+  let start = Math.max(1, currentPage - 1)
+  let end = Math.min(totalPages, currentPage + 1)
+  if (start > 2) {
+    pages.push(1, 2)
+    if (start > 3) pages.push('...')
+  } else {
+    start = 1
+  }
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (end < totalPages - 1) {
+    if (end < totalPages - 2) pages.push('...')
+    pages.push(totalPages - 1, totalPages)
+  }
+  return pages
+}
+
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
   let project_id = project.id!
-  let images = filter(proxy.image, { project_id })
+  let allImages = filter(proxy.image, { project_id })
+  let totalImages = allImages.length
+
+  let params = new URLSearchParams(context.routerMatch?.search || '')
+  let itemsPerPage = PAGE_SIZE_OPTIONS.includes(
+    parseInt(params.get('per_page') || '10', 10),
+  )
+    ? parseInt(params.get('per_page') || '10', 10)
+    : ITEMS_PER_PAGE
+  let totalPages = Math.max(1, Math.ceil(totalImages / itemsPerPage))
+  let currentPage = Math.min(
+    Math.max(1, parseInt(params.get('page') || '1', 10) || 1),
+    totalPages,
+  )
+  let layout = params.get('layout') === 'single' ? 'single' : 'multi'
+  let startIndex = (currentPage - 1) * itemsPerPage
+  let pageImages = allImages.slice(startIndex, startIndex + itemsPerPage)
+
   return (
     <>
       <div style="margin-bottom: 0.5rem; text-align: center">
-        Existing <span id="imageCount">{images.length}</span> images.
+        Showing <span id="imageCount">{totalImages}</span> images (Page{' '}
+        {currentPage} of {totalPages}){' '}
+        <span style="margin-inline-start: 0.5rem">
+          {mapArray(PAGE_SIZE_OPTIONS, size => (
+            <ion-button
+              size="small"
+              fill={itemsPerPage === size ? 'solid' : 'outline'}
+              color={itemsPerPage === size ? 'primary' : 'medium'}
+              onclick={`changePerPage(${size})`}
+              style="margin-inline-end: 0.25rem"
+            >
+              {size}
+            </ion-button>
+          ))}
+        </span>
+        <ion-button
+          onclick="toggleLayout()"
+          size="small"
+          fill="clear"
+          style="margin-inline-start: 0.5rem"
+        >
+          <ion-icon
+            name={layout === 'multi' ? 'grid' : 'list'}
+            slot="icon-only"
+          ></ion-icon>
+        </ion-button>
       </div>
       <form style="text-align: center" data-project-id={project_id}>
         <ion-button onclick="pickImage(event)" disabled={!user}>
@@ -237,7 +397,7 @@ function Main(attrs: {}, context: DynamicContext) {
             <ion-icon name="log-in-outline" slot="start"></ion-icon> Login
           </IonButton>
         ) : null}
-        {images.length > 0 && user ? (
+        {totalImages > 0 && user ? (
           <div style="display: block; margin-top: 0.5rem">
             <ion-button
               color="danger"
@@ -253,13 +413,13 @@ function Main(attrs: {}, context: DynamicContext) {
             </ion-button>
           </div>
         ) : null}
-        <div id="imageList">
+        <div id="imageList" class={layout === 'single' ? 'single-column' : ''}>
           <ImageItem
             image_url="https://picsum.photos/seed/1/200/300"
             filename="filename.jpg"
             user={user}
           />
-          {mapArray(images, image => {
+          {mapArray(pageImages, image => {
             return (
               <ImageItem
                 image_url={`/uploads/${image.filename}`}
@@ -269,6 +429,55 @@ function Main(attrs: {}, context: DynamicContext) {
             )
           })}
         </div>
+        {totalPages > 1 ? (
+          <div id="pagination">
+            <ion-button
+              class="page-btn prev-btn"
+              onclick="changePage(-1)"
+              disabled={currentPage <= 1}
+              size="small"
+            >
+              <ion-icon name="chevron-back" slot="icon-only"></ion-icon>
+            </ion-button>
+            {mapArray(getPageNumbers(currentPage, totalPages), pageNum =>
+              pageNum === '...' ? (
+                <span class="page-ellipsis">…</span>
+              ) : (
+                <ion-button
+                  class={
+                    'page-btn' + (pageNum === currentPage ? ' active' : '')
+                  }
+                  onclick={`changePageTo(${pageNum})`}
+                  color={pageNum === currentPage ? 'primary' : 'medium'}
+                  size="small"
+                >
+                  {pageNum}
+                </ion-button>
+              ),
+            )}
+            <ion-button
+              class="page-btn next-btn"
+              onclick="changePage(1)"
+              disabled={currentPage >= totalPages}
+              size="small"
+            >
+              <ion-icon name="chevron-forward" slot="icon-only"></ion-icon>
+            </ion-button>
+            <span class="page-jump">
+              <input
+                id="pageJumpInput"
+                type="number"
+                min="1"
+                max={totalPages}
+                placeholder="Go to"
+                onkeydown="if(event.key==='Enter')goToPage()"
+              />
+              <ion-button size="small" onclick="goToPage()">
+                Go
+              </ion-button>
+            </span>
+          </div>
+        ) : null}
       </form>
     </>
   )
