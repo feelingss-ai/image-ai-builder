@@ -10,7 +10,6 @@ import {
   getContextFormBody,
   throwIfInAPI,
 } from '../context.js'
-import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { IonButton } from '../components/ion-button.js'
 import { object, string } from 'cast.ts'
@@ -37,9 +36,6 @@ import { NoProjectMessage } from '../components/no-project-message.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { render } from '@ionic/core/dist/types/stencil-public-runtime.js'
 
-let ITEMS_PER_PAGE = 10
-let PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
-
 let pageTitle = <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
 let addPageTitle = (
   <Locale
@@ -51,20 +47,23 @@ let addPageTitle = (
 
 let style = Style(/* css */ `
 #UploadImage #imageList {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1rem;
-}
-#UploadImage #imageList.single-column {
-  grid-template-columns: 1fr;
+  position: relative;
+  min-height: 400px;
 }
 #UploadImage #imageList .image-item {
   text-align: center;
-  position: relative;
+  position: absolute;
+  width: 260px;
+  height: 310px;
+  box-sizing: border-box;
   background-color: white;
   padding: 0.5rem;
   border-radius: 0.5rem;
-  max-width: 100%;
+  z-index: 1;
+  visibility: visible;
+}
+#UploadImage #imageList.single-column .image-item {
+  width: 100%;
 }
 #UploadImage #imageList .image-item img {
   max-width: 250px;
@@ -79,36 +78,17 @@ let style = Style(/* css */ `
   right: 0
 }
 #UploadImage #imageList .image-item--filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-#UploadImage #pagination {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: center;
-  margin-block: 1rem;
+#UploadImage #imageList .image-item--template {
+  display: none;
 }
-#UploadImage #pagination .page-btn {
-  min-width: 2.5rem;
-}
-#UploadImage #pagination .page-btn.active {
-  font-weight: bold;
-}
-#UploadImage #pagination .page-ellipsis {
-  align-self: center;
-  padding-inline: 0.25rem;
-}
-#UploadImage #pagination .page-jump {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin-inline-start: 0.5rem;
-}
-#UploadImage #pagination .page-jump input {
-  width: 4.5rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 0.25rem;
-  font-size: 0.9rem;
+#UploadImage #imageList .vs-spacer {
+  display: block;
+  width: 100%;
+  pointer-events: none;
 }
 `)
 
@@ -118,10 +98,13 @@ let imagePlugin = loadClientPlugin({
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
 })
+let virtualScrollPlugin = loadClientPlugin({
+  entryFile: 'dist/client/virtual-scroll.js',
+})
 
 let script = Script(/* js */ `
 var imageItemTemplate = document.querySelector('#imageList .image-item')
-imageItemTemplate.remove()
+imageItemTemplate.classList.add('image-item--template')
 
 async function pickImage(event) {
   try {
@@ -135,6 +118,7 @@ async function pickImage(event) {
     // TODO skip compression, or at least keep the same resolution
     let { dataUrl, file } = await compressImageFile(_file)
     let imageItem = imageItemTemplate.cloneNode(true)
+    imageItem.classList.remove('image-item--template')
     let image = imageItem.querySelector('img')
     image.src = dataUrl
     image.file = file
@@ -171,8 +155,6 @@ async function pickImage(event) {
     }
     imageCount.textContent = json.count.toLocaleString()
   }
-  // Reload to update pagination
-  location.reload()
   } catch (error) {
     showError(error)
   }
@@ -197,8 +179,6 @@ async function removeImage(button) {
     imageCount.textContent = json.count.toLocaleString()
   }
   imageItem.remove()
-  // Reload to update pagination
-  location.reload()
 }
 
 async function removeAllImages(event) {
@@ -226,32 +206,8 @@ async function removeAllImages(event) {
     event.target.disabled = false
     return
   }
-  let list = document.getElementById('imageList')
-  if (list) {
-    list.querySelectorAll('.image-item').forEach(el => el.remove())
-  }
-  let countEl = document.getElementById('imageCount')
-  if (countEl) countEl.textContent = '0'
   if (typeof showToast === 'function') showToast('All images deleted', 'success')
-  event.target.disabled = false
   location.reload()
-}
-
-function changePage(delta) {
-  let params = new URLSearchParams(window.location.search)
-  let currentPage = parseInt(params.get('page') || '1', 10)
-  let newPage = currentPage + delta
-  if (newPage < 1) return
-  params.set('page', String(newPage))
-  let newUrl = window.location.pathname + '?' + params.toString()
-  window.location.href = newUrl
-}
-
-function changePageTo(page) {
-  let params = new URLSearchParams(window.location.search)
-  params.set('page', String(page))
-  let newUrl = window.location.pathname + '?' + params.toString()
-  window.location.href = newUrl
 }
 
 function toggleLayout() {
@@ -266,22 +222,8 @@ function toggleLayout() {
   window.location.href = newUrl
 }
 
-function changePerPage(size) {
-  let params = new URLSearchParams(window.location.search)
-  params.set('per_page', String(size))
-  params.set('page', '1') // reset to first page
-  let newUrl = window.location.pathname + '?' + params.toString()
-  window.location.href = newUrl
-}
-
-function goToPage() {
-  let input = document.getElementById('pageJumpInput')
-  if (!input) return
-  let page = parseInt(input.value, 10)
-  if (!page || page < 1) return
-  changePageTo(page)
-}
-
+// initVirtualScroll() is now auto-called by the virtual-scroll plugin
+// after ion-content is upgraded (see client/virtual-scroll.ts)
 `)
 
 let page = (
@@ -300,6 +242,7 @@ let page = (
     </ion-content>
     {imagePlugin.node}
     {sweetAlertPlugin.node}
+    {virtualScrollPlugin.node}
     {script}
   </>
 )
@@ -308,32 +251,6 @@ let items = [
   { title: 'Android', slug: 'md' },
   { title: 'iOS', slug: 'ios' },
 ]
-
-// Returns a list of page numbers to show, with '...' as ellipsis markers.
-// e.g. for 10 pages, current=1 -> [1,2,3,4,'...',7,8,9,10]
-function getPageNumbers(
-  currentPage: number,
-  totalPages: number,
-): (number | '...')[] {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1)
-  }
-  let pages: (number | '...')[] = []
-  let start = Math.max(1, currentPage - 1)
-  let end = Math.min(totalPages, currentPage + 1)
-  if (start > 2) {
-    pages.push(1, 2)
-    if (start > 3) pages.push('...')
-  } else {
-    start = 1
-  }
-  for (let i = start; i <= end; i++) pages.push(i)
-  if (end < totalPages - 1) {
-    if (end < totalPages - 2) pages.push('...')
-    pages.push(totalPages - 1, totalPages)
-  }
-  return pages
-}
 
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
@@ -344,38 +261,12 @@ function Main(attrs: {}, context: DynamicContext) {
   let totalImages = allImages.length
 
   let params = new URLSearchParams(context.routerMatch?.search || '')
-  let itemsPerPage = PAGE_SIZE_OPTIONS.includes(
-    parseInt(params.get('per_page') || '10', 10),
-  )
-    ? parseInt(params.get('per_page') || '10', 10)
-    : ITEMS_PER_PAGE
-  let totalPages = Math.max(1, Math.ceil(totalImages / itemsPerPage))
-  let currentPage = Math.min(
-    Math.max(1, parseInt(params.get('page') || '1', 10) || 1),
-    totalPages,
-  )
   let layout = params.get('layout') === 'single' ? 'single' : 'multi'
-  let startIndex = (currentPage - 1) * itemsPerPage
-  let pageImages = allImages.slice(startIndex, startIndex + itemsPerPage)
 
   return (
     <>
       <div style="margin-bottom: 0.5rem; text-align: center">
-        Showing <span id="imageCount">{totalImages}</span> images (Page{' '}
-        {currentPage} of {totalPages}){' '}
-        <span style="margin-inline-start: 0.5rem">
-          {mapArray(PAGE_SIZE_OPTIONS, size => (
-            <ion-button
-              size="small"
-              fill={itemsPerPage === size ? 'solid' : 'outline'}
-              color={itemsPerPage === size ? 'primary' : 'medium'}
-              onclick={`changePerPage(${size})`}
-              style="margin-inline-end: 0.25rem"
-            >
-              {size}
-            </ion-button>
-          ))}
-        </span>
+        Showing <span id="imageCount">{totalImages}</span> images
         <ion-button
           onclick="toggleLayout()"
           size="small"
@@ -413,71 +304,19 @@ function Main(attrs: {}, context: DynamicContext) {
             </ion-button>
           </div>
         ) : null}
-        <div id="imageList" class={layout === 'single' ? 'single-column' : ''}>
+        <div
+          id="imageList"
+          class={layout === 'single' ? 'single-column' : ''}
+          data-project-id={project_id}
+          data-layout={layout}
+          data-total={totalImages}
+        >
           <ImageItem
             image_url="https://picsum.photos/seed/1/200/300"
             filename="filename.jpg"
             user={user}
           />
-          {mapArray(pageImages, image => {
-            return (
-              <ImageItem
-                image_url={`/uploads/${image.filename}`}
-                filename={image.original_filename || image.filename}
-                user={user}
-              />
-            )
-          })}
         </div>
-        {totalPages > 1 ? (
-          <div id="pagination">
-            <ion-button
-              class="page-btn prev-btn"
-              onclick="changePage(-1)"
-              disabled={currentPage <= 1}
-              size="small"
-            >
-              <ion-icon name="chevron-back" slot="icon-only"></ion-icon>
-            </ion-button>
-            {mapArray(getPageNumbers(currentPage, totalPages), pageNum =>
-              pageNum === '...' ? (
-                <span class="page-ellipsis">…</span>
-              ) : (
-                <ion-button
-                  class={
-                    'page-btn' + (pageNum === currentPage ? ' active' : '')
-                  }
-                  onclick={`changePageTo(${pageNum})`}
-                  color={pageNum === currentPage ? 'primary' : 'medium'}
-                  size="small"
-                >
-                  {pageNum}
-                </ion-button>
-              ),
-            )}
-            <ion-button
-              class="page-btn next-btn"
-              onclick="changePage(1)"
-              disabled={currentPage >= totalPages}
-              size="small"
-            >
-              <ion-icon name="chevron-forward" slot="icon-only"></ion-icon>
-            </ion-button>
-            <span class="page-jump">
-              <input
-                id="pageJumpInput"
-                type="number"
-                min="1"
-                max={totalPages}
-                placeholder="Go to"
-                onkeydown="if(event.key==='Enter')goToPage()"
-              />
-              <ion-button size="small" onclick="goToPage()">
-                Go
-              </ion-button>
-            </span>
-          </div>
-        ) : null}
       </form>
     </>
   )
@@ -637,7 +476,7 @@ function SubmitResult(attrs: {}, context: DynamicContext) {
 }
 
 async function UploadImage(context: ExpressContext) {
-  let { req, res } = context
+  let { req } = context
   try {
     let user_id = getAuthUserId(context)
     if (!user_id) throw 'not login'
@@ -664,13 +503,12 @@ async function UploadImage(context: ExpressContext) {
       if (existing) {
         await rm(filePath, { force: true })
         let new_count = count(proxy.image, { project_id })
-        res.json({
+        return {
           url: '/uploads/' + existing.filename,
           count: new_count,
           image_id: existing.id,
           duplicate: true,
-        })
-        return
+        }
       }
       let image_id = proxy.image.push({
         original_filename: file.originalFilename || null,
@@ -682,17 +520,16 @@ async function UploadImage(context: ExpressContext) {
       }) as number
       let new_count = count(proxy.image, { project_id })
       let url = '/uploads/' + file.newFilename
-      res.json({ url, count: new_count, image_id })
-      return
+      return { url, count: new_count, image_id }
     }
-    res.json({})
+    return {}
   } catch (error) {
-    res.json({ error: String(error) })
+    return { error: String(error) }
   }
 }
 
 async function RemoveImage(context: ExpressContext) {
-  let { req, res } = context
+  let { req } = context
   try {
     let filename = req.query.filename
     if (typeof filename !== 'string') throw 'filename is required'
@@ -718,15 +555,37 @@ async function RemoveImage(context: ExpressContext) {
     let file = join(env.UPLOAD_DIR, filename)
     await rm(file, { force: true })
     let new_count = count(proxy.image, { project_id })
-    res.json({ count: new_count })
+    return { count: new_count }
   } catch (error) {
     console.error(error)
-    res.json({ error: String(error) })
+    return { error: String(error) }
+  }
+}
+
+async function ListImages(context: ExpressContext) {
+  let { req } = context
+  try {
+    let project_id = +req.query.project!
+    if (!project_id) throw 'missing project id in query'
+    let offset = +req.query.offset! || 0
+    let limit = +req.query.limit! || 50
+    if (limit > 200) limit = 200
+    let allImages = filter(proxy.image, { project_id })
+    let total = allImages.length
+    let images = allImages.slice(offset, offset + limit).map(image => ({
+      id: image.id,
+      filename: image.filename,
+      original_filename: image.original_filename,
+    }))
+    return { total, images }
+  } catch (error) {
+    console.error(error)
+    return { error: String(error) }
   }
 }
 
 async function RemoveAllImages(context: ExpressContext) {
-  let { req, res } = context
+  let { req } = context
   try {
     let user_id = getAuthUserId(context)
     if (!user_id) throw 'not login'
@@ -746,10 +605,10 @@ async function RemoveAllImages(context: ExpressContext) {
         await rm(file, { force: true })
       }
     }
-    res.json({ count: 0 })
+    return { count: 0 }
   } catch (error) {
     console.error(error)
-    res.json({ error: String(error) })
+    return { error: String(error) }
   }
 }
 
@@ -770,6 +629,10 @@ let routes = {
   '/upload-image/remove-all': ajaxRoute({
     description: 'remove all images in project',
     api: RemoveAllImages,
+  }),
+  '/upload-image/list': ajaxRoute({
+    description: 'list images in project (for virtual scroll)',
+    api: ListImages,
   }),
 } satisfies Routes
 
