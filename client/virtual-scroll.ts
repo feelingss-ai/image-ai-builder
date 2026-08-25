@@ -17,14 +17,16 @@ type VSImage = {
 function initVirtualScroll() {
   let listEl = document.getElementById('imageList')
   if (!listEl) return
+  // const alias so TypeScript can narrow to non-null inside closures
+  const list = listEl
   // Guard against double-init (e.g. SPA navigation + setTimeout both firing)
-  if ((listEl as any).__vsInit) return
-  ;(listEl as any).__vsInit = true
-  let projectId = listEl.dataset.projectId || ''
+  if ((list as any).__vsInit) return
+  ;(list as any).__vsInit = true
+  let projectId = list.dataset.projectId || ''
   if (!projectId) return
 
-  let total = parseInt(listEl.dataset.total || '0', 10)
-  let layout = listEl.dataset.layout || 'multi'
+  let total = parseInt(list.dataset.total || '0', 10)
+  let layout = list.dataset.layout || 'multi'
 
   // State
   let fetched: (VSImage | null)[] = new Array(total).fill(null)
@@ -41,9 +43,9 @@ function initVirtualScroll() {
   let spacer = document.createElement('div')
   spacer.className = 'vs-spacer'
   spacer.style.pointerEvents = 'none'
-  listEl.appendChild(spacer)
+  list.appendChild(spacer)
 
-  let content = listEl.closest('ion-content') as HTMLElement | null
+  let content = list.closest('ion-content') as HTMLElement | null
   let innerEl = content?.shadowRoot?.querySelector('.inner-scroll') as HTMLElement | null
 
   // Cache the offset of #imageList within .inner-scroll content.
@@ -57,7 +59,7 @@ function initVirtualScroll() {
     }
     if (innerEl) {
       let innerRect = innerEl.getBoundingClientRect()
-      let listRect = listEl.getBoundingClientRect()
+      let listRect = list.getBoundingClientRect()
       cachedListOffsetTop = listRect.top - innerRect.top + innerEl.scrollTop
     }
   }
@@ -72,7 +74,7 @@ function initVirtualScroll() {
       }
     }
     // Fallback: window scroll — #imageList's top relative to viewport
-    let listRect = listEl.getBoundingClientRect()
+    let listRect = list.getBoundingClientRect()
     return {
       scrollTop: -listRect.top,
       scrollHeight: document.documentElement.scrollHeight,
@@ -81,7 +83,7 @@ function initVirtualScroll() {
   }
 
   function computeCols() {
-    containerW = listEl.clientWidth
+    containerW = list.clientWidth
     if (layout === 'single') {
       nCol = 1
       ITEM_WIDTH = containerW
@@ -99,7 +101,7 @@ function initVirtualScroll() {
     spacer.style.height = h + 'px'
     spacer.style.width = '100%'
     // Set container height directly — absolutely-positioned children don't contribute to parent height
-    listEl.style.height = h + 'px'
+    list.style.height = h + 'px'
   }
 
   function isFetched(idx: number): boolean {
@@ -158,11 +160,11 @@ function initVirtualScroll() {
     render()
   }
 
-  function createItemElement(idx: number): HTMLElement | null {
-    let template = listEl.querySelector('.image-item--template') as HTMLElement | null
+  function createItemElement(idx: number): HTMLElement | undefined {
+    let template = list.querySelector('.image-item--template') as HTMLElement | null
     if (!template) {
  console.log('[VS] createItem: TEMPLATE NOT FOUND for idx', idx)
- return null
+ return undefined
     }
     let item = template.cloneNode(true) as HTMLElement
     item.classList.remove('image-item--template')
@@ -264,7 +266,7 @@ function initVirtualScroll() {
         el = createItemElement(idx)
         if (el) {
           positionItem(el, idx)
-          listEl.appendChild(el)
+          list.appendChild(el)
           visibleItems.set(idx, el)
         }
         if (!fetched[idx]) {
@@ -337,7 +339,7 @@ function initVirtualScroll() {
       computeCols()
       // Reposition all visible items
       visibleItems.forEach((el, idx) => {
-        el.style.width = (layout === 'single' ? listEl.clientWidth : ITEM_WIDTH) + 'px'
+        el.style.width = (layout === 'single' ? list.clientWidth : ITEM_WIDTH) + 'px'
         positionItem(el, idx)
       })
       updateSpacer()
