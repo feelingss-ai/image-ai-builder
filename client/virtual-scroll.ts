@@ -194,7 +194,13 @@ function initVirtualScroll() {
   function positionItem(item: HTMLElement, idx: number) {
     let col = idx % nCol
     let row = Math.floor(idx / nCol)
-    let x = col * ITEM_WIDTH
+    // Number of items actually in this row (last row may be partial)
+    let itemsInRow = Math.min(nCol, total - row * nCol)
+    // Total width of this row
+    let rowWidth = itemsInRow * ITEM_WIDTH
+    // Centering offset: push the row right so it is centered in the container
+    let offsetX = Math.max(0, (containerW - rowWidth) / 2)
+    let x = offsetX + col * ITEM_WIDTH
     let y = row * ITEM_HEIGHT
     item.style.transform = `translate(${x}px, ${y}px)`
   }
