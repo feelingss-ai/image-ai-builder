@@ -1,7 +1,7 @@
 # Guidelines for AI agents
 
 **Check docs and code first**  
-Before changing behavior, read any relevant docs in **`docs/`** (and **`tasks/*.md`** if present) that touch the area. Follow existing store/helpers and data model; don't reintroduce deprecated fields or duplicate sources of truth.
+Before changing behavior, read any relevant docs (e.g. `docs/reference-*.md`) and **`tasks/*.md`** that touch the area. Follow existing store/helpers and data model; don't reintroduce deprecated fields or duplicate sources of truth.
 
 ---
 
@@ -22,9 +22,6 @@ When extending a feature, keep client and server validation aligned and don't ch
 
 **Minimal git diff**  
 Change only what the task needs. Don't reformat, rewrap, or "fix" unrelated style; don't reorder imports or touch unused code. Smaller diffs are easier to review and less risky.
-
-**JSX requires `o` in scope**  
-Keep **`import { o } from '../jsx/jsx.js'`** in page files that use JSX/TSX; required for the runtime. Do not remove it as "unused."
 
 ---
 
@@ -65,7 +62,13 @@ When the project has auth and roles (e.g. admin, staff):
 ---
 
 **Document completed decisions in the right place**  
-This file is for general rules only. When work is done that future changes should respect (decisions, where things live, what not to redo), add or update **`tasks/*.md`** (if the project has a tasks folder) or other project docs in **`docs/`**. Don't put completed-task context here.
+This file is for general rules only. When work is done that future changes should respect (decisions, where things live, what not to redo), add or update `tasks/*.md` or other project docs. Don't put completed-task context here.
+
+**Keep `tasks/_index.md` in sync**  
+When creating a new task file in `tasks/`, add a corresponding entry to `tasks/_index.md` with a short description as the link text (e.g. `- [Pagination for image upload (6000+ images)](./pagination.md)`). Use `scripts/new-task.sh` to create the file and index entry.
+
+**Move completed tasks to `tasks/done/`**  
+When a task is completed, move its file to `tasks/done/` and remove its entry from `_index.md`.
 
 ---
 
@@ -110,20 +113,24 @@ Use **`<Link href="...">`**, **`<Link tagName="ion-button" href="...">`**, or **
 **Link default tagName is `a`**  
 Do not write **`tagName="a"`** on `<Link>`; it is the default. Only specify **`tagName`** when you need a different element (e.g. `tagName="ion-button"`, `tagName="ion-item"`).
 
-❌ **AVOID:**  
+❌ **AVOID:**
+
 ```jsx
 <ion-button onclick='goto("/login")'>Login</ion-button>
 <ion-button onclick={user ? 'doAction()' : 'goto("/login")'}>Button</ion-button>
 ```
 
-✅ **USE:**  
+✅ **USE:**
+
 ```jsx
-<IonButton url="/login">Login</IonButton>
-{user ? (
-  <ion-button onclick="doAction()">Action</ion-button>
-) : (
-  <IonButton url="/login">Login</IonButton>
-)}
+;<IonButton url="/login">Login</IonButton>
+{
+  user ? (
+    <ion-button onclick="doAction()">Action</ion-button>
+  ) : (
+    <IonButton url="/login">Login</IonButton>
+  )
+}
 ```
 
 ---
@@ -142,6 +149,11 @@ Use **`<Locale />`** in JSX for translatable UI text. Use **`t = makeText(contex
 When building UI that gets inserted into the page, use **JSX markup with `id` or stable selectors** and reference those elements in code. Do not use `innerHTML`, template literals that build tags, or string concatenation for markup. JSX gives type safety, auto-escaping (XSS safety), easier passing of server-side variables, syntax highlighting, and better tooling. Don't add new string-based markup.
 
 **When string-building is unavoidable** (e.g. rendering a calendar grid where the structure depends on runtime data), use **`data-*` attributes** for passing runtime values and **`onclick="handler(event)"`** for event binding. Read parameters from `event.target.dataset.*` or `event.target.closest('[data-x]').dataset.x`. Do not build inline JavaScript expressions in string attributes — complex escaping is error-prone and fragile.
+
+---
+
+**import `o` for JSX/TSX**  
+Keep **`import { o } from '../jsx/jsx.js'`** in page files that use JSX/TSX; required for the runtime. Do not remove it as "unused."
 
 ---
 
