@@ -314,7 +314,7 @@ function Main(attrs: {}, context: DynamicContext) {
                 zh_cn="加载图像中..."
               />
             }
-            style="height: 100%; object-fit: contain"
+            style="max-height: 60vh; max-width: 100%; width: auto; height: auto; object-fit: contain;"
             onclick="rotateAnnotationImage(this)"
             onload="initAnnotationImage(this)"
             hidden={!image}
