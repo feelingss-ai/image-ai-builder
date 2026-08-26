@@ -2,11 +2,7 @@ import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle, LayoutType } from '../../config.js'
 import Style from '../components/style.js'
-import {
-  DynamicContext,
-  getContextFormBody,
-  WsContext,
-} from '../context.js'
+import { DynamicContext, getContextFormBody, WsContext } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { array, boolean, id, object, string, values } from 'cast.ts'
@@ -27,9 +23,8 @@ import {
 import { NoProjectMessage } from '../components/no-project-message.js'
 import { IonButton } from '../components/ion-button.js'
 import { env } from '../../env.js'
-import { join, basename } from 'path'
-import { promises as fsPromises, writeFileSync } from 'fs'
-import { createHash, randomUUID } from 'crypto'
+import { join } from 'path'
+import { promises as fsPromises } from 'fs'
 import AdmZip from 'adm-zip'
 
 let pageTitle = (
@@ -234,18 +229,6 @@ let style = Style(/* css */ `
   justify-content: center;
   gap: 0.1rem;
   z-index: 10;
-}
-#ManageDataset .import-button {
-  width: 12rem;
-  height: 3rem;
-  --background: #d9d5d5b0;
-  border-radius: 0.1rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-#ManageDataset .import-button span {
-  color: #ffffffe4;
 }
 #ManageDataset .no-images-message {
   text-align: center;
@@ -571,33 +554,6 @@ function exportImages() {
   toggleSelectionMode();
 }
 
-// ---------- browse: import zip ----------
-function arrayBufferToBase64(buffer) {
-  let binary = '';
-  let bytes = new Uint8Array(buffer);
-  let len = bytes.byteLength;
-  for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); }
-  return window.btoa(binary);
-}
-function handleImport() {
-  let input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.zip';
-  input.onchange = function(e) {
-    let file = e.target.files[0];
-    if (file) {
-      let reader = new FileReader();
-      reader.onload = function(e) {
-        let arrayBuffer = e.target.result;
-        let base64 = arrayBufferToBase64(arrayBuffer);
-        emit('/manage-dataset/import-zip', { zipData: base64, project_id: getProjectId() });
-      };
-      reader.readAsArrayBuffer(file);
-    }
-  };
-  input.click();
-}
-
 // ---------- browse: image modal ----------
 function initAnnotationImage(image) {
   let degree = +image.dataset.rotation || 0;
@@ -753,11 +709,10 @@ and image.project_id = :project_id
   .pluck()
 
 // latest answer for an image+label (1=yes, 0=no, null=none)
-let select_latest_answer = db
-  .prepare<
-    { image_id: number; label_id: number },
-    { answer: number | null }
-  >(/* sql */ `
+let select_latest_answer = db.prepare<
+  { image_id: number; label_id: number },
+  { answer: number | null }
+>(/* sql */ `
 select answer
 from image_label
 where image_id = :image_id and label_id = :label_id
@@ -802,11 +757,10 @@ where il.label_id = :label_id
   .pluck()
 
 // label status (latest answer per label) for an image
-let select_image_label_status = db
-  .prepare<
-    { image_id: number; project_id: number },
-    { label_id: number; label_title: string; answer: number | null }
-  >(/* sql */ `
+let select_image_label_status = db.prepare<
+  { image_id: number; project_id: number },
+  { label_id: number; label_title: string; answer: number | null }
+>(/* sql */ `
 select l.id as label_id, l.title as label_title,
   (select il.answer from image_label il
    where il.label_id = l.id and il.image_id = :image_id
@@ -912,12 +866,10 @@ function reclassify(
       `,
     ).run(label_id, ...selected_image_ids)
     // insert new answer records
-    const insertStmt = db.prepare(
-      /* sql */ `
+    const insertStmt = db.prepare(/* sql */ `
       INSERT INTO image_label (label_id, image_id, answer, user_id)
       VALUES (@label_id, @image_id, @answer, @user_id)
-      `,
-    )
+      `)
     for (const image_id of selected_image_ids) {
       insertStmt.run({ label_id, image_id, answer: mark_answer, user_id })
     }
@@ -940,7 +892,10 @@ function filterImagesByLabelStates(
   if (filterLabels.length === 0) return images
   return images.filter(img => {
     return filterLabels.every(({ labelId, state }) => {
-      const row = select_latest_answer.get({ image_id: img.image_id, label_id: labelId })
+      const row = select_latest_answer.get({
+        image_id: img.image_id,
+        label_id: labelId,
+      })
       if (state === 'correct') return row && row.answer === 1
       if (state === 'incorrect') return row && row.answer === 0
       if (state === 'unlabeled') return !row
@@ -999,7 +954,13 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let review = review_label_id
     ? getReviewImages({ label_id: review_label_id, project_id })
-    : { yes_images: [], no_images: [], unknown_images: [], annotated_images: 0, total_images: 0 }
+    : {
+        yes_images: [],
+        no_images: [],
+        unknown_images: [],
+        annotated_images: 0,
+        total_images: 0,
+      }
 
   return (
     <>
@@ -1071,7 +1032,10 @@ function Main(attrs: {}, context: DynamicContext) {
         id="exportConfirmModal"
         style="display:none; position:fixed; left:0; top:0; width:100vw; height:100vh; background:rgba(0,0,0,0.3); z-index:9999; justify-content:center; align-items:center;"
       >
-        <div class="modal-content" style="background:#fff; border-radius:8px; padding:2rem; min-width:300px; max-width:500px; box-shadow:0 2px 16px #0002; text-align:center;">
+        <div
+          class="modal-content"
+          style="background:#fff; border-radius:8px; padding:2rem; min-width:300px; max-width:500px; box-shadow:0 2px 16px #0002; text-align:center;"
+        >
           <div style="margin-bottom:1rem;">
             <Locale
               en="Select labels to export"
@@ -1079,7 +1043,10 @@ function Main(attrs: {}, context: DynamicContext) {
               zh_cn="选择要导出的标签"
             />
           </div>
-          <div class="label-selection-container" style="max-height:200px; overflow-y:auto; margin-bottom:1rem;">
+          <div
+            class="label-selection-container"
+            style="max-height:200px; overflow-y:auto; margin-bottom:1rem;"
+          >
             {mapArray(labels, label => (
               <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.9rem; margin:0.5rem 0;">
                 <input
@@ -1092,7 +1059,10 @@ function Main(attrs: {}, context: DynamicContext) {
               </label>
             ))}
           </div>
-          <div class="checkbox-container" style="display:flex; justify-content:center; align-items:center; gap:0.5rem; margin-top:1rem;">
+          <div
+            class="checkbox-container"
+            style="display:flex; justify-content:center; align-items:center; gap:0.5rem; margin-top:1rem;"
+          >
             <input type="checkbox" id="organizeByLabelCheckbox" disabled />
             <label for="organizeByLabelCheckbox" style="font-size:0.9rem;">
               <Locale
@@ -1187,7 +1157,10 @@ function Main(attrs: {}, context: DynamicContext) {
                       style="--ionicon-stroke-width: 32px; color: #999;"
                     ></ion-icon>
                   </ion-button>
-                  <progress value={annotated_count} max={totalImages || 1}></progress>
+                  <progress
+                    value={annotated_count}
+                    max={totalImages || 1}
+                  ></progress>
                 </div>
               )
             })}
@@ -1220,18 +1193,6 @@ function Main(attrs: {}, context: DynamicContext) {
                   zh_cn="数据集中没有图像。"
                 />
               </p>
-            </div>
-            <div style="display: flex; justify-content: center; margin: 1rem 0;">
-              <ion-button
-                id="import-button"
-                class="import-button"
-                color="primary"
-                onclick="handleImport()"
-              >
-                <span>
-                  <Locale en="Import" zh_hk="匯入" zh_cn="导入" />
-                </span>
-              </ion-button>
             </div>
           </div>
         </div>
@@ -1517,7 +1478,12 @@ function ToggleLabelState(attrs: {}, context: WsContext) {
     if (!project) throw 'Project not found'
     let project_id = project.id!
 
-    const validStates: LabelState[] = ['empty', 'correct', 'incorrect', 'unlabeled']
+    const validStates: LabelState[] = [
+      'empty',
+      'correct',
+      'incorrect',
+      'unlabeled',
+    ]
     if (!validStates.includes(input.state as LabelState)) {
       throw `Invalid state: ${input.state}`
     }
@@ -1567,8 +1533,10 @@ function ToggleLabelState(attrs: {}, context: WsContext) {
                 }
                 style={{
                   '--ionicon-stroke-width':
-                    state === 'correct' || state === 'incorrect' ? '64px' : '32px',
-                  color:
+                    state === 'correct' || state === 'incorrect'
+                      ? '64px'
+                      : '32px',
+                  'color':
                     state === 'correct'
                       ? '#4caf50'
                       : state === 'incorrect'
@@ -1903,7 +1871,7 @@ function UpdateAnnotation(attrs: {}, context: WsContext) {
     let image = proxy.image[input.image_id]
     if (!image) throw 'Image not found'
     let project = image.project_id
-      ? (proxy.project[image.project_id] || null)
+      ? proxy.project[image.project_id] || null
       : null
     if (!project) throw 'Project not found'
 
@@ -2290,149 +2258,6 @@ function BatchExport(attrs: {}, context: WsContext) {
 }
 
 // ---------------------------------------------------------------------------
-// import zip (project-scoped, dedup by content hash like upload-image)
-// ---------------------------------------------------------------------------
-let importZipParser = object({
-  zipData: string(),
-  project_id: id(),
-})
-
-function ImportZip(attrs: {}, context: WsContext) {
-  try {
-    let user_id = getAuthUserId(context)!
-    if (!user_id) throw 'User not authenticated'
-
-    let body = getContextFormBody(context)
-    let input = importZipParser.parse(body)
-    let project = proxy.project[input.project_id]
-    if (!project) throw 'Project not found'
-
-    let buffer = Buffer.from(input.zipData, 'base64')
-    let zip = new AdmZip(buffer)
-    let entries = zip.getEntries()
-
-    let processedImages: {
-      filename: string
-      image_id: number
-      original_filename: string
-    }[] = []
-    let errors: string[] = []
-    let skipped = 0
-
-    for (const entry of entries) {
-      if (entry.isDirectory) continue
-      let name = entry.entryName
-      let ext = basename(name).toLowerCase().split('.').pop()
-      if (!['jpg', 'png', 'webp', 'heic', 'gif', 'jpeg'].includes(ext!)) continue
-      try {
-        let data = entry.getData()
-        let contentHash = createHash('sha256').update(data).digest('hex')
-        // dedup by content hash within this project
-        let existing = filter(proxy.image, {
-          project_id: input.project_id,
-          content_hash: contentHash,
-        })[0]
-        if (existing) {
-          skipped++
-          continue
-        }
-        let filename = `${randomUUID()}.${ext}`
-        let filepath = join(env.UPLOAD_DIR, filename)
-        let original_filename = basename(name)
-        writeFileSync(filepath, data)
-        let image_id = proxy.image.push({
-          original_filename,
-          filename,
-          user_id,
-          rotation: null,
-          project_id: input.project_id,
-          content_hash: contentHash,
-        }) as number
-        processedImages.push({ filename, image_id, original_filename })
-      } catch (err) {
-        errors.push(`Failed to process ${name}: ${err}`)
-        console.error(`Failed to process ${name}:`, err)
-      }
-    }
-
-    let allImages = getProjectImages(input.project_id).map(item => ({
-      image_id: item.id!,
-      filename: item.filename,
-      rotation: item.rotation || 0,
-    }))
-
-    context.ws.send([
-      'batch',
-      [
-        [
-          'update-in',
-          '.image-grid',
-          nodeToVNode(
-            <>
-              {mapArray(allImages, item => (
-                <div class="image-item" key={`image-${item.image_id}`}>
-                  <input
-                    type="checkbox"
-                    class="image-checkbox"
-                    style="display: none;"
-                    data-image-id={item.image_id}
-                  />
-                  <img
-                    src={`/uploads/${item.filename}`}
-                    alt="image"
-                    data-rotation={item.rotation}
-                    onload="initAnnotationImage(this)"
-                    onclick={`handleImageClick('${item.filename}', ${item.rotation}, ${item.image_id})`}
-                  />
-                </div>
-              ))}
-            </>,
-            context,
-          ),
-        ],
-        [
-          'update-in',
-          '.no-images-message',
-          nodeToVNode(
-            <div class="no-images-message" hidden={allImages.length > 0}>
-              <p>
-                <Locale
-                  en="No images in dataset."
-                  zh_hk="數據集中沒有圖片。"
-                  zh_cn="数据集中没有图像。"
-                />
-              </p>
-            </div>,
-            context,
-          ),
-        ],
-        [
-          'eval',
-          `
-          setImagesData(${JSON.stringify(allImages)});
-          setFilteredImagesData(${JSON.stringify(allImages)});
-          const noImagesMsg = document.querySelector('.no-images-message');
-          if (noImagesMsg) noImagesMsg.hidden = imagesData.length > 0;
-          const toast = document.createElement('ion-toast');
-          toast.message = 'Imported ${processedImages.length} images.${skipped ? ' Skipped ' + skipped + ' duplicates.' : ''}${errors.length ? ' Errors: ' + errors.length : ''}';
-          toast.duration = 5000;
-          document.body.appendChild(toast);
-          toast.present();
-          `,
-        ],
-      ],
-    ])
-    throw EarlyTerminate
-  } catch (error) {
-    if (error !== EarlyTerminate) {
-      console.error('ImportZip Error:', error)
-      context.ws.send(showError(error))
-    }
-    throw EarlyTerminate
-  }
-}
-
-// ---------------------------------------------------------------------------
 // review: reclassify (from review-annotation branch)
 // ---------------------------------------------------------------------------
 let reclassifyParser = object({
@@ -2465,8 +2290,13 @@ function Reclassify(attrs: {}, context: WsContext) {
       )
     }
 
-    let { yes_images, no_images, unknown_images, annotated_images, total_images } =
-      getReviewImages({ label_id, project_id })
+    let {
+      yes_images,
+      no_images,
+      unknown_images,
+      annotated_images,
+      total_images,
+    } = getReviewImages({ label_id, project_id })
     let label_title = label.title
     let label_text = `${label_title} (${annotated_images}/${total_images})`
 
@@ -2604,11 +2434,6 @@ let routes = {
     title: apiEndpointTitle,
     description: 'Batch export selected images as ZIP',
     node: <BatchExport />,
-  },
-  '/manage-dataset/import-zip': {
-    title: apiEndpointTitle,
-    description: 'Import ZIP file and add images to dataset',
-    node: <ImportZip />,
   },
   '/manage-dataset/reclassify': {
     title: apiEndpointTitle,

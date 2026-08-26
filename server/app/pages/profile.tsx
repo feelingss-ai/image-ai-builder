@@ -297,14 +297,11 @@ function renderProfile(user_id: number, context: DynamicContext) {
 ${imagePlugin.script}
 <script>
 async function previewAvatar(input) {
-  let [image] = await compressPhotos(input.files)
-  if (!image) return
-  previewImg.src = image.dataUrl
-  let kb = Math.ceil(image.file.size / 1024)
+  let file = input.files && input.files[0]
+  if (!file) return
+  previewImg.src = URL.createObjectURL(file)
+  let kb = Math.ceil(file.size / 1024)
   previewMessage.textContent = previewMessage.dataset.previewMessage + ' (' + kb + ' KB)'
-  let list = new DataTransfer()
-  list.items.add(image.file)
-  input.files = list.files
   previewContainer.hidden = false
 }
 </script>

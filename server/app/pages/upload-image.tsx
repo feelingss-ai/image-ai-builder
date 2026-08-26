@@ -27,7 +27,7 @@ import { readFileSync } from 'fs'
 import { rm } from 'fs/promises'
 import { join } from 'path'
 import { env } from '../../env.js'
-import { KB } from '@beenotung/tslib/size.js'
+import { MB } from '@beenotung/tslib/size.js'
 import { dataURItoFile } from '@beenotung/tslib/image.js'
 import { writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
@@ -115,14 +115,12 @@ async function pickImage(event) {
     multiple: true,
   })
   for (let _file of files) {
-    // TODO skip compression, or at least keep the same resolution
-    let { dataUrl, file } = await compressImageFile(_file)
     let imageItem = imageItemTemplate.cloneNode(true)
     imageItem.classList.remove('image-item--template')
     let image = imageItem.querySelector('img')
-    image.src = dataUrl
-    image.file = file
-    imageItem.querySelector('.image-item--filename').textContent = file.name
+    image.src = URL.createObjectURL(_file)
+    image.file = _file
+    imageItem.querySelector('.image-item--filename').textContent = _file.name
     imageList.appendChild(imageItem)
     let uploadButton = imageItem.querySelector('.image-item--upload')
     uploadButton.setAttribute('color', 'primary')
@@ -485,7 +483,7 @@ async function UploadImage(context: ExpressContext) {
     let project_id = +params.get('project')!
     if (!project_id) throw 'missing project id in url'
 
-    let form = createUploadForm({ maxFileSize: 500 * KB })
+    let form = createUploadForm({ maxFileSize: 20 * MB })
     let [fields, files] = await form.parse(req)
     let uploadDir = env.UPLOAD_DIR
     for (let file of files.image || []) {

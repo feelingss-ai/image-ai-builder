@@ -19,7 +19,7 @@ import { Script } from '../components/script.js'
 import { getContextProject } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
-import { array, id, object, values } from 'cast.ts'
+import { array, id, object, string, values } from 'cast.ts'
 
 let pageTitle = (
   <Locale en="Import Dataset" zh_hk="匯入數據集" zh_cn="导入数据集" />
@@ -139,7 +139,7 @@ async function pickAndUpload(event) {
     reportError('Missing project')
     return
   }
-  if (typeof selectImage !== 'function' || typeof compressImageFile !== 'function') {
+  if (typeof selectImage !== 'function') {
     reportError('Image upload not ready – please refresh the page')
     return
   }
@@ -156,11 +156,8 @@ async function pickAndUpload(event) {
     }
     for (var i = 0; i < files.length; i++) {
       var _file = files[i]
-      var obj = await compressImageFile(_file)
-      var file = obj && obj.file
-      if (!file) { reportError('Compress failed'); break }
       var formData = new FormData()
-      formData.append('image', file)
+      formData.append('image', _file)
       var res = await fetch('/upload-image/submit?project=' + project_id, {
         method: 'POST',
         body: formData,
