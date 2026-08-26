@@ -187,47 +187,22 @@ let style = Style(/* css */ `
   --ionicon-stroke-width: 32px;
   color: #999;
 }
+#ManageDataset .browse-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+#ManageDataset .browse-toolbar ion-button {
+  --padding-start: 0.5rem;
+  --padding-end: 0.5rem;
+  font-size: 0.9rem;
+}
 #label-toggle-container {
-  z-index: 10;
-}
-#ManageDataset .label-toggle-button {
-  position: absolute;
-  right: 0;
-  top: -2.5rem;
-  width: 5rem;
-  padding: 0rem;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.2rem;
-  z-index: 10;
-}
-#ManageDataset .select-toggle-button {
-  position: absolute;
-  left: 0;
-  top: -2.5rem;
-  width: 5rem;
-  padding: 0rem;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.2rem;
-  z-index: 10;
-}
-#ManageDataset .select-all-button {
-  position: absolute;
-  left: 5.5rem;
-  top: -2.5rem;
-  width: 8rem;
-  height: 1.2rem;
-  padding: 0rem;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.1rem;
   z-index: 10;
 }
 #ManageDataset .no-images-message {
@@ -964,25 +939,6 @@ function Main(attrs: {}, context: DynamicContext) {
 
   return (
     <>
-      {/* mode toggle */}
-      <ion-segment
-        id="modeSegment"
-        value="browse"
-        class="mode-segment"
-        onchange="switchMode(event.detail.value)"
-      >
-        <ion-segment-button value="browse">
-          <ion-label>
-            <Locale en="Browse" zh_hk="瀏覽" zh_cn="浏览" />
-          </ion-label>
-        </ion-segment-button>
-        <ion-segment-button value="review">
-          <ion-label>
-            <Locale en="Review" zh_hk="審視" zh_cn="审阅" />
-          </ion-label>
-        </ion-segment-button>
-      </ion-segment>
-
       {/* ---------- confirm modals ---------- */}
       <div
         id="deleteConfirmModal"
@@ -1104,11 +1060,10 @@ function Main(attrs: {}, context: DynamicContext) {
       </div>
 
       {/* ---------- BROWSE MODE ---------- */}
-      <div id="mode-browse" class="mode-section">
-        <div style="position: relative; z-index: 5;">
+      <div id="mode-browse" class="mode-section" style="position: relative;">
+        <div class="browse-toolbar">
           <ion-button
             id="toggle-selection-button"
-            class="select-toggle-button"
             onclick="toggleSelectionMode()"
           >
             <span>
@@ -1117,7 +1072,6 @@ function Main(attrs: {}, context: DynamicContext) {
           </ion-button>
           <ion-button
             id="select-all-button"
-            class="select-all-button"
             style="display: none;"
             onclick="toggleSelectAllImages()"
           >
@@ -1125,75 +1079,72 @@ function Main(attrs: {}, context: DynamicContext) {
               <Locale en="Select All" zh_hk="全選" zh_cn="全选" />
             </span>
           </ion-button>
-          <ion-button
-            id="toggle-labels-button"
-            class="label-toggle-button"
-            onclick="toggleLabels()"
-          >
+          <div style="flex: 1;"></div>
+          <ion-button id="toggle-labels-button" onclick="toggleLabels()">
             <span>
               <Locale en="Hide" zh_hk="隱藏" zh_cn="隐藏" />
             </span>
           </ion-button>
-          <div
-            id="label-toggle-container"
-            style="position: absolute; right: 0; top: 0; display: flex; flex-direction: column; gap: 0.25rem; z-index: 10;"
-          >
-            {mapArray(labels, label => {
-              let annotated_count = count_annotated_images.get({
-                label_id: label.id!,
-                project_id,
-              })
-              return (
-                <div class="label-container">
-                  <div class="class-label">{label.title}</div>
-                  <ion-button
-                    id={`label-state-button-${label.id}`}
-                    class="label-state-button empty"
-                    fill="clear"
-                    onclick={`toggleLabelState(${label.id})`}
-                  >
-                    <ion-icon
-                      name="ellipse-outline"
-                      style="--ionicon-stroke-width: 32px; color: #999;"
-                    ></ion-icon>
-                  </ion-button>
-                  <progress
-                    value={annotated_count}
-                    max={totalImages || 1}
-                  ></progress>
-                </div>
-              )
-            })}
-          </div>
-          <div class="section all-images-section">
-            <div class="image-grid">
-              {mapArray(filteredImages, item => (
-                <div class="image-item" key={`image-${item.image_id}`}>
-                  <input
-                    type="checkbox"
-                    class="image-checkbox"
-                    style="display: none;"
-                    data-image-id={item.image_id}
-                  />
-                  <img
-                    src={`/uploads/${item.filename}`}
-                    alt="Image"
-                    data-rotation={item.rotation}
-                    onload="initAnnotationImage(this)"
-                    onclick={`handleImageClick('${item.filename}', ${item.rotation}, ${item.image_id})`}
-                  />
-                </div>
-              ))}
-            </div>
-            <div class="no-images-message" hidden={filteredImages.length > 0}>
-              <p>
-                <Locale
-                  en="No images in dataset."
-                  zh_hk="數據集中沒有圖片。"
-                  zh_cn="数据集中没有图像。"
+        </div>
+        <div
+          id="label-toggle-container"
+          style="position: fixed; right: 0.5rem; top: 8rem; display: flex; flex-direction: column; gap: 0.25rem; z-index: 10;"
+        >
+          {mapArray(labels, label => {
+            let annotated_count = count_annotated_images.get({
+              label_id: label.id!,
+              project_id,
+            })
+            return (
+              <div class="label-container">
+                <div class="class-label">{label.title}</div>
+                <ion-button
+                  id={`label-state-button-${label.id}`}
+                  class="label-state-button empty"
+                  fill="clear"
+                  onclick={`toggleLabelState(${label.id})`}
+                >
+                  <ion-icon
+                    name="ellipse-outline"
+                    style="--ionicon-stroke-width: 32px; color: #999;"
+                  ></ion-icon>
+                </ion-button>
+                <progress
+                  value={annotated_count}
+                  max={totalImages || 1}
+                ></progress>
+              </div>
+            )
+          })}
+        </div>
+        <div class="section all-images-section">
+          <div class="image-grid">
+            {mapArray(filteredImages, item => (
+              <div class="image-item" key={`image-${item.image_id}`}>
+                <input
+                  type="checkbox"
+                  class="image-checkbox"
+                  style="display: none;"
+                  data-image-id={item.image_id}
                 />
-              </p>
-            </div>
+                <img
+                  src={`/uploads/${item.filename}`}
+                  alt="Image"
+                  data-rotation={item.rotation}
+                  onload="initAnnotationImage(this)"
+                  onclick={`handleImageClick('${item.filename}', ${item.rotation}, ${item.image_id})`}
+                />
+              </div>
+            ))}
+          </div>
+          <div class="no-images-message" hidden={filteredImages.length > 0}>
+            <p>
+              <Locale
+                en="No images in dataset."
+                zh_hk="數據集中沒有圖片。"
+                zh_cn="数据集中没有图像。"
+              />
+            </p>
           </div>
         </div>
         <ion-toolbar
@@ -1219,104 +1170,6 @@ function Main(attrs: {}, context: DynamicContext) {
             </ion-button>
           </div>
         </ion-toolbar>
-      </div>
-
-      {/* ---------- REVIEW MODE ---------- */}
-      <div id="mode-review" class="mode-section" style="display: none;">
-        {review_label_id ? (
-          <div>
-            <ion-item>
-              <ion-select
-                value={review_label_id}
-                label={Locale(
-                  { en: 'Class Label', zh_hk: '類別標籤', zh_cn: '类別标签' },
-                  context,
-                )}
-                id="review_label_select"
-                interface="popover"
-                onchange="reviewLabelSelectChange(event)"
-              >
-                {mapArray(labels, label => {
-                  let annotated_images = count_annotated_images.get({
-                    label_id: label.id!,
-                    project_id,
-                  })
-                  return (
-                    <ion-select-option value={label.id}>
-                      {label.title} ({annotated_images}/{totalImages})
-                    </ion-select-option>
-                  )
-                })}
-              </ion-select>
-            </ion-item>
-            <br />
-            <ion-segment value={review_answer} id="answerSegment">
-              <ion-segment-button
-                value="yes"
-                content-id="content-yes"
-                class="segment-yes"
-              >
-                <ion-icon name="checkmark"></ion-icon>
-              </ion-segment-button>
-              <ion-segment-button
-                value="no"
-                content-id="content-no"
-                class="segment-no"
-              >
-                <ion-icon name="close"></ion-icon>
-              </ion-segment-button>
-              <ion-segment-button
-                value="unknown"
-                content-id="content-unknown"
-                class="segment-unknown"
-              >
-                <ion-icon name="help"></ion-icon>
-              </ion-segment-button>
-            </ion-segment>
-            <br />
-            <ion-segment-view>
-              <ion-segment-content id="content-yes">
-                <ion-grid fixed>
-                  <ion-row>{review.yes_images}</ion-row>
-                </ion-grid>
-              </ion-segment-content>
-              <ion-segment-content id="content-no">
-                <ion-grid fixed>
-                  <ion-row>{review.no_images}</ion-row>
-                </ion-grid>
-              </ion-segment-content>
-              <ion-segment-content id="content-unknown">
-                <ion-grid fixed>
-                  <ion-row>{review.unknown_images}</ion-row>
-                </ion-grid>
-              </ion-segment-content>
-            </ion-segment-view>
-            <div class="submit-buttons">
-              <ion-button
-                type="button"
-                onclick="submitReview('yes')"
-                color="success"
-              >
-                <ion-icon name="checkmark"></ion-icon>
-              </ion-button>
-              <ion-button
-                type="button"
-                onclick="submitReview('no')"
-                color="danger"
-              >
-                <ion-icon name="close"></ion-icon>
-              </ion-button>
-            </div>
-          </div>
-        ) : (
-          <p style="text-align:center; color: var(--ion-color-medium); padding: 2rem;">
-            <Locale
-              en="No labels in this project. Create labels first."
-              zh_hk="此項目沒有標籤。請先創建標籤。"
-              zh_cn="此项目没有标签。请先创建标签。"
-            />
-          </p>
-        )}
       </div>
 
       {/* ---------- image modal ---------- */}
@@ -1391,7 +1244,7 @@ function ToggleLabels(attrs: {}, context: WsContext) {
           nodeToVNode(
             <div
               id="label-toggle-container"
-              style={`position: absolute; right: 0; top: 0; display: ${input.isLabelVisible ? 'flex' : 'none'}; flex-direction: column; gap: 0.25rem; z-index: 10;`}
+              style={`position: fixed; right: 0.5rem; top: 8rem; display: ${input.isLabelVisible ? 'flex' : 'none'}; flex-direction: column; gap: 0.25rem; z-index: 10;`}
             >
               {mapArray(labels, label => {
                 let annotated_count = count_annotated_images.get({
