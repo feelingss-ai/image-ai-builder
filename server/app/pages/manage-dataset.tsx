@@ -295,12 +295,59 @@ let style = Style(/* css */ `
 #imageModal .nav-buttons {
   position: absolute;
   bottom: 10px;
+  left: 0;
+  right: 0;
   display: flex;
+  justify-content: center;
   gap: 1rem;
 }
 #imageModal .nav-buttons ion-button {
   --padding-start: 1rem;
   --padding-end: 1rem;
+}
+
+/* ---------- image modal: mobile responsive ---------- */
+@media (max-width: 600px) {
+  #imageModal {
+    --width: 92vw;
+    --height: 92vh;
+    --border-radius: 12px;
+  }
+  #imageModal .modal-content {
+    flex-direction: column;
+  }
+  #imageModal .sidebar {
+    width: 100%;
+    max-height: 40%;
+    border-right: none;
+    border-bottom: 1px solid #ccc;
+  }
+  #imageModal .image-container {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ---------- confirm modals: mobile responsive ---------- */
+  #deleteConfirmModal > div,
+  #unlabelConfirmModal > div,
+  #exportConfirmModal > div {
+    min-width: auto !important;
+    max-width: 92vw !important;
+    width: 92vw !important;
+    padding: 1.2rem !important;
+    margin: 0 4vw !important;
+    box-sizing: border-box !important;
+  }
+  #exportConfirmModal .label-selection-container {
+    max-height: 40vh !important;
+  }
+  #exportConfirmModal > div > div:last-child > div:first-child {
+    flex-direction: column !important;
+    gap: 0.5rem !important;
+  }
+  #exportConfirmModal > div > div:last-child > div:first-child > ion-button {
+    width: 100% !important;
+  }
 }
 #labelStatus.loading {
   text-align: center;
