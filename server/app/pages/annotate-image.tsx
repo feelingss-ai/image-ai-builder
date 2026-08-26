@@ -171,6 +171,11 @@ function getProjectId() {
 //   ArrowLeft  -> annotate as NO  (reject)
 //   ArrowRight -> annotate as YES (agree)
 //   ArrowUp    -> undo last annotation
+// Long-press detection: a single press fires once immediately.
+// If the key is held for 1 second, it starts repeating continuously.
+const LONG_PRESS_MS = 1000
+const keyPressStart = {}
+
 document.addEventListener('keydown', function(event) {
   // Ignore shortcuts when typing in an input/select/textarea or contentEditable
   const target = event.target
@@ -184,6 +189,19 @@ document.addEventListener('keydown', function(event) {
   if (isEditable) return
 
   const key = event.key
+  const isArrow = key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp'
+  if (!isArrow) return
+
+  // Record the first press time (only on the initial keydown, not auto-repeat)
+  if (!event.repeat) {
+    keyPressStart[key] = Date.now()
+  }
+
+  // On auto-repeat, only fire if the key has been held for at least 1 second
+  if (event.repeat && Date.now() - (keyPressStart[key] || 0) < LONG_PRESS_MS) {
+    return
+  }
+
   if (key === 'ArrowLeft') {
     const btn = document.getElementById('btn_submit_reject')
     if (btn && !btn.disabled) {
@@ -203,6 +221,11 @@ document.addEventListener('keydown', function(event) {
       undoAnnotation()
     }
   }
+})
+
+// Clear the press time when the key is released
+document.addEventListener('keyup', function(event) {
+  delete keyPressStart[event.key]
 })
 `)
 
