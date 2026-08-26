@@ -1,6 +1,6 @@
-import { loadClientPlugin } from '../../client-plugin.js'
+import { confettiPlugin, sweetAlertPlugin } from '../../client-plugins.js'
 import { allNames } from '@beenotung/tslib/constant/character-name.js'
-import { dataTableAsset, enableDataTable } from '../components/data-table.js'
+import { DataTable } from '../components/data-table.js'
 import { mapArray } from '../components/fragment.js'
 import { Locale, Title } from '../components/locale.js'
 import { Script } from '../components/script.js'
@@ -10,14 +10,7 @@ import { Swiper } from '../components/swiper.js'
 import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { Chart, ChartScript } from '../components/chart.js'
-
-let sweetAlertPlugin = loadClientPlugin({
-  entryFile: 'dist/client/sweetalert.js',
-})
-
-let confettiPlugin = loadClientPlugin({
-  entryFile: 'dist/client/confetti.js',
-})
+import { LayoutType } from '../../config.js'
 
 let icons = ['success', 'error', 'warning', 'info', 'question']
 
@@ -42,14 +35,17 @@ h2 {
   margin: 1em 0.25em;
   border-color: #5555;
 }
-#demo-swiper {
+#demo-swiper, #demo-image-swiper {
   outline: 1px solid black;
   max-width: 300px;
   height: 150px;
   background-color: #f552;
   --swiper-theme-color: red;
 }
-#demo-swiper .swiper-slide {
+#demo-image-swiper {
+  --swiper-theme-color: bisque;
+}
+#demo-swiper .swiper-slide, #demo-image-swiper .swiper-slide {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -65,6 +61,10 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+#demo-chart-container {
+  max-width: 320px;
+  margin: auto;
 }
 `)}
     <h1>
@@ -85,34 +85,11 @@ h2 {
     <hr />
 
     <h2>
-      <Locale en="Swiper Demo" zh_hk="Swiper 示範" zh_cn="Swiper 示范" />
-    </h2>
-    <Swiper
-      id="demo-swiper"
-      slides={[<p>Slice 1</p>, <p>Slice 2</p>, <p>Slice 3</p>]}
-      showPagination
-      showArrow
-    />
-
-    <hr />
-
-    <h2>
-      <Locale en="Chart Demo" zh_hk="圖表示範" zh_cn="图表示范" />
-    </h2>
-    {ChartScript}
-    <Chart
-      canvas_id="demo-chart"
-      data_labels={demo_chart_label}
-      datasets={[{ label: 'PI Digits', data: demo_chart_data }]}
-      borderWidth={1}
-      min={0}
-      max={9}
-    />
-
-    <hr />
-
-    <h2>
-      <Locale en="Confetti Demo" zh_hk="彩紙示範" zh_cn="彩纸示范" />
+      <Locale
+        en="Canvas Confetti Demo"
+        zh_hk="彩紙示範 (canvas-confetti)"
+        zh_cn="彩纸示范 (canvas-confetti)"
+      />
     </h2>
     <div className="demo-buttons">
       <button onclick="fireConfetti()">
@@ -126,14 +103,73 @@ h2 {
       </button>
     </div>
     {confettiPlugin.node}
+    {Script(/* javascript */ `
+// play the effect once automatically when enter the page
+fireConfetti()
+`)}
 
     <hr />
 
     <h2>
       <Locale
-        en="Sweet Alert Demo"
-        zh_hk="Sweet Alert 示範"
-        zh_cn="Sweet Alert 示範"
+        en="Swiper/Slider Demo"
+        zh_hk="Swiper/Slider 示範"
+        zh_cn="Swiper/Slider 示范"
+      />
+    </h2>
+    <h3>
+      <Locale en="Text Slides" zh_hk="文字幻燈片" zh_cn="文字幻灯片" />
+    </h3>
+    <Swiper
+      id="demo-swiper"
+      slides={[<p>Slice 1</p>, <p>Slice 2</p>, <p>Slice 3</p>]}
+      showPagination
+      showArrow
+      interval={3000}
+    />
+    <h3>
+      <Locale en="Image Slides" zh_hk="圖片幻燈片" zh_cn="图片幻灯片" />
+    </h3>
+    <Swiper
+      id="demo-image-swiper"
+      images={[
+        <img src="https://picsum.photos/seed/2/300/150" />,
+        <img src="https://picsum.photos/seed/3/300/150" />,
+        <img src="https://picsum.photos/seed/4/300/150" />,
+      ]}
+      showArrow
+      showPagination
+      interval={3000}
+    />
+
+    <hr />
+
+    <h2>
+      <Locale
+        en="Chart.js Demo"
+        zh_hk="圖表示範 (chart.js)"
+        zh_cn="图表示范 (chart.js)"
+      />
+    </h2>
+    {ChartScript}
+    <div id="demo-chart-container">
+      <Chart
+        canvas_id="demo-chart"
+        data_labels={demo_chart_label}
+        datasets={[{ label: 'PI Digits', data: demo_chart_data }]}
+        borderWidth={1}
+        min={0}
+        max={9}
+      />
+    </div>
+
+    <hr />
+
+    <h2>
+      <Locale
+        en="SweetAlert2 Demo"
+        zh_hk="通知彈出視窗示範 (SweetAlert2)"
+        zh_cn="通知弹出窗口示範 (SweetAlert2)"
       />
     </h2>
     {sweetAlertPlugin.node}
@@ -142,13 +178,11 @@ h2 {
     </h3>
     <div class="demo-buttons">
       <button onclick="showToast('sample text message')">default</button>
-      {[
-        icons.map(icon => (
-          <button onclick={`showToast('sample ${icon} message', '${icon}')`}>
-            {icon}
-          </button>
-        )),
-      ]}
+      {mapArray(icons, icon => (
+        <button onclick={`showToast('sample ${icon} message', '${icon}')`}>
+          {icon}
+        </button>
+      ))}
     </div>
     <h3>
       <Locale
@@ -159,13 +193,11 @@ h2 {
     </h3>
     <div class="demo-buttons">
       <button onclick="showAlert('sample text message')">default</button>
-      {[
-        icons.map(icon => (
-          <button onclick={`showAlert('sample ${icon} message', '${icon}')`}>
-            {icon}
-          </button>
-        )),
-      ]}
+      {mapArray(icons, icon => (
+        <button onclick={`showAlert('sample ${icon} message', '${icon}')`}>
+          {icon}
+        </button>
+      ))}
     </div>
     <h3>
       <Locale
@@ -176,11 +208,9 @@ h2 {
     </h3>
     <div class="demo-buttons">
       <button onclick="demoConfirm()">default</button>
-      {[
-        icons.map(icon => (
-          <button onclick={`demoConfirm('${icon}')`}>{icon}</button>
-        )),
-      ]}
+      {mapArray(icons, icon => (
+        <button onclick={`demoConfirm('${icon}')`}>{icon}</button>
+      ))}
     </div>
     {Script(/* javascript */ `
 async function demoConfirm(icon) {
@@ -201,46 +231,36 @@ async function demoConfirm(icon) {
 
     <h2>
       <Locale
-        en="DataTable Demo"
-        zh_hk="DataTable 示範"
-        zh_cn="DataTable 示范"
+        en="DataTables.net Demo"
+        zh_hk="表格示範 (DataTables.net)"
+        zh_cn="表格示范 (DataTables.net)"
       />
     </h2>
-    <table id="demo-dataTable">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Username</th>
-          <th>Status</th>
-          <th>Icon</th>
-        </tr>
-      </thead>
-      <tbody>
-        {mapArray(allNames, (name, index) => {
-          let icon = icons[index % icons.length]
-          return (
-            <tr>
-              <td>{index + 1}</td>
-              <td>{name}</td>
-              <td>{icon}</td>
-              <th>
-                <div
-                  class={`swal2-icon swal2-${icon} swal2-icon-show`}
-                  style="display: flex;"
-                >
-                  <div class="swal2-icon-content">!</div>
-                </div>
-              </th>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
-    {dataTableAsset}
-    {enableDataTable('demo-dataTable', {
-      pageLength: 3,
-      lengthMenu: [1, 2, 3, 5, 10, 25],
-    })}
+    <DataTable
+      id="demo-dataTable"
+      headers={{
+        id: <Locale en="ID" zh_hk="ID" zh_cn="ID" />,
+        name: <Locale en="Username" zh_hk="用戶名" zh_cn="用户名" />,
+        status: <Locale en="Status" zh_hk="狀態" zh_cn="状态" />,
+        icon: <Locale en="Icon" zh_hk="圖示" zh_cn="图示" />,
+      }}
+      rows={allNames.map((name, index) => {
+        let icon = icons[index % icons.length]
+        return {
+          id: index + 1,
+          name,
+          status: icon,
+          icon: (
+            <div
+              class={`swal2-icon swal2-${icon} swal2-icon-show`}
+              style="display: flex;"
+            >
+              <div class="swal2-icon-content">!</div>
+            </div>
+          ),
+        }
+      })}
+    />
 
     <hr />
 
@@ -272,6 +292,7 @@ let routes = {
       />
     ),
     node: content,
+    layout_type: LayoutType.navbar,
   },
 } satisfies Routes
 

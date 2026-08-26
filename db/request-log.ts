@@ -13,7 +13,7 @@ function getMethodId(method: string): number {
 }
 
 let url_cache = new Map<string, number>()
-function getUrlId(url: string): number {
+export function getUrlId(url: string): number {
   let id = url_cache.get(url)
   if (id) return id
   id = find(proxy.url, { url })?.id || proxy.url.push({ url })
@@ -49,11 +49,13 @@ export function storeRequestLog(request: {
     method_id: getMethodId(request.method),
     url_id: getUrlId(request.url),
     user_agent_id: user_agent ? getUserAgentId(user_agent) : null,
+    geo_ip_id: null,
     request_session_id: request.session_id,
     user_id: request.user_id,
     timestamp: Date.now(),
   })
   checkNewRequestLog(log_id)
+  return log_id
 }
 
 export function newRequestSession() {

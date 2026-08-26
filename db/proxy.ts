@@ -15,6 +15,8 @@ export type RequestLog = {
   url?: Url
   user_agent_id: null | number
   user_agent?: UserAgent
+  geo_ip_id: null | number
+  geo_ip?: GeoIp
   request_session_id: null | number
   request_session?: RequestSession
   user_id: null | number
@@ -30,6 +32,18 @@ export type Method = {
 export type Url = {
   id?: null | number
   url: string
+}
+
+export type GeoIpParts = {
+  id?: null | number
+  hash: string
+  content: string
+}
+
+export type GeoIp = {
+  id?: null | number
+  hash: string
+  content: string
 }
 
 export type UserAgent = {
@@ -75,6 +89,19 @@ export type User = {
   avatar: null | string
   is_admin: null | boolean
   nickname: null | string
+}
+
+export type ErrorLog = {
+  id?: null | number
+  timestamp: number
+  title: string
+  error: string
+  client_url_id: number
+  client_url?: Url
+  api_url_id: number
+  api_url?: Url
+  request_log_id: number
+  request_log?: RequestLog
 }
 
 export type VerificationCode = {
@@ -203,12 +230,15 @@ export type DBProxy = {
   request_log: RequestLog[]
   method: Method[]
   url: Url[]
+  geo_ip_parts: GeoIpParts[]
+  geo_ip: GeoIp[]
   user_agent: UserAgent[]
   ua_type: UaType[]
   ua_bot: UaBot[]
   ua_stat: UaStat[]
   request_session: RequestSession[]
   user: User[]
+  error_log: ErrorLog[]
   verification_code: VerificationCode[]
   verification_attempt: VerificationAttempt[]
   content_report: ContentReport[]
@@ -230,11 +260,14 @@ export let proxy = proxySchema<DBProxy>({
       ['method', { field: 'method_id', table: 'method' }],
       ['url', { field: 'url_id', table: 'url' }],
       ['user_agent', { field: 'user_agent_id', table: 'user_agent' }],
+      ['geo_ip', { field: 'geo_ip_id', table: 'geo_ip' }],
       ['request_session', { field: 'request_session_id', table: 'request_session' }],
       ['user', { field: 'user_id', table: 'user' }],
     ],
     method: [],
     url: [],
+    geo_ip_parts: [],
+    geo_ip: [],
     user_agent: [
       /* foreign references */
       ['ua_type', { field: 'ua_type_id', table: 'ua_type' }],
@@ -245,6 +278,12 @@ export let proxy = proxySchema<DBProxy>({
     ua_stat: [],
     request_session: [],
     user: [],
+    error_log: [
+      /* foreign references */
+      ['client_url', { field: 'client_url_id', table: 'url' }],
+      ['api_url', { field: 'api_url_id', table: 'url' }],
+      ['request_log', { field: 'request_log_id', table: 'request_log' }],
+    ],
     verification_code: [
       /* foreign references */
       ['match', { field: 'match_id', table: 'verification_attempt' }],

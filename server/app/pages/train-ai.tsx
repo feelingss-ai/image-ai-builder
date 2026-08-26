@@ -2,7 +2,11 @@ import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
-import { DynamicContext, ExpressContext, getContextFormBody } from '../context.js'
+import {
+  DynamicContext,
+  ExpressContext,
+  getContextFormBody,
+} from '../context.js'
 import { getContextProject } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { float, int, object, values } from 'cast.ts'
@@ -32,7 +36,7 @@ import { join } from 'path'
 import { tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
 import { existsSync, rmSync } from 'fs'
-import { ajaxRoute } from '../routes.js'
+import { ajaxRoute } from '../api-route.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 
 let pageTitle = (

@@ -55,14 +55,26 @@ export function Swiper(
 }
 .swiper-pagination-images {
   display: flex;
-  position: static;
+  align-items: center;
+  justify-content: center;
+  bottom: var(--swiper-pagination-bottom,8px);
+  left: 0;
+  top: var(--swiper-pagination-top,auto);
+  width: 100%;
 }
 .swiper-pagination-images img {
   width: var(--swiper-pagination-image-size,3rem);
   height: var(--swiper-pagination-image-size,3rem);
+  object-fit: cover;
 }
 .swiper-pagination-image {
-  display: flex;
+  display: inline-flex;
+  cursor: pointer;
+  margin: 0 var(--swiper-pagination-image-horizontal-gap,4px);
+  opacity: var(--swiper-pagination-image-inactive-opacity,.5);
+}
+.swiper-pagination-image-active {
+  opacity: var(--swiper-pagination-image-opacity,1);
 }
 `
   }
@@ -115,14 +127,36 @@ export function Swiper(
         ) : null}
         {attrs.showArrow ? (
           <>
-            <div
-              class="swiper-button-prev"
-              onclick="swiperSlide(this, -1)"
-            ></div>
-            <div
-              class="swiper-button-next"
-              onclick="swiperSlide(this, +1)"
-            ></div>
+            <div class="swiper-button-prev" onclick="swiperSlide(this, -1)">
+              <svg
+                class="swiper-navigation-icon"
+                width="11"
+                height="20"
+                viewBox="0 0 11 20"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M0.38296 20.0762C0.111788 19.805 0.111788 19.3654 0.38296 19.0942L9.19758 10.2796L0.38296 1.46497C0.111788 1.19379 0.111788 0.754138 0.38296 0.482966C0.654131 0.211794 1.09379 0.211794 1.36496 0.482966L10.4341 9.55214C10.8359 9.9539 10.8359 10.6053 10.4341 11.007L1.36496 20.0762C1.09379 20.3474 0.654131 20.3474 0.38296 20.0762Z"
+                  fill="currentColor"
+                ></path>
+              </svg>
+            </div>
+            <div class="swiper-button-next" onclick="swiperSlide(this, +1)">
+              <svg
+                class="swiper-navigation-icon"
+                width="11"
+                height="20"
+                viewBox="0 0 11 20"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M0.38296 20.0762C0.111788 19.805 0.111788 19.3654 0.38296 19.0942L9.19758 10.2796L0.38296 1.46497C0.111788 1.19379 0.111788 0.754138 0.38296 0.482966C0.654131 0.211794 1.09379 0.211794 1.36496 0.482966L10.4341 9.55214C10.8359 9.9539 10.8359 10.6053 10.4341 11.007L1.36496 20.0762C1.09379 20.3474 0.654131 20.3474 0.38296 20.0762Z"
+                  fill="currentColor"
+                ></path>
+              </svg>
+            </div>
           </>
         ) : null}
       </div>
@@ -154,6 +188,15 @@ function swiperSlide(swiper, dir) {
       e.classList.remove('swiper-pagination-bullet-active')
     }
   })
+  swiper.querySelectorAll('.swiper-pagination-image').forEach((e, i) => {
+    if (i == index) {
+      e.setAttribute('aria-current', 'true')
+      e.classList.add('swiper-pagination-image-active')
+    } else {
+      e.removeAttribute('aria-current')
+      e.classList.remove('swiper-pagination-image-active')
+    }
+  })
 }
 function swiperSetup(swiper, index, interval) {
   swiperSlide(swiper, String(index))
@@ -163,6 +206,7 @@ function swiperSetup(swiper, index, interval) {
   }
   let timer
   function start() {
+    if (timer) clearInterval(timer)
     timer = setInterval(autoSlide, interval)
   }
   function pause() {

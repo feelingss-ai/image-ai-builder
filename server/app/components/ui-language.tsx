@@ -11,37 +11,44 @@ import { Raw } from './raw.js'
 import { apiEndpointTitle } from '../../config.js'
 import { toRouteUrl } from '../../url.js'
 import { Redirect } from './router.js'
-import { Locale } from './locale.js'
+import { languages, Locale } from './locale.js'
 import { mapArray } from './fragment.js'
 import { YEAR } from '@beenotung/tslib/time.js'
 import { MessageException } from '../../exception.js'
 
 export let language_max_age = (20 * YEAR) / 1000
 
-export function PickLanguage(attrs: { style?: string }, context: Context) {
+export function PickLanguage(
+  attrs: {
+    style?: string
+    /** default is horizontal */
+    direction?: 'vertical' | 'horizontal'
+  },
+  context: Context,
+) {
   let lang = getContextLanguage(context)
   let return_url = context.type == 'static' ? '' : context.url
+  let style = attrs.style || ''
+  if (attrs.direction === 'vertical') {
+    style += '; display: flex; flex-direction: column; gap: 0.5rem;'
+  }
   return (
-    <div style={attrs.style}>
+    <div style={style}>
       🌏 <Locale en="Language" zh_hk="語言" zh_cn="语言" />:{' '}
       {mapArray(
-        [
-          ['en', 'English'],
-          ['zh-HK', '繁體中文'],
-          ['zh-CN', '简体中文'],
-        ],
-        ([lang, text]) => (
+        languages,
+        lang => (
           <a
-            onclick={`switchLang(event, '${lang}')`}
+            onclick={`switchLang(event, '${lang.code}')`}
             href={toRouteUrl(routes, '/set-lang/:lang', {
-              params: { lang },
+              params: { lang: lang.code },
               query: { return_url },
             })}
           >
-            <button>{text}</button>
+            <button>{lang.name}</button>
           </a>
         ),
-        ' | ',
+        attrs.direction === 'vertical' ? null : ' | ',
       )}
       {Raw(/* html */ `
 <script>

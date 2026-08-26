@@ -15,7 +15,7 @@ import { Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser, getAuthUserRole } from '../auth/user.js'
 import { Locale, Title } from '../components/locale.js'
-import { Page } from '../components/page.js'
+import { Content, Page } from '../components/page.js'
 import { toRouteUrl } from '../../url.js'
 import { ContentReport, proxy } from '../../../db/proxy.js'
 import { BackToLink } from '../components/back-to-link.js'
@@ -35,6 +35,7 @@ type ReasonCategory = {
   en: string
   zh_hk: string
   zh_cn: string
+  icon: string
   types: ReasonType[]
 }
 
@@ -43,6 +44,7 @@ type ReasonType = {
   en: string
   zh_hk: string
   zh_cn: string
+  icon: string
 }
 
 let reasonCategories: ReasonCategory[] = [
@@ -51,24 +53,28 @@ let reasonCategories: ReasonCategory[] = [
     en: 'Emergency & Safety',
     zh_hk: '緊急及安全',
     zh_cn: '紧急及安全',
+    icon: 'alert-circle',
     types: [
       {
         code: 'child_safety',
         en: 'Problem involving someone under 18',
         zh_hk: '涉及未成年人士的問題',
         zh_cn: '涉及未成年人士的问题',
+        icon: 'shield',
       },
       {
         code: 'self_harm',
         en: 'Suicide or self-harm',
         zh_hk: '自殺或自殘',
         zh_cn: '自杀或自残',
+        icon: 'heart-dislike',
       },
       {
         code: 'violence',
         en: 'Violence or gore',
         zh_hk: '暴力或血腥內容',
         zh_cn: '暴力或血腥内容',
+        icon: 'alert-circle',
       },
     ],
   },
@@ -77,24 +83,28 @@ let reasonCategories: ReasonCategory[] = [
     en: 'Abuse & Harassment',
     zh_hk: '濫用及騷擾',
     zh_cn: '滥用及骚扰',
+    icon: 'shield',
     types: [
       {
         code: 'harassment',
         en: 'Bullying, harassment or abuse',
         zh_hk: '欺凌、騷擾或虐待',
         zh_cn: '欺凌、骚扰或虐待',
+        icon: 'ban',
       },
       {
         code: 'hate',
         en: 'Hate speech or discrimination',
         zh_hk: '仇恨言論或歧視',
         zh_cn: '仇恨言论或歧视',
+        icon: 'close-circle',
       },
       {
         code: 'disturbing',
         en: 'Disturbing or distressing content',
         zh_hk: '令人不安或困擾的內容',
         zh_cn: '令人不安或困扰的内容',
+        icon: 'alert',
       },
     ],
   },
@@ -103,24 +113,28 @@ let reasonCategories: ReasonCategory[] = [
     en: 'Scams & Deception',
     zh_hk: '詐騙及欺詐',
     zh_cn: '诈骗及欺诈',
+    icon: 'warning',
     types: [
       {
         code: 'scam',
         en: 'Scam or fraud',
         zh_hk: '詐騙或欺詐',
         zh_cn: '诈骗或欺诈',
+        icon: 'warning',
       },
       {
         code: 'impersonation',
         en: 'Impersonation or fake accounts',
         zh_hk: '冒充或假冒帳號',
         zh_cn: '冒充或假冒账号',
+        icon: 'person-circle',
       },
       {
         code: 'misinformation',
         en: 'False or misleading information',
         zh_hk: '虛假或誤導性資訊',
         zh_cn: '虚假或误导性信息',
+        icon: 'document',
       },
     ],
   },
@@ -129,30 +143,35 @@ let reasonCategories: ReasonCategory[] = [
     en: 'Prohibited Content & Activities',
     zh_hk: '違規內容及行為',
     zh_cn: '违规内容及行为',
+    icon: 'ban',
     types: [
       {
         code: 'illegal',
         en: 'Illegal content or activities',
         zh_hk: '非法內容或活動',
         zh_cn: '非法内容或活动',
+        icon: 'ban',
       },
       {
         code: 'restricted_items',
         en: 'Selling or promoting restricted items or services',
         zh_hk: '銷售或推廣受限制物品或服務',
         zh_cn: '销售或推广受限制物品或服务',
+        icon: 'close-circle',
       },
       {
         code: 'adult',
         en: 'Adult content',
         zh_hk: '成人內容',
         zh_cn: '成人内容',
+        icon: 'eye-off',
       },
       {
         code: 'ip',
         en: 'Intellectual property violation',
         zh_hk: '侵犯知識產權',
         zh_cn: '侵犯知识产权',
+        icon: 'copy',
       },
     ],
   },
@@ -161,24 +180,44 @@ let reasonCategories: ReasonCategory[] = [
     en: 'Content Quality & Relevance',
     zh_hk: '內容質素及相關性',
     zh_cn: '内容质量及相关性',
+    icon: 'document',
     types: [
       {
         code: 'spam',
         en: 'Spam or irrelevant content',
         zh_hk: '垃圾訊息或不相關內容',
         zh_cn: '垃圾信息或不相关内容',
+        icon: 'trash',
       },
       {
         code: 'unwanted',
         en: "I don't want to see this",
         zh_hk: '我不想看到這個內容',
         zh_cn: '我不想看到这个内容',
+        icon: 'eye-off',
       },
     ],
   },
 ]
 
-let script = Script(/* js */ `
+let webStyle = Style(/* css */ `
+.report-type--label {
+  display: block;
+  margin-inline-start: 1rem;
+  padding: 0.25rem 0;
+}
+`)
+
+let webScript = Script(/* js */ `
+ReportContentForm.addEventListener('change', event => {
+  if (event.target.name != 'type') return
+  let form = event.target.closest('form')
+  let submitButton = form.querySelector('button[type="submit"]')
+  submitButton.disabled = !event.target.checked
+})
+`)
+
+let ionicScript = Script(/* js */ `
 ReportContentForm.addEventListener('ionChange', event => {
   if (event.target.name != 'type') return
   let form = event.target.closest('form')
@@ -208,7 +247,7 @@ function ReportPage(attrs: {}, context: Context) {
         ) : null
       }
     >
-      {ionicStyle}
+      <Content web={webStyle} ionic={ionicStyle} />
       <p>
         <ion-icon name="warning" color="warning" size="large" />{' '}
         <Locale
@@ -226,54 +265,137 @@ function ReportPage(attrs: {}, context: Context) {
       >
         <input type="hidden" name="return_url" value={return_url} />
         <input type="hidden" name="return_title" value={return_title} />
-        <ion-list>
-          <ion-list-header>
-            <Locale en="Problem Categories" zh_hk="問題分類" zh_cn="问题分类" />
-          </ion-list-header>
-          <ion-radio-group name="type">
-            {mapArray(reasonCategories, category => (
-              <ion-item-group>
-                <ion-item-divider>
-                  <Locale
-                    en={category.en}
-                    zh_hk={category.zh_hk}
-                    zh_cn={category.zh_cn}
-                  />
-                </ion-item-divider>
-                {mapArray(category.types, type => (
-                  <ion-item>
-                    <ion-radio value={type.code}>
+        <Content
+          web={
+            <>
+              <div>
+                {mapArray(reasonCategories, category => (
+                  <details>
+                    <summary>
                       <Locale
-                        en={type.en}
-                        zh_hk={type.zh_hk}
-                        zh_cn={type.zh_cn}
+                        en={category.en}
+                        zh_hk={category.zh_hk}
+                        zh_cn={category.zh_cn}
                       />
-                    </ion-radio>
-                  </ion-item>
+                    </summary>
+                    {mapArray(category.types, type => (
+                      <label class="report-type--label">
+                        <input type="radio" name="type" value={type.code} />{' '}
+                        <Locale
+                          en={type.en}
+                          zh_hk={type.zh_hk}
+                          zh_cn={type.zh_cn}
+                        />
+                      </label>
+                    ))}
+                  </details>
                 ))}
-              </ion-item-group>
-            ))}
-          </ion-radio-group>
-          <ion-list-header>
-            <Locale en="Additional Details" zh_hk="補充資料" zh_cn="补充资料" />
-          </ion-list-header>
-          <ion-item>
-            <ion-textarea
-              name="remark"
-              placeholder={Locale(
-                {
-                  en: 'Any details that can help us review this report',
-                  zh_hk: '任何有助我們審視此檢舉的資料',
-                  zh_cn: '任何有助我们审视此检举的资料',
-                },
-                context,
-              )}
-            ></ion-textarea>
-          </ion-item>
-        </ion-list>
-        <ion-button shape="round" expand="full" type="submit" disabled>
-          <Locale en="Submit Report" zh_hk="發送回報" zh_cn="发送报告" />
-        </ion-button>
+              </div>
+              <div>
+                <label>
+                  <Locale
+                    en="Additional Details"
+                    zh_hk="補充資料"
+                    zh_cn="补充资料"
+                  />
+                  <br />
+                  <textarea
+                    name="remark"
+                    placeholder={Locale(
+                      {
+                        en: 'Any details that can help us review this report',
+                        zh_hk: '任何有助我們審視此檢舉的資料',
+                        zh_cn: '任何有助我们审视此检举的资料',
+                      },
+                      context,
+                    )}
+                  ></textarea>
+                </label>
+              </div>
+              <button type="submit" disabled>
+                <Locale en="Submit Report" zh_hk="發送回報" zh_cn="发送报告" />
+              </button>
+            </>
+          }
+          ionic={
+            <>
+              <ion-list>
+                <ion-list-header>
+                  <Locale
+                    en="Problem Categories"
+                    zh_hk="問題分類"
+                    zh_cn="问题分类"
+                  />
+                </ion-list-header>
+                <ion-radio-group name="type">
+                  <ion-accordion-group>
+                    {mapArray(reasonCategories, category => (
+                      <ion-accordion value={category.code}>
+                        <ion-item slot="header">
+                          <ion-icon
+                            slot="start"
+                            name={category.icon}
+                            size="small"
+                            color="medium"
+                          />
+                          <ion-label>
+                            <Locale
+                              en={category.en}
+                              zh_hk={category.zh_hk}
+                              zh_cn={category.zh_cn}
+                            />
+                          </ion-label>
+                        </ion-item>
+                        {mapArray(category.types, type => (
+                          <ion-item slot="content">
+                            <ion-icon
+                              slot="start"
+                              name={type.icon}
+                              size="small"
+                              color="warning"
+                            />
+                            <ion-radio value={type.code} color="warning">
+                              <span class="ion-text-wrap">
+                                <Locale
+                                  en={type.en}
+                                  zh_hk={type.zh_hk}
+                                  zh_cn={type.zh_cn}
+                                />
+                              </span>
+                            </ion-radio>
+                          </ion-item>
+                        ))}
+                      </ion-accordion>
+                    ))}
+                  </ion-accordion-group>
+                </ion-radio-group>
+                <ion-list-header>
+                  <Locale
+                    en="Additional Details"
+                    zh_hk="補充資料"
+                    zh_cn="补充资料"
+                  />
+                </ion-list-header>
+                <ion-item>
+                  <ion-textarea
+                    name="remark"
+                    placeholder={Locale(
+                      {
+                        en: 'Any details that can help us review this report',
+                        zh_hk: '任何有助我們審視此檢舉的資料',
+                        zh_cn: '任何有助我们审视此检举的资料',
+                      },
+                      context,
+                    )}
+                  ></ion-textarea>
+                </ion-item>
+              </ion-list>
+              <ion-button shape="round" expand="full" type="submit" disabled>
+                <Locale en="Submit Report" zh_hk="發送回報" zh_cn="发送报告" />
+              </ion-button>{' '}
+            </>
+          }
+        />
       </form>
 
       <p>
@@ -284,7 +406,7 @@ function ReportPage(attrs: {}, context: Context) {
           zh_cn="我们会审查您的报告，如发现用户的内容违规，我们将会作出适当处理。请放心，报告的资料会保密处理。与此同时，我们也可能会联系阁下以便跟进问题。"
         />
       </p>
-      {script}
+      <Content web={webScript} ionic={ionicScript} />
     </Page>
   )
 }
@@ -375,6 +497,64 @@ function countPendingReports() {
   })
 }
 
+let webReviewStyle = Style(/* css */ `
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: fit-content;
+}
+.report-card {
+  display: block;
+  border: 1px solid #e0e0e0;
+  padding: 1rem;
+  border-radius: 0.25rem;
+  box-shadow: 0 0 0.5rem 0 rgba(0, 0, 0, 0.1);
+}
+.report-card ion-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+.report-card ion-buttons ion-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.25rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all 0.2s ease-in-out;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.report-card ion-button:hover {
+  border-color: var(--theme-color);
+}
+.report-card ion-button[color="primary"] {
+  --theme-color: #007bff;
+  --theme-background: #fff;
+}
+.report-card ion-button[color="danger"] {
+  --theme-color: #eb445a;
+  --theme-background: #fff;
+}
+.report-card ion-button[color="dark"] {
+  --theme-color: #222;
+  --theme-background: #fff;
+}
+.report-card ion-button[fill="solid"] {
+  background-color: var(--theme-color);
+  color: var(--theme-background);
+}
+.report-card ion-button[fill="outline"] {
+  background-color: var(--theme-background);
+  color: var(--theme-color);
+  border-color: var(--theme-color);
+}
+`)
+
 // TODO show determined reports in different segments
 function ReviewPage(attrs: {}, context: DynamicContext) {
   let role = getAuthUserRole(context)
@@ -388,13 +568,13 @@ function ReviewPage(attrs: {}, context: DynamicContext) {
   let reports = selectPendingReports()
   return (
     <Page id="Review" title={ReviewPageTitle} class="ion-padding-vertical">
-      {ionicStyle}
+      <Content web={webReviewStyle} ionic={ionicStyle} />
       {reviewStyle}
       <p class="ion-padding-horizontal">
         Total <span class="pending-count">{countPendingReports()}</span> reports
         pending for review
       </p>
-      <ion-list>
+      <ion-list class="report-list">
         {mapArray(reports, report => {
           let type_code = report.type
           let category = reasonCategories.find(category =>
@@ -543,21 +723,21 @@ function updateReportList(report: ContentReport) {
     [
       ['update-text', '.pending-count', countPendingReports()],
       [
-        'update-props',
+        'update-attrs',
         `[data-report-id="${report.id}"] .review-button`,
         {
           fill: report.review_time ? 'solid' : 'outline',
         },
       ],
       [
-        'update-props',
+        'update-attrs',
         `[data-report-id="${report.id}"] .accept-button`,
         {
           fill: report.accept_time ? 'solid' : 'outline',
         },
       ],
       [
-        'update-props',
+        'update-attrs',
         `[data-report-id="${report.id}"] .reject-button`,
         {
           fill: report.reject_time ? 'solid' : 'outline',
@@ -569,7 +749,6 @@ function updateReportList(report: ContentReport) {
 
 let routes = {
   '/report-content': {
-    menuText: pageTitle,
     resolve(context) {
       return {
         title: <Title t={pageTitle} />,
@@ -595,7 +774,6 @@ let routes = {
     node: <SubmitResult />,
   },
   '/report-content/review': {
-    menuText: ReviewPageTitle,
     title: <Title t={ReviewPageTitle} />,
     description: 'Review content report submitted by users',
     node: <ReviewPage />,

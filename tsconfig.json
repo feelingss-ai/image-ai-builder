@@ -8,6 +8,10 @@
     "strict": true,
     "skipLibCheck": true,
     "incremental": true,
+    "types": [
+      "node",
+      "mocha"
+    ],
     "moduleResolution": "node",
     "target": "es2022",
     "module": "es2022",

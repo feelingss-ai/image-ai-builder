@@ -58,6 +58,10 @@ ion-title.ios {
   --ion-margin: 8px;
 }
 
+ion-item.with-checkbox {
+  user-select: none;
+}
+
 /* List hover: only for ion-list with class="hover-list" */
 ion-list.hover-list > ion-item {
   cursor: pointer;
@@ -117,7 +121,9 @@ async function fitIonFooter() {
 }
 function selectIonTab(tab) {
   let ionTab = document.querySelector('ion-tab-bar ion-tab-button[tab="'+tab+'"]')
+  if (!ionTab) return
   let ionIcon = ionTab.querySelector('ion-icon')
+  if (!ionIcon) return
   ionTab.classList.add('tab-selected')
   if (ionIcon.name) ionIcon.name = ionIcon.name.replace('-outline', '')
   if (ionIcon.ios) ionIcon.ios = ionIcon.ios.replace('-outline', '')
@@ -136,6 +142,35 @@ function afterNavigation() {
     app.classList.remove('hide')
     body.classList.remove('back')
   },1)
+}
+// auto toggle ion-checkbox in ion-item with class "with-checkbox"
+function autoToggleCheckboxInItem() {
+  window.addEventListener('click', event => {
+    let item = event.target.closest('ion-item')
+    if (!item) return
+    if (!item.classList.contains('with-checkbox')) return
+
+    let checkbox = item.querySelector('ion-checkbox')
+
+    // Don't trigger if clicking on the checkbox itself (it has its own handler)
+    if (event.target === checkbox || checkbox.contains(event.target)) {
+      return
+    }
+
+    // Toggle the checkbox
+    checkbox.checked = !checkbox.checked;
+
+    // Trigger the ionChange event manually
+    const ionChangeEvent = new CustomEvent('ionChange', {
+      detail: { checked: checkbox.checked },
+      bubbles: true
+    });
+    checkbox.dispatchEvent(ionChangeEvent);
+  })
+  window.autoToggleCheckboxInItem_ = 1
+}
+if (!window.autoToggleCheckboxInItem_) {
+  autoToggleCheckboxInItem()
 }
 `)
 
