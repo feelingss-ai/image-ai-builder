@@ -25,6 +25,20 @@ function initVirtualScroll() {
   let projectId = list.dataset.projectId || ''
   if (!projectId) return
 
+  // Mark the first .image-item as the template if not already marked.
+  // This was previously done in the inline <script> on the page, but that
+  // created a race condition: the plugin's auto-init (via
+  // customElements.whenDefined('ion-content') + setTimeout) could fire
+  // before the inline script ran, or the inline script may not re-run
+  // during SPA navigation. Doing it here makes the plugin self-contained.
+  let existingTemplate = list.querySelector('.image-item--template') as HTMLElement | null
+  if (!existingTemplate) {
+    let firstItem = list.querySelector('.image-item') as HTMLElement | null
+    if (firstItem) {
+      firstItem.classList.add('image-item--template')
+    }
+  }
+
   let total = parseInt(list.dataset.total || '0', 10)
   let layout = list.dataset.layout || 'multi'
 
@@ -163,8 +177,15 @@ function initVirtualScroll() {
   function createItemElement(idx: number): HTMLElement | undefined {
     let template = list.querySelector('.image-item--template') as HTMLElement | null
     if (!template) {
- console.log('[VS] createItem: TEMPLATE NOT FOUND for idx', idx)
- return undefined
+      // Fallback: try to find any .image-item and mark it as template
+      let fallback = list.querySelector('.image-item') as HTMLElement | null
+      if (fallback) {
+        fallback.classList.add('image-item--template')
+        template = fallback
+      } else {
+        console.log('[VS] createItem: TEMPLATE NOT FOUND for idx', idx)
+        return undefined
+      }
     }
     let item = template.cloneNode(true) as HTMLElement
     item.classList.remove('image-item--template')
@@ -370,6 +391,41 @@ function initVirtualScroll() {
     }
   }
   setTimeout(initialFill, 200)
+
+  // Expose refresh function so external code (e.g. pickImage) can trigger a reload
+  // after new images are uploaded. Resets cached data and re-renders.
+  ;(window as any).__vsRefresh = async function () {
+    // Re-fetch total from server to pick up newly uploaded images
+    try {
+      let params = new URLSearchParams({
+        project: projectId,
+        offset: '0',
+        limit: '1',
+      })
+      let res = await fetch('/upload-image/list?' + params)
+      let json = await res.json()
+      if (json.error) return
+      if (json.total !== undefined) {
+        total = json.total
+        list.dataset.total = String(total)
+        let countEl = document.getElementById('imageCount')
+        if (countEl) countEl.textContent = total.toLocaleString()
+      }
+    } catch (e) {
+      // ignore fetch errors
+    }
+    // Reset cached data so items get re-fetched with fresh order
+    fetched = new Array(total).fill(null)
+    fetchedRanges = []
+    // Remove all visible items so they get re-created with fresh data
+    visibleItems.forEach(el => el.remove())
+    visibleItems.clear()
+    // Re-render from scratch
+    recalcOffset()
+    computeCols()
+    updateSpacer()
+    render()
+  }
 }
 
 Object.assign(window, { initVirtualScroll })

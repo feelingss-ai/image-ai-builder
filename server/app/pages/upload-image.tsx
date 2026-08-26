@@ -104,7 +104,9 @@ let virtualScrollPlugin = loadClientPlugin({
 
 let script = Script(/* js */ `
 var imageItemTemplate = document.querySelector('#imageList .image-item')
-imageItemTemplate.classList.add('image-item--template')
+if (imageItemTemplate && !imageItemTemplate.classList.contains('image-item--template')) {
+  imageItemTemplate.classList.add('image-item--template')
+}
 
 async function pickImage(event) {
   try {
@@ -114,13 +116,35 @@ async function pickImage(event) {
     accept: '.jpg,.png,.webp,.heic,.gif',
     multiple: true,
   })
-  for (let _file of files) {
+
+  // Calculate layout params matching virtual-scroll positioning
+  let listEl = document.getElementById('imageList')
+  let containerW = listEl.clientWidth
+  let vsLayout = listEl.dataset.layout || 'multi'
+  let nCol = vsLayout === 'single' ? 1 : Math.max(1, Math.floor(containerW / 260))
+  let itemW = vsLayout === 'single' ? containerW : 260
+  let itemH = 310
+
+  // Count existing preview items (not template, not virtual-scroll managed)
+  let previewCount = listEl.querySelectorAll('.image-item:not(.image-item--template):not(.image-item--vs)').length
+
+  for (let i = 0; i < files.length; i++) {
+    let _file = files[i]
     let imageItem = imageItemTemplate.cloneNode(true)
     imageItem.classList.remove('image-item--template')
     let image = imageItem.querySelector('img')
     image.src = URL.createObjectURL(_file)
     image.file = _file
     imageItem.querySelector('.image-item--filename').textContent = _file.name
+
+    // Position the preview item to avoid overlap with other previews
+    let idx = previewCount + i
+    let col = idx % nCol
+    let row = Math.floor(idx / nCol)
+    imageItem.style.top = '0'
+    imageItem.style.left = '0'
+    imageItem.style.transform = 'translate(' + (col * itemW) + 'px, ' + (row * itemH) + 'px)'
+
     imageList.appendChild(imageItem)
     let uploadButton = imageItem.querySelector('.image-item--upload')
     uploadButton.setAttribute('color', 'primary')
@@ -153,6 +177,13 @@ async function pickImage(event) {
     }
     imageCount.textContent = json.count.toLocaleString()
   }
+
+  // Remove all preview items and refresh the virtual-scroll list
+  let previews = imageList.querySelectorAll('.image-item:not(.image-item--template):not(.image-item--vs)')
+  previews.forEach(function(el) { el.remove() })
+  if (typeof window.__vsRefresh === 'function') {
+    window.__vsRefresh()
+  }
   } catch (error) {
     showError(error)
   }
@@ -177,6 +208,10 @@ async function removeImage(button) {
     imageCount.textContent = json.count.toLocaleString()
   }
   imageItem.remove()
+  // Refresh the virtual-scroll list so remaining images shift forward
+  if (typeof window.__vsRefresh === 'function') {
+    window.__vsRefresh()
+  }
 }
 
 async function removeAllImages(event) {
@@ -570,6 +605,8 @@ async function ListImages(context: ExpressContext) {
     if (limit > 200) limit = 200
     let allImages = filter(proxy.image, { project_id })
     let total = allImages.length
+    // Reverse so newest images (highest id) come first
+    allImages.reverse()
     let images = allImages.slice(offset, offset + limit).map(image => ({
       id: image.id,
       filename: image.filename,
