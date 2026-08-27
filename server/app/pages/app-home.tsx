@@ -196,7 +196,7 @@ function Main(attrs: {}, context: DynamicContext) {
         <Link tagName="ion-item" href={'/manage-labels?project=' + project_id}>
           1. <Locale en="Manage Labels" zh_hk="管理標籤" zh_cn="管理标签" />
         </Link>
-        <Link tagName="ion-item" href={'/upload-image?project=' + project_id}>
+        {/* <Link tagName="ion-item" href={'/upload-image?project=' + project_id}>
           2. <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
         </Link>
 
@@ -208,9 +208,37 @@ function Main(attrs: {}, context: DynamicContext) {
           4.{' '}
           <Locale en="Manage Dataset" zh_hk="管理數據集" zh_cn="管理数据集"
           />
-        </Link>
+        </Link> */}
         <ion-item>
-          5.{' '}
+          2. <Locale en="Image Dataset" zh_hk="圖像數據集" zh_cn="图像数据集" />
+        </ion-item>
+        <ion-item>
+          <ion-buttons slot="start">
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/upload-image?project=' + project_id}
+            >
+              <Locale en="Upload" zh_hk="上傳" zh_cn="上传" />
+            </IonButton>
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/import-dataset?project=' + project_id}
+            >
+              <Locale en="Import" zh_hk="匯入" zh_cn="导入" />
+            </IonButton>
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/manage-dataset?project=' + project_id}
+            >
+              <Locale en="Manage" zh_hk="管理" zh_cn="管理" />
+            </IonButton>
+          </ion-buttons>
+        </ion-item>
+        <ion-item>
+          3.{' '}
           <Locale en="Image Classification" zh_hk="圖像分類" zh_cn="图像分类" />
         </ion-item>
         <ion-item>
@@ -239,7 +267,7 @@ function Main(attrs: {}, context: DynamicContext) {
           </ion-buttons>
         </ion-item>
         <ion-item>
-          6.{' '}
+          4.{' '}
           <Locale
             en="Bounding Box Classification"
             zh_hk="邊界框分類"
@@ -281,13 +309,13 @@ function Main(attrs: {}, context: DynamicContext) {
           </ion-buttons>
         </ion-item>
         <Link tagName="ion-item" href={'/stats?project=' + project_id}>
-          7. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
+          5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
         </Link>
         <Link
           tagName="ion-item"
           href={'/import-export-model?project=' + project_id}
         >
-          8.{' '}
+          6.{' '}
           <Locale
             en="Import/Export Model"
             zh_hk="匯入/匯出模型"
