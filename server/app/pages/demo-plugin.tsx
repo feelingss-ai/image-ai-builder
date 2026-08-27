@@ -11,6 +11,7 @@ import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { Chart, ChartScript } from '../components/chart.js'
 import { LayoutType } from '../../config.js'
+import VirtualGrid from '../components/virtual-grid.js'
 
 let icons = ['success', 'error', 'warning', 'info', 'question']
 
@@ -24,6 +25,73 @@ Math.PI.toString()
     demo_chart_label.push(String(index + 1))
     demo_chart_data.push(parseInt(char))
   })
+
+// init demo virtual grid data
+let names = []
+let first_names = ['Alice', 'Bob', 'Charlie', 'David', 'Eve', 'Frank', 'George']
+let last_names = ['Smith', 'Johnson', 'Betty', 'Miller', 'Gill']
+for (let first_name of first_names) {
+  for (let last_name of last_names) {
+    names.push(`${first_name} ${last_name}`)
+  }
+}
+let virtualScrollSection = (
+  <>
+    {Style(/* css */ `
+.demo-virtual-grid {
+  outline: 1px solid black;
+  --column-count: 3;
+  --item-width: 9rem;
+  --item-height: 2rem;
+  max-width: calc(var(--column-count) * var(--item-width));
+}
+.demo-virtual-grid .virtual-grid--item {
+  outline: 1px solid red;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+`)}
+    <h2>Virtual Scroll Demo</h2>
+
+    <h3>Sync Rendering</h3>
+    <VirtualGrid
+      id="demo-sync-virtual-grid"
+      class="demo-virtual-grid"
+      data={names}
+      server-render-item={VirtualScrollItem}
+      client-render-item="renderVirtualGridItem"
+      item-width="var(--item-width)"
+      item-height="var(--item-height)"
+      col-count={3}
+      row-count={5}
+      row-buffer={2}
+    />
+
+    <h3>Async Rendering</h3>
+    {/* <VirtualGrid
+      class="demo-virtual-grid"
+      items={names}
+      renderItem={name => <div class="name-item">{name}</div>}
+      itemWidth="var(--item-width)"
+      itemHeight="var(--item-height)"
+      columnCount={3}
+      rowCount={5}
+    /> */}
+    {Script(/* javascript */ `
+function renderVirtualGridItem(node, value, index, array) {
+  
+}
+`)}
+  </>
+)
+function VirtualScrollItem(
+  name: string | null,
+  index: number,
+  items: string[],
+) {
+  return <div class="name-item">{name ?? 'template'}</div>
+}
 
 let content = (
   <div id="demo-plugin">
@@ -50,6 +118,9 @@ h2 {
   justify-content: center;
   align-items: center;
 }
+
+
+
 #demo-dataTable_wrapper .dt-layout-table {
   justify-content: center;
 }
@@ -226,6 +297,10 @@ async function demoConfirm(icon) {
   }
 }
 `)}
+
+    <hr />
+
+    {virtualScrollSection}
 
     <hr />
 
