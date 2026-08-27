@@ -62,15 +62,31 @@ let style = Style(/* css */ `
   text-align: center;
   position: relative;
 }
-#ManageDataset .image-item img {
+#ManageDataset .image-wrapper {
+  position: relative;
+  display: block;
+  width: 100%;
+  line-height: 0;
+}
+#ManageDataset .image-wrapper img {
+  display: block;
   width: 100%;
   height: 150px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 8px;
   cursor: pointer;
   transition: transform 0.2s ease;
+  background: #f0f0f0;
 }
-#ManageDataset .image-item.selected img {
+#ManageDataset .image-wrapper canvas.bounding-box-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  border-radius: 8px;
+  z-index: 1;
+}
+#ManageDataset .image-item.selected .image-wrapper img {
   transform: scale(0.9);
 }
 #ManageDataset .image-item.selected::after {
@@ -292,6 +308,20 @@ let style = Style(/* css */ `
   max-height: calc(100% - 60px);
   object-fit: contain;
 }
+#imageModal .enlarged-image-wrapper {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+#imageModal .enlarged-image-wrapper img {
+  display: block;
+}
+#imageModal .enlarged-image-wrapper canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
 #imageModal .nav-buttons {
   position: absolute;
   bottom: 10px;
@@ -366,6 +396,8 @@ function getProjectId() {
 let imagesData = [];
 let filteredImagesData = [];
 let isLabelVisible = true;
+let isBoundingBoxVisible = false;
+let bboxCountFilters = []; // empty = all, [1,2,3...] = specific counts
 let labelStates = [];
 let isToggling = false;
 let isSelectionMode = false;
@@ -403,6 +435,149 @@ function toggleLabels() {
   isLabelVisible = !isLabelVisible;
   emit('/manage-dataset/toggle-labels', { isLabelVisible, project_id: getProjectId() });
 }
+
+function toggleBoundingBoxes() {
+  isBoundingBoxVisible = !isBoundingBoxVisible;
+  var btn = document.getElementById('toggle-bbox-button');
+  if (btn) {
+    var span = btn.querySelector('span');
+    if (span) {
+      span.textContent = isBoundingBoxVisible ? 'Hide BBox' : 'Show BBox';
+    }
+  }
+  var countBtn = document.getElementById('bbox-count-button');
+  if (countBtn) {
+    countBtn.style.display = isBoundingBoxVisible ? '' : 'none';
+  }
+  if (!isBoundingBoxVisible) {
+    var dd = document.getElementById('bbox-count-dropdown');
+    if (dd) dd.style.display = 'none';
+    // reset bbox count filter when turning off bbox
+    bboxCountFilters = [];
+    var countBtn2 = document.getElementById('bbox-count-button');
+    if (countBtn2) {
+      var span2 = countBtn2.querySelector('span');
+      if (span2) span2.textContent = 'Box Count: All';
+    }
+    updateBboxCountDropdownIcons();
+  }
+  // apply bbox count filter (hide/show image items)
+  applyBboxCountFilter();
+  document.querySelectorAll('.image-item img[data-boxes]').forEach(function(img) {
+    if (img.dataset.boxes && img.dataset.boxes !== '[]') {
+      if (isBoundingBoxVisible) {
+        drawBoundingBoxes(img);
+      } else {
+        var canvas = img.parentElement.querySelector('canvas.bounding-box-canvas');
+        if (canvas) { var ctx = canvas.getContext('2d'); if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); }
+      }
+    }
+  });
+  var enlarged = document.getElementById('enlargedImage');
+  if (enlarged && enlarged.dataset.boxes && enlarged.dataset.boxes !== '[]') {
+    if (isBoundingBoxVisible) {
+      drawBoundingBoxes(enlarged);
+    } else {
+      var canvas = enlarged.parentElement.querySelector('canvas.bounding-box-canvas');
+      if (canvas) { var ctx = canvas.getContext('2d'); if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); }
+    }
+  }
+}
+window.toggleBoundingBoxes = toggleBoundingBoxes;
+
+function toggleBboxCountDropdown() {
+  var dd = document.getElementById('bbox-count-dropdown');
+  if (dd) {
+    if (dd.style.display === 'none' || !dd.style.display) {
+      dd.style.display = 'flex';
+      updateBboxCountDropdownIcons();
+    } else {
+      dd.style.display = 'none';
+    }
+  }
+}
+window.toggleBboxCountDropdown = toggleBboxCountDropdown;
+
+function setBboxCountFilter(count) {
+  // toggle individual count in array
+  var idx = bboxCountFilters.indexOf(count);
+  if (idx >= 0) {
+    bboxCountFilters.splice(idx, 1);
+  } else {
+    bboxCountFilters.push(count);
+  }
+  // update button text
+  var countBtn = document.getElementById('bbox-count-button');
+  if (countBtn) {
+    var span = countBtn.querySelector('span');
+    if (span) {
+      span.textContent = bboxCountFilters.length === 0
+        ? 'Box Count: All'
+        : 'Box Count: ' + bboxCountFilters.slice().sort(function(a,b){return a-b;}).join(', ');
+    }
+  }
+  // update dropdown item icons
+  updateBboxCountDropdownIcons();
+  // apply filter to image grid (hide/show image items)
+  applyBboxCountFilter();
+  // redraw boxes on visible images
+  document.querySelectorAll('.image-item img[data-boxes]').forEach(function(img) {
+    if (img.dataset.boxes && img.dataset.boxes !== '[]') {
+      drawBoundingBoxes(img);
+    }
+  });
+  var enlarged = document.getElementById('enlargedImage');
+  if (enlarged && enlarged.dataset.boxes && enlarged.dataset.boxes !== '[]') {
+    drawBoundingBoxes(enlarged);
+  }
+}
+window.setBboxCountFilter = setBboxCountFilter;
+
+function updateBboxCountDropdownIcons() {
+  // individual count buttons
+  var dropdown = document.getElementById('bbox-count-dropdown');
+  if (dropdown) {
+    dropdown.querySelectorAll('ion-button[id^="bbox-count-state-"]').forEach(function(btn) {
+      var count = parseInt(btn.id.replace('bbox-count-state-', ''), 10);
+      if (isNaN(count)) return;
+      var icon = btn.querySelector('ion-icon');
+      if (icon) {
+        var selected = bboxCountFilters.indexOf(count) >= 0;
+        icon.setAttribute('name', selected ? 'checkmark-circle' : 'ellipse-outline');
+        icon.style.setProperty('--ionicon-stroke-width', selected ? '64px' : '32px');
+        icon.style.color = selected ? '#4caf50' : '#999';
+      }
+    });
+  }
+}
+window.updateBboxCountDropdownIcons = updateBboxCountDropdownIcons;
+
+function applyBboxCountFilter() {
+  // if no filter selected, show all
+  if (bboxCountFilters.length === 0) {
+    document.querySelectorAll('.image-item').forEach(function(item) {
+      item.style.display = '';
+    });
+    return;
+  }
+  // otherwise hide/show based on box count
+  document.querySelectorAll('.image-item').forEach(function(item) {
+    var img = item.querySelector('img[data-boxes]');
+    if (!img) { item.style.display = ''; return; }
+    var boxes = [];
+    try { boxes = JSON.parse(img.dataset.boxes || '[]') || []; } catch(e) { boxes = []; }
+    item.style.display = bboxCountFilters.indexOf(boxes.length) >= 0 ? '' : 'none';
+  });
+}
+window.applyBboxCountFilter = applyBboxCountFilter;
+
+document.addEventListener('click', function(e) {
+  var dd = document.getElementById('bbox-count-dropdown');
+  var btn = document.getElementById('bbox-count-button');
+  if (dd && dd.style.display !== 'none' && btn && !btn.contains(e.target) && !dd.contains(e.target)) {
+    dd.style.display = 'none';
+  }
+});
 
 function toggleLabelState(label_id) {
   if (isToggling) return;
@@ -580,13 +755,103 @@ function exportImages() {
 function initAnnotationImage(image) {
   let degree = +image.dataset.rotation || 0;
   function check() {
-    if (!degree) { image.onload = null; return; }
+    if (!degree) {
+      image.onload = null;
+      drawBoundingBoxes(image);
+      return;
+    }
     degree -= 90;
     rotateImageInline(image);
     image.onload = check;
   }
   check();
 }
+
+function drawBoundingBoxes(image) {
+  if (!isBoundingBoxVisible) return;
+  var canvas = image.parentElement.querySelector('canvas.bounding-box-canvas');
+  if (!canvas || !image) return;
+
+  var boxes = [];
+  try {
+    boxes = JSON.parse(image.dataset.boxes || '[]') || [];
+  } catch (e) {
+    boxes = [];
+  }
+
+  if (!image.clientWidth || !image.clientHeight) {
+    if (!document.body.contains(image)) return;
+    setTimeout(function() { drawBoundingBoxes(image); }, 33);
+    return;
+  }
+
+  var imgW = image.naturalWidth;
+  var imgH = image.naturalHeight;
+  if (!imgW || !imgH) {
+    setTimeout(function() { drawBoundingBoxes(image); }, 33);
+    return;
+  }
+
+  var elW = image.clientWidth;
+  var elH = image.clientHeight;
+  var scale = Math.min(elW / imgW, elH / imgH);
+  var renderedW = imgW * scale;
+  var renderedH = imgH * scale;
+  var offsetX = (elW - renderedW) / 2;
+  var offsetY = (elH - renderedH) / 2;
+
+  canvas.width = elW;
+  canvas.height = elH;
+  canvas.style.width = elW + 'px';
+  canvas.style.height = elH + 'px';
+  canvas.style.pointerEvents = 'none';
+
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (boxes.length === 0) return;
+
+  if (bboxCountFilters.length > 0 && bboxCountFilters.indexOf(boxes.length) < 0) return;
+
+  var lineWidth = Math.max(canvas.width, canvas.height) * 0.015;
+  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = '#00ff00';
+
+  boxes.forEach(function(box) {
+    var w = box.width * renderedW;
+    var h = box.height * renderedH;
+    var left = offsetX + box.x * renderedW - w / 2;
+    var top = offsetY + box.y * renderedH - h / 2;
+
+    ctx.save();
+    ctx.translate(left + w / 2, top + h / 2);
+    var degrees = -box.rotate * 360;
+    var radians = degrees / 180 * Math.PI;
+    ctx.rotate(radians);
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
+  });
+}
+
+function drawBoxesWhenLoaded(image) {
+  if (image.complete && image.naturalWidth) {
+    drawBoundingBoxes(image);
+  } else {
+    image.addEventListener('load', function() { drawBoundingBoxes(image); }, { once: true });
+  }
+}
+
+window.addEventListener('resize', function() {
+  document.querySelectorAll('.image-item img[data-boxes]').forEach(function(img) {
+    if (img.dataset.boxes && img.dataset.boxes !== '[]') {
+      drawBoundingBoxes(img);
+    }
+  });
+  var enlarged = document.getElementById('enlargedImage');
+  if (enlarged && enlarged.dataset.boxes && enlarged.dataset.boxes !== '[]') {
+    drawBoundingBoxes(enlarged);
+  }
+});
 
 function updateButtonStates() {
   const img = document.getElementById('enlargedImage');
@@ -612,11 +877,14 @@ function showEnlargedImage(src, rotation, image_id) {
   img.src = src;
   img.dataset.rotation = rotation || 0;
   img.dataset.image_id = image_id;
+  var imgData = filteredImagesData.find(function(item) { return item.image_id === image_id; });
+  img.dataset.boxes = JSON.stringify(imgData ? (imgData.boxes || []) : []);
   if (labelStatus) { labelStatus.classList.add('loading'); labelStatus.innerHTML = 'Loading...'; }
   if (typeof initAnnotationImage === 'function') {
     initAnnotationImage(img);
     if (img.src !== src) img.src = src;
   }
+  drawBoxesWhenLoaded(img);
   if (!modal.isOpen) {
     modal.present();
     modal.addEventListener('ionModalDidPresent', () => updateButtonStates());
@@ -627,6 +895,9 @@ function showEnlargedImage(src, rotation, image_id) {
   modal.addEventListener('didDismiss', () => {
     img.src = '';
     img.dataset.image_id = '';
+    img.dataset.boxes = '[]';
+    var canvas = img.parentElement.querySelector('canvas.bounding-box-canvas');
+    if (canvas) { var ctx = canvas.getContext('2d'); if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); }
     if (labelStatus) { labelStatus.classList.remove('loading'); labelStatus.innerHTML = ''; }
   }, { once: true });
 }
@@ -792,6 +1063,25 @@ where l.project_id = :project_id
 order by l.display_order asc
 `)
 
+// get all bounding boxes for images in a project
+let get_project_bounding_boxes = db.prepare<
+  { project_id: number },
+  {
+    image_id: number
+    x: number
+    y: number
+    width: number
+    height: number
+    rotate: number
+  }
+>(/* sql */ `
+  SELECT image_bounding_box.image_id, image_bounding_box.x, image_bounding_box.y,
+         image_bounding_box.width, image_bounding_box.height, image_bounding_box.rotate
+  FROM image_bounding_box
+  INNER JOIN image ON image.id = image_bounding_box.image_id
+  WHERE image.project_id = :project_id
+`)
+
 // ---------------------------------------------------------------------------
 // answer <-> number mapping
 // ---------------------------------------------------------------------------
@@ -807,6 +1097,24 @@ function getProjectImages(project_id: number) {
   return filter(proxy.image, { project_id }).filter(
     item => item.filename && !item.filename.startsWith('data:image'),
   )
+}
+
+function getProjectBoundingBoxes(project_id: number) {
+  let map = new Map<
+    number,
+    { x: number; y: number; width: number; height: number; rotate: number }[]
+  >()
+  for (const box of get_project_bounding_boxes.all({ project_id })) {
+    if (!map.has(box.image_id)) map.set(box.image_id, [])
+    map.get(box.image_id)!.push({
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      rotate: box.rotate,
+    })
+  }
+  return map
 }
 
 // ---------------------------------------------------------------------------
@@ -905,7 +1213,18 @@ function reclassify(
 type LabelState = 'empty' | 'correct' | 'incorrect' | 'unlabeled'
 
 function filterImagesByLabelStates(
-  images: { image_id: number; filename: string; rotation: number }[],
+  images: {
+    image_id: number
+    filename: string
+    rotation: number
+    boxes: {
+      x: number
+      y: number
+      width: number
+      height: number
+      rotate: number
+    }[]
+  }[],
   labelStates: Record<number, LabelState>,
 ) {
   const filterLabels = Object.entries(labelStates)
@@ -954,10 +1273,12 @@ function Main(attrs: {}, context: DynamicContext) {
   let project_id = project.id!
 
   let labels = select_project_label.all({ project_id })
+  let boxesMap = getProjectBoundingBoxes(project_id)
   let images = getProjectImages(project_id).map(item => ({
     image_id: item.id!,
     filename: item.filename,
     rotation: item.rotation || 0,
+    boxes: boxesMap.get(item.id!) || [],
   }))
   // start with no label filter
   let labelStates: Record<number, LabelState> = {}
@@ -968,6 +1289,11 @@ function Main(attrs: {}, context: DynamicContext) {
     id: Number(id),
     state,
   }))
+
+  // distinct box counts present in this project's images (exclude 0, All covers it)
+  let bboxCounts = [...new Set(images.map(img => img.boxes.length))]
+    .filter(n => n > 0)
+    .sort((a, b) => a - b)
 
   // review mode default label
   let params = new URLSearchParams(context.routerMatch?.search ?? '')
@@ -1127,11 +1453,53 @@ function Main(attrs: {}, context: DynamicContext) {
             </span>
           </ion-button>
           <div style="flex: 1;"></div>
+          <ion-button
+            id="toggle-bbox-button"
+            onclick="window.toggleBoundingBoxes()"
+          >
+            <span>
+              <Locale en="Show BBox" zh_hk="顯示框" zh_cn="显示框" />
+            </span>
+          </ion-button>
+          <ion-button
+            id="bbox-count-button"
+            style="display: none;"
+            onclick="window.toggleBboxCountDropdown()"
+          >
+            <span>
+              <Locale en="Box Count" zh_hk="框數量" zh_cn="框数量" />
+            </span>
+            <ion-icon
+              name="chevron-down"
+              style="margin-left: 0.25rem; font-size: 0.8rem;"
+            ></ion-icon>
+          </ion-button>
           <ion-button id="toggle-labels-button" onclick="toggleLabels()">
             <span>
               <Locale en="Hide" zh_hk="隱藏" zh_cn="隐藏" />
             </span>
           </ion-button>
+        </div>
+        <div
+          id="bbox-count-dropdown"
+          style="position: fixed; right: 9rem; top: 7.5rem; display: none; flex-direction: column; gap: 0.25rem; z-index: 10;"
+        >
+          {mapArray(bboxCounts, n => (
+            <div class="label-container">
+              <div class="class-label">{n}</div>
+              <ion-button
+                id={`bbox-count-state-${n}`}
+                class="label-state-button"
+                fill="clear"
+                onclick={`window.setBboxCountFilter(${n})`}
+              >
+                <ion-icon
+                  name="ellipse-outline"
+                  style="--ionicon-stroke-width: 32px; color: #999;"
+                ></ion-icon>
+              </ion-button>
+            </div>
+          ))}
         </div>
         <div
           id="label-toggle-container"
@@ -1174,13 +1542,17 @@ function Main(attrs: {}, context: DynamicContext) {
                   style="display: none;"
                   data-image-id={item.image_id}
                 />
-                <img
-                  src={`/uploads/${item.filename}`}
-                  alt="Image"
-                  data-rotation={item.rotation}
-                  onload="initAnnotationImage(this)"
-                  onclick={`handleImageClick('${item.filename}', ${item.rotation}, ${item.image_id})`}
-                />
+                <div class="image-wrapper">
+                  <img
+                    src={`/uploads/${item.filename}`}
+                    alt="Image"
+                    data-rotation={item.rotation}
+                    data-boxes={JSON.stringify(item.boxes)}
+                    onload="initAnnotationImage(this)"
+                    onclick={`handleImageClick('${item.filename}', ${item.rotation}, ${item.image_id})`}
+                  />
+                  <canvas class="bounding-box-canvas"></canvas>
+                </div>
               </div>
             ))}
           </div>
@@ -1232,7 +1604,13 @@ function Main(attrs: {}, context: DynamicContext) {
               </div>
             </div>
             <div class="image-container">
-              <img id="enlargedImage" src="" alt="Enlarged image" />
+              <div class="enlarged-image-wrapper">
+                <img id="enlargedImage" src="" alt="Enlarged image" />
+                <canvas
+                  id="enlargedBoundingBoxCanvas"
+                  class="bounding-box-canvas"
+                ></canvas>
+              </div>
               <div class="nav-buttons">
                 <ion-button id="btn_previous" onclick="showPreviousImage()">
                   <Locale en="Previous" zh_hk="上一張" zh_cn="上一张" />
@@ -1403,10 +1781,12 @@ function ToggleLabelState(attrs: {}, context: WsContext) {
     Object.assign(updatedLabelStates, frontendLabelStates)
     updatedLabelStates[input.label_id] = state
 
+    let boxesMap = getProjectBoundingBoxes(project_id)
     let images = getProjectImages(project_id).map(item => ({
       image_id: item.id!,
       filename: item.filename,
       rotation: item.rotation || 0,
+      boxes: boxesMap.get(item.id!) || [],
     }))
     const filteredImages = filterImagesByLabelStates(images, updatedLabelStates)
 
@@ -1462,13 +1842,17 @@ function ToggleLabelState(attrs: {}, context: WsContext) {
                     data-image-id={item.image_id}
                     checked={input.selectedImages.includes(item.image_id)}
                   />
-                  <img
-                    src={`/uploads/${item.filename}`}
-                    alt="Image"
-                    data-rotation={item.rotation}
-                    onload="initAnnotationImage(this)"
-                    onclick={`handleImageClick('${item.filename}', ${item.rotation}, ${item.image_id})`}
-                  />
+                  <div class="image-wrapper">
+                    <img
+                      src={`/uploads/${item.filename}`}
+                      alt="Image"
+                      data-rotation={item.rotation}
+                      data-boxes={JSON.stringify(item.boxes)}
+                      onload="initAnnotationImage(this)"
+                      onclick={`handleImageClick('${item.filename}', ${item.rotation}, ${item.image_id})`}
+                    />
+                    <canvas class="bounding-box-canvas"></canvas>
+                  </div>
                 </div>
               ))}
             </>,
@@ -1505,6 +1889,7 @@ function ToggleLabelState(attrs: {}, context: WsContext) {
           isSelectionMode = ${JSON.stringify(input.isSelectionMode)};
           selectedImages = ${JSON.stringify(input.selectedImages)};
           updateButtonStates();
+          applyBboxCountFilter();
           `,
         ],
       ],
