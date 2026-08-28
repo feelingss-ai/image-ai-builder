@@ -2,7 +2,11 @@ import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
-import { DynamicContext, ExpressContext, getContextFormBody } from '../context.js'
+import {
+  DynamicContext,
+  ExpressContext,
+  getContextFormBody,
+} from '../context.js'
 import { getContextProject } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { float, int, object, values } from 'cast.ts'
@@ -225,19 +229,6 @@ const model_labels = () => {
   return model_labels
 }
 
-//check how many models are there
-const count_model = () => {
-  let model_no = 0
-  for (let row of proxy.label) {
-    if (row.id && row.id > model_no) {
-      model_no = row.id
-    }
-  }
-  return model_no
-}
-
-const MODEL_NO = count_model()
-
 function Main(attrs: {}, context: DynamicContext) {
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
@@ -292,6 +283,10 @@ function Main(attrs: {}, context: DynamicContext) {
   if (statsValues.length > 0) {
     chart_label = statsValues[0].epochs.map(epoch => epoch.toString())
   }
+
+  // If the project has never been trained before, default to training from scratch
+  // instead of continuing from a previous training.
+  let hasTrainedBefore = statsValues.some(model => model.epochs.length > 0)
 
   return (
     <ion-content id="TrainAI" class="ion-padding">
@@ -464,7 +459,10 @@ function Main(attrs: {}, context: DynamicContext) {
                     zh_cn="训练模式:"
                   />
                 </ion-label>
-                <ion-select name="training_mode" value="continue">
+                <ion-select
+                  name="training_mode"
+                  value={hasTrainedBefore ? 'continue' : 'scratch'}
+                >
                   <ion-select-option value="continue">
                     <Locale
                       en="Continue from previous training"
@@ -651,7 +649,7 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
     val_loss_canvas.chart.data.labels = []
     train_accuracy_canvas.chart.data.labels = []
     val_accuracy_canvas.chart.data.labels = []
-    for (let i = 0; i < ${MODEL_NO}; i++) {
+    for (let i = 0; i < ${labels.length}; i++) {
       train_loss_canvas.chart.data.datasets[i].data = []
       val_loss_canvas.chart.data.datasets[i].data = []
       train_accuracy_canvas.chart.data.datasets[i].data = []
@@ -673,7 +671,7 @@ function SubmitTrain(attrs: {}, context: DynamicContext) {
   ;(async () => {
     for (let i = 0; i < labels.length; i++) {
       await trainModel({
-        label_index: labels[i]['id']!,
+        label_index: i,
         label: labels[i],
         userID: user!.id!,
         epochs: input.epoch_no,
@@ -887,16 +885,16 @@ async function trainModel(options: {
               'eval',
               /* javascript */ ` 
                 train_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
-                train_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${loss};
+                train_loss_canvas.chart.data.datasets[${label_index}].data[${epoch}] = ${loss};
 
                 train_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
-                train_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${accuracy};
+                train_accuracy_canvas.chart.data.datasets[${label_index}].data[${epoch}] = +${accuracy};
 
                 val_loss_canvas.chart.data.labels[${epoch}] = ${epoch}+ 1
-                val_loss_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = ${val_loss};
+                val_loss_canvas.chart.data.datasets[${label_index}].data[${epoch}] = ${val_loss};
 
                 val_accuracy_canvas.chart.data.labels[${epoch}] = ${epoch} + 1
-                val_accuracy_canvas.chart.data.datasets[${label_index} - 1].data[${epoch}] = +${val_accuracy};
+                val_accuracy_canvas.chart.data.datasets[${label_index}].data[${epoch}] = +${val_accuracy};
 
 
                 train_loss_canvas.chart.update();
