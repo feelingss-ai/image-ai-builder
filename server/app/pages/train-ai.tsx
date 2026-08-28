@@ -36,7 +36,7 @@ import { join } from 'path'
 import { tf } from 'tensorflow-helpers'
 import { Logs } from '@tensorflow/tfjs-layers'
 import { existsSync, rmSync } from 'fs'
-import { ajaxRoute } from '../routes.js'
+import { ajaxRoute } from '../api-route.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 
 let pageTitle = (

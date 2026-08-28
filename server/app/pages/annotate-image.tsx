@@ -1,5 +1,6 @@
 import { o } from '../jsx/jsx.js'
-import { ajaxRoute, Routes } from '../routes.js'
+import { ajaxRoute } from '../api-route.js'
+import { Routes } from '../routes.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
 import { seedRow } from 'better-sqlite3-proxy'

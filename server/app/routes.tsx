@@ -12,6 +12,7 @@ import AppNotice from './pages/app-notice.js'
 import AppProject from './pages/app-project.js'
 import AppSettings from './pages/app-settings.js'
 import AppMore from './pages/app-more.js'
+import Privacy from './pages/privacy.js'
 import { capitalize } from '@beenotung/tslib/string.js'
 import { Router } from 'url-router.ts'
 import { LayoutType, apiEndpointTitle, config, title } from '../config.js'
@@ -116,6 +117,7 @@ let routeDict = {
   ...AppNotice.routes,
   ...AppMore.routes,
   ...AppSettings.routes,
+  ...Privacy.routes,
   ...ImportExportModel.routes,
   ...ImportDataset.routes,
 } satisfies Routes
@@ -190,56 +192,9 @@ export function resolveExpressContext(
   return context
 }
 
-export function errorRoute(
-  error: unknown,
-  context: Context,
-  title: string,
-  description: string,
-): StaticPageRoute {
-  if (error == EarlyTerminate || error instanceof MessageException) {
-    throw error
-  }
-  if (context.type == 'ws' && typeof error == 'string') {
-    throw new MessageException(showError(error))
-  }
-  return {
-    title,
-    description,
-    node: renderError(error, context),
-  }
-}
-
+// TODO setup robots.txt
 if (config.setup_robots_txt) {
   setTimeout(() => {
     console.log(Object.keys(routeDict).join('\n'))
   }, 1000)
-}
-
-export function ajaxRoute(options: {
-  description: string
-  api: (context: ExpressContext) => Promise<object> | object
-}): PageRoute {
-  return {
-    title: apiEndpointTitle,
-    description: options.description,
-    streaming: false,
-    async resolve(context: Context) {
-      if (context.type != 'express') {
-        throw new Error('this endpoint only support ajax')
-      }
-      let res = context.res
-      try {
-        let json = await options.api(context)
-        res.json(json)
-      } catch (error) {
-        let statusCode = 500
-        if (error) {
-          statusCode = (error as HttpError).statusCode || statusCode
-        }
-        res.status(statusCode)
-        res.json({ error: String(error) })
-      }
-      throw EarlyTerminate
-    },
-  }
 }

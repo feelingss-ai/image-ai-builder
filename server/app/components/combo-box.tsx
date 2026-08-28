@@ -1,8 +1,6 @@
 import { o } from '../jsx/jsx.js'
 import { Node } from '../jsx/types.js'
-import { Button } from './button.js'
 import { mapArray } from './fragment.js'
-import { IonButton } from './ion-button.js'
 import { Script } from './script.js'
 import Style from './style.js'
 
@@ -58,18 +56,50 @@ function comboBoxToggleOption(event) {
   option.classList.toggle('combo-box--option-selected')
 
   let comboBox = option.closest('.combo-box')
+
+  let multiple = comboBox.hasAttribute('multiple')
+  if (!multiple) {
+    let options = comboBox.querySelectorAll('.combo-box--option-selected')
+    for (let eachOption of options) {
+      if (eachOption === option) continue
+      eachOption.classList.remove('combo-box--option-selected')
+    }
+  }
+
+  let auto_set = comboBox.getAttribute('auto-set')
+  if (auto_set) {
+    let input = comboBox.querySelector('.combo-box--input')
+    let selectedOptions = comboBox.querySelectorAll('.combo-box--option-selected')
+    let values = Array.from(selectedOptions).map(opt => {
+      switch (auto_set) {
+        case 'label':
+          return opt.innerText.trim()
+        case 'value':
+          return opt.dataset.value
+        default:
+          return opt.innerText.trim()
+      }
+    })
+    input.value = values.join(', ')
+  }
+
   let customEvent = new CustomEvent('change', {
     detail: {
       value: comboBox.value,
       option: getComboBoxOptionValue(option),
       selected: option.classList.contains('combo-box--option-selected'),
     },
-  })
-  comboBox.dispatchEvent(customEvent, {
     bubbles: true,
     composed: true,
     cancelable: true,
   })
+  comboBox.dispatchEvent(customEvent)
+
+  if (comboBox.hasAttribute('close-on-select')) {
+    requestAnimationFrame(() => {
+      comboBox.classList.remove('active')
+    })
+  }
 }
 
 function getComboBoxOptionValue(option) {
@@ -83,12 +113,20 @@ function getComboBoxOptionValue(option) {
 
 function comboBoxSearch(event) {
   let input = event.target
+  let comboBox = input.closest('.combo-box')
+  let caseSensitive = comboBox.hasAttribute('case-sensitive')
   let searchText = input.value
+  if (!caseSensitive) {
+    searchText = searchText.toLocaleLowerCase()
+  }
   let options = input.closest('.combo-box').querySelectorAll(
     '.combo-box--option[data-search]'
   )
   for (let option of options) {
     let search = option.getAttribute('data-search')
+    if (!caseSensitive) {
+      search = search.toLocaleLowerCase()
+    }
     option.hidden = !search.includes(searchText)
   }
 }
@@ -151,32 +189,49 @@ if (!window.ComboBox) {
 `)
 
 export function ComboBox(attrs: {
-  options: {
+  'name'?: string
+  'value'?: string | number | null
+  'options': {
     value: string | number
     label?: Node
     /** fallback to use label if it's a string, or use value */
     search?: string
   }[]
-  onchange?: string
-  style?: string
-  class?: string
-  skipAssets?: boolean
-  placeholder?: string
+  'onchange'?: string
+  'style'?: string
+  'id'?: string
+  'class'?: string
+  'skip-assets'?: boolean
+  'placeholder'?: string
+  'auto-set'?: 'label' | 'value'
+  'multiple'?: boolean
+  'case-sensitive'?: boolean
+  'close-on-select'?: boolean
 }) {
-  let { skipAssets } = attrs
+  let skipAssets = attrs['skip-assets']
   let className = 'combo-box'
   if (attrs.class) {
     className += ' ' + attrs.class
+  }
+  if (!attrs.multiple) {
+    attrs['close-on-select'] ??= true
   }
   return (
     <>
       {skipAssets ? null : ComboBoxStyle}
       <combo-box
+        id={attrs.id}
         class={className}
         style={attrs.style}
         onchange={attrs.onchange}
+        multiple={attrs.multiple}
+        auto-set={attrs['auto-set']}
+        case-sensitive={attrs['case-sensitive']}
+        close-on-select={attrs['close-on-select']}
       >
         <input
+          name={attrs.name}
+          value={attrs.value}
           class="combo-box--input"
           oninput="comboBoxSearch(event); showComboBoxOptions(event)"
           onclick="showComboBoxOptions(event)"

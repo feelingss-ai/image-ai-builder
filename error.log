@@ -1,0 +1,12 @@
+3|image-ai-builder  | TypeError: Cannot use 'in' operator to search for 'admin.php' in undefined
+3|image-ai-builder  |     at matchParts (/home/USER/image-ai-builder/node_modules/.pnpm/url-router.ts@1.2.1/node_modules/url-router.ts/dist/core.js:87:14)
+3|image-ai-builder  |     at matchParts (/home/USER/image-ai-builder/node_modules/.pnpm/url-router.ts@1.2.1/node_modules/url-router.ts/dist/core.js:88:16)
+3|image-ai-builder  |     at matchParts (/home/USER/image-ai-builder/node_modules/.pnpm/url-router.ts@1.2.1/node_modules/url-router.ts/dist/core.js:88:16)
+3|image-ai-builder  |     at matchParts (/home/USER/image-ai-builder/node_modules/.pnpm/url-router.ts@1.2.1/node_modules/url-router.ts/dist/core.js:88:16)
+3|image-ai-builder  |     at Router.route (/home/USER/image-ai-builder/node_modules/.pnpm/url-router.ts@1.2.1/node_modules/url-router.ts/dist/core.js:50:23)
+3|image-ai-builder  |     at matchRoute (file:///home/USER/image-ai-builder/dist/server/app/routes.js:97:26)
+3|image-ai-builder  |     at handleLiveView (file:///home/USER/image-ai-builder/dist/server/app/app.js:139:7)
+3|image-ai-builder  |     at Layer.handle [as handle_request] (/home/USER/image-ai-builder/node_modules/.pnpm/express@4.22.2/node_modules/express/lib/router/layer.js:95:5)
+3|image-ai-builder  |     at trim_prefix (/home/USER/image-ai-builder/node_modules/.pnpm/express@4.22.2/node_modules/express/lib/router/index.js:328:13)
+3|image-ai-builder  |     at /home/USER/image-ai-builder/node_modules/.pnpm/express@4.22.2/node_modules/express/lib/router/index.js:286:9
+3|image-ai-builder  | 2026-08-17T09:07:51.139Z ts-liveview:index.ts close ws: ws-lite 1001 

@@ -13,7 +13,7 @@ import {
 import { sendHTMLHeader } from './express.js'
 import { OnWsMessage } from '../ws/wss.js'
 import { dispatchUpdate } from './jsx/dispatch.js'
-import { EarlyTerminate, MessageException } from '../exception.js'
+import { EarlyTerminate, HttpError, MessageException } from '../exception.js'
 import { getWSSession } from './session.js'
 import { Flush } from './components/flush.js'
 import { LayoutType, config } from '../config.js'
@@ -41,7 +41,7 @@ import { logRequest } from './log.js'
 import { WindowStub } from '../../client/internal.js'
 import { updateRequestSession } from '../../db/request-log.js'
 import { Link } from './components/router.js'
-import verificationCode from './pages/verification-code.js'
+import ErrorLog from './store/error-log.js'
 
 if (config.development) {
   scanTemplateDir('template')
@@ -206,6 +206,7 @@ function Footer(attrs: { style?: string }) {
 export function attachRoutes(app: Router) {
   // ajax/upload/middleware routes
   app.use(renewAuthCookieMiddleware)
+  ErrorLog.attachRoutes(app)
   Profile.attachRoutes(app)
 
   // redirect routes
@@ -255,6 +256,11 @@ async function handleLiveView(req: Request, res: Response, next: NextFunction) {
     }
     if (error instanceof MessageException) {
       res.json({ message: error.message })
+      return
+    }
+    if (error instanceof HttpError) {
+      res.status(error.statusCode)
+      res.json({ error: error.message })
       return
     }
     res.status(500)
@@ -330,9 +336,9 @@ export let onWsMessage: OnWsMessage = async (event, ws, _wss) => {
   let session = getWSSession(ws)
   let navigation_type: WindowStub['_navigation_type_']
   let navigation_method: WindowStub['_navigation_method_']
-  if (event[0] === 'mount') {
+  if (event[0] === 'mount' || event[0] === 'remount') {
     event = event as ClientMountMessage
-    eventType = 'mount'
+    eventType = event[0]
     url = event[1]
     session.language = fixLanguage(event[2])
     let timeZone = event[3]
@@ -394,6 +400,10 @@ export let onWsMessage: OnWsMessage = async (event, ws, _wss) => {
     }
     if (error instanceof MessageException) {
       ws.send(error.message)
+      return
+    }
+    if (error instanceof HttpError) {
+      ws.send(['eval', `showToast('${error.message}','error')`])
       return
     }
     console.error(error)

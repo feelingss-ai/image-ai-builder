@@ -1,4 +1,5 @@
 import { proxy } from '../../../db/proxy.js'
+import { pick } from 'better-sqlite3-proxy'
 import {
   getOtherUserAgents,
   getUAStatsProgress,
@@ -6,18 +7,30 @@ import {
 import { Locale, Title } from '../components/locale.js'
 import SourceCode from '../components/source-code.js'
 import Style from '../components/style.js'
+import { Context, getContextLanguage } from '../context.js'
 import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 
-function agentTable(title: string, rows: [name: string, count: number][]) {
+function agentTable(
+  title: string,
+  rows: [name: string, count: number][],
+  locales: string,
+) {
+  // skip rows with zero count
+  rows = rows.filter(row => row[1] > 0)
+
+  // skip empty table
   if (rows.length === 0) return
+
+  // sort by count descending
   rows.sort((a, b) => b[1] - a[1])
+
   return (
     <table>
       <thead>
         <tr>
           <th>{title}</th>
-          <th>Count</th>
+          <th style="word-break: normal;">Count</th>
         </tr>
       </thead>
       <tbody>
@@ -25,7 +38,7 @@ function agentTable(title: string, rows: [name: string, count: number][]) {
           rows.map(([name, count]) => (
             <tr>
               <td>{name}</td>
-              <td>{count}</td>
+              <td>{count.toLocaleString(locales)}</td>
             </tr>
           )),
         ]}
@@ -34,21 +47,28 @@ function agentTable(title: string, rows: [name: string, count: number][]) {
   )
 }
 
-function Tables() {
+function Tables(attrs: {}, context: Context) {
+  let locales = getContextLanguage(context) || 'en-US'
   return (
     <>
       <p>{getUAStatsProgress()}</p>
       {agentTable(
         'User Agent',
-        proxy.ua_type.map(row => [row.name, row.count]),
+        pick(proxy.ua_type, ['name', 'count']).map(row => [
+          row.name,
+          row.count,
+        ]),
+        locales,
       )}
       {agentTable(
         'Bot Agent',
-        proxy.ua_bot.map(row => [row.name, row.count]),
+        pick(proxy.ua_bot, ['name', 'count']).map(row => [row.name, row.count]),
+        locales,
       )}
       {agentTable(
         'Other Agent',
         getOtherUserAgents().map(row => [row.user_agent, row.count]),
+        locales,
       )}
     </>
   )

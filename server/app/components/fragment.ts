@@ -21,6 +21,12 @@ export function fragmentToText(node: JSXFragment): string {
   return children[0]
 }
 
+/**
+ * Map array to nodes with correct AST structure (Fragment = [NodeList]).
+ * Using {items.map(...)} directly is invalid — a plain array does not match the AST.
+ * Alternative: {[array.map(fn)]} works the same without importing.
+ * @param separator - Optional delimiter; can be any node (e.g. ', ', ' | ', or <br />)
+ */
 export function mapArray<T>(
   array: T[],
   fn: (item: T, index: number, array: T[]) => Node,
@@ -35,4 +41,26 @@ export function mapArray<T>(
     return [nodeList]
   }
   return [array.map(fn)]
+}
+
+/** for finding out performance bottleneck */
+export function mapArrayTimed<T>(
+  consoleTime: string,
+  array: T[],
+  fn: (item: T, index: number, array: T[]) => Node,
+  separator?: Node,
+): Fragment {
+  console.time(consoleTime)
+  if (separator) {
+    let nodeList: Node[] = []
+    array.forEach((item, index, array) =>
+      nodeList.push(fn(item, index, array), separator),
+    )
+    nodeList.pop()
+    console.timeEnd(consoleTime)
+    return [nodeList]
+  }
+  let result = [array.map(fn)] satisfies Fragment
+  console.timeEnd(consoleTime)
+  return result
 }

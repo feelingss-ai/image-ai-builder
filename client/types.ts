@@ -9,7 +9,7 @@ import type {
 } from './jsx/types'
 
 export type ClientMountMessage = [
-  type: 'mount',
+  type: 'mount' | 'remount',
   url: string,
   locale: string | undefined,
   timeZone: string | undefined,
@@ -35,6 +35,9 @@ export type ServerMessage =
   | ['set-value', selector, string | number]
   | ['add-class', selector, string]
   | ['remove-class', selector, string]
+  | ['remove-attr', selector, string]
+  | ['hide', selector | selector[]]
+  | ['show', selector | selector[]]
   | ['batch', ServerMessage[]]
   | ['set-cookie', string]
   | ['set-title', title]

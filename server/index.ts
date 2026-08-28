@@ -15,12 +15,17 @@ import { logRequest } from './app/log.js'
 import { clearInvalidUserId } from './app/auth/user.js'
 import { env } from './env.js'
 import { HttpError, EarlyTerminate } from './exception.js'
+import { setCaddy } from './caddy.js'
 import { db } from '../db/db.js'
 
 const log = debugLog('index.ts')
 log.enabled = true
 
 const app = express()
+
+// Enable trusted proxy behavior to use req.ip correctly
+app.set('trust proxy', true)
+
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server })
 listenWSSCookie(wss)
@@ -80,6 +85,9 @@ app.use((error: HttpError, req: Request, res: Response, next: NextFunction) => {
 const port = env.PORT
 server.listen(port, () => {
   print(port)
+  if (env.CADDY_PROXY === 'enable') {
+    setCaddy(port)
+  }
   if (config.auto_open) {
     open(`http://localhost:${port}`)
   }

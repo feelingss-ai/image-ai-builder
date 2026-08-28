@@ -12,6 +12,9 @@ import {
   redirect,
   addClass,
   removeClass,
+  removeAttr,
+  hide,
+  show,
 } from './jsx/dom.js'
 import { connectWS } from './ws/ws-lite.js'
 import type { LinkFlag, WindowStub } from './internal'
@@ -120,11 +123,11 @@ connectWS({
     win.emitHref = emitHref
     win.emitForm = emitForm
     win.submitForm = submitForm
-    win.remount = mount
+    win.remount = () => mount('remount')
 
-    ws.ws.addEventListener('open', mount)
+    ws.ws.addEventListener('open', () => mount('mount'))
 
-    function mount() {
+    function mount(type: 'mount' | 'remount' = 'mount') {
       let language = Object.fromEntries(
         document.cookie.split(';').map(s => s.trim().split('=')),
       ).lang
@@ -137,7 +140,7 @@ connectWS({
         : undefined
       let timezoneOffset = new Date().getTimezoneOffset()
       let message: ClientMessage = [
-        'mount',
+        type,
         url,
         language,
         timeZone,
@@ -212,6 +215,15 @@ function onServerMessage(message: ServerMessage) {
     case 'remove-class':
       removeClass(message[1], message[2])
       break
+    case 'remove-attr':
+      removeAttr(message[1], message[2])
+      break
+    case 'hide':
+      hide(message[1])
+      break
+    case 'show':
+      show(message[1])
+      break
     case 'batch':
       message[1].forEach(onServerMessage)
       break
@@ -264,7 +276,7 @@ win.upload = upload
 win.fetch_json = (input, init) => {
   return fetch(input, init)
     .then(res =>
-      res.json().catch(() => ({
+      res.json().catch(error => ({
         error: res.statusText || `Status Code: ${res.status}`,
       })),
     )
@@ -272,12 +284,42 @@ win.fetch_json = (input, init) => {
     .then(json => {
       if (json.error) {
         showError(json.error)
+        reportError({
+          title: init?.title || 'fetch_json',
+          error: json.error,
+          api_url: input.toString(),
+        })
       }
       if (json.message) {
         onServerMessage(json.message)
       }
       return json
     })
+}
+
+function reportError(options: {
+  title: string
+  error: unknown
+  api_url: string
+}) {
+  fetch('/error-log', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: options.title,
+      error: String(options.error),
+      client_url: location.href,
+      api_url: options.api_url,
+      timestamp: Date.now(),
+    }),
+  }).catch(error => {
+    console.error('failed to report error:', error)
+    setTimeout(() => {
+      reportError(options)
+    }, 2000)
+  })
 }
 
 // in sweetalert client plugin
@@ -291,3 +333,8 @@ function showError(error: unknown) {
   }
 }
 win.showError = showError
+
+// fallback implementation before ws is connected
+win.goto ||= (url: string) => {
+  location.href = url
+}

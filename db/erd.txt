@@ -21,6 +21,7 @@ id integer PK
 method_id integer FK >- method.id
 url_id integer FK >- url.id
 user_agent_id integer NULL FK >- user_agent.id
+geo_ip_id integer NULL FK >- geo_ip.id
 request_session_id integer NULL FK >0- request_session.id
 user_id integer NULL FK >0- user.id
 timestamp integer
@@ -36,6 +37,20 @@ url
 ---
 id integer PK
 url text unique
+
+
+geo_ip_parts
+------------
+id integer PK
+hash text unique
+content text
+
+
+geo_ip
+------
+id integer PK
+hash text unique
+content text
 
 
 user_agent
@@ -85,6 +100,17 @@ tel varchar(16) NULL unique
 avatar varchar(256) NULL
 is_admin boolean NULL
 nickname text NULL
+
+
+error_log
+---------
+id integer PK
+timestamp integer
+title text
+error text
+client_url_id integer FK >- url.id
+api_url_id integer FK >- url.id
+request_log_id integer FK >0- request_log.id
 
 
 verification_code
@@ -198,72 +224,29 @@ user_id integer FK >0- user.id
 label_id integer FK >0- label.id
 
 
-<<<<<<< HEAD
-project_member
---------------
-id integer PK
-project_id integer FK >0- project.id
-user_id integer FK >0- user.id
-
-
-training_stats
---------------
-id integer PK
-user_id integer FK >0- user.id
-label_id integer FK >0- label.id
-epoch integer
-learning_rate real
-train_accuracy real
-train_loss real
-val_accuracy real
-val_loss real
-
-
-=======
->>>>>>> review-bounding-box
-image_bounding_box
-------------------
-id integer PK
-image_id integer FK >0- image.id
-user_id integer FK >0- user.id
-label_id integer FK >0- label.id
-x real
-y real
-height real
-width real
-rotate real
-
-
-<<<<<<< HEAD
-image_bounding_box_confirmation
--------------------------------
-id integer PK
-image_id integer FK >0- image.id
-user_id integer FK >0- user.id
-label_id integer FK >0- label.id
-
-
-=======
->>>>>>> review-bounding-box
 # zoom: 1.000
+# view: (0, 0)
 # text-bg: #6495ed
 # text-color: #000000
 # diagram-bg: #f5f5f5
 # diagram-text: #000000
 # table-bg: #ffffff
 # table-text: #000000
-# request_log (50, 120)
+# request_log (47, 58)
 # method (450, 15)
 # url (450, 130)
+# geo_ip_parts (46, 530)
+# geo_ip (45, 386)
 # user_agent (450, 245)
 # ua_type (845, 250)
 # ua_bot (845, 410)
-# ua_stat (715, 60)
+# ua_stat (1013, 69)
 # request_session (450, 445)
 # user (450, 680)
-# verification_code (50, 550)
-# verification_attempt (50, 372)
-# content_report (515, 948)
+# error_log (722, 7)
+# verification_code (46, 673)
+# verification_attempt (45, 973)
+# content_report (844, 573)
 # project (898, 1030)
 # image (1251, 636)
 # label (1268, 843)

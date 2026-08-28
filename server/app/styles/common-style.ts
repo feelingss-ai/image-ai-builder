@@ -66,4 +66,43 @@ code.inline-code {
   margin: 0.5rem 0;
   width: fit-content;
 }
+
+.common-table {
+  border-collapse: collapse;
+}
+.common-table th {
+  background-color: #f0f0f0;
+}
+.common-table th,
+.common-table td {
+  border: 1px solid #ccc;
+  padding: 0.25rem 0.5rem;
+}
+
+@media (max-width: 525px) {
+  .hide-on-phone {
+    display: none;
+  }
+}
+
+@media (min-width: 526px) {
+  .hide-on-desktop {
+    display: none;
+  }
+}
+
+/* inline edit field */
+.inline-edit-field[data-mode="view"] .edit-mode {
+  display: none !important;
+}
+.inline-edit-field[data-mode="edit"] .view-mode {
+  display: none !important;
+}
+.inline-edit-field input {
+  margin-inline: 0.5rem;
+  padding: 0.25rem;
+}
+.inline-edit-field button {
+  margin-inline-start: 0.5rem;
+}
 `
