@@ -267,6 +267,15 @@ let style = Style(/* css */ `
 #imageModal .modal-content {
   display: flex;
   height: 100%;
+  position: relative;
+}
+#imageModal .modal-back-button {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 20;
+  --padding-start: 0.5rem;
+  --padding-end: 0.5rem;
 }
 #imageModal .sidebar {
   width: 200px;
@@ -283,6 +292,7 @@ let style = Style(/* css */ `
   align-items: center;
   justify-content: space-between;
   gap: 0.3rem;
+  margin-bottom: 0.75rem;
 }
 #imageModal .sidebar .label-item .label-title {
   font-weight: bold;
@@ -314,6 +324,8 @@ let style = Style(/* css */ `
   justify-content: center;
   align-items: center;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 #imageModal .image-container img {
   max-width: 100%;
@@ -324,6 +336,8 @@ let style = Style(/* css */ `
   position: relative;
   display: inline-block;
   line-height: 0;
+  max-height: calc(100% - 60px);
+  overflow: hidden;
 }
 #imageModal .enlarged-image-wrapper img {
   display: block;
@@ -367,6 +381,13 @@ let style = Style(/* css */ `
   #imageModal .image-container {
     flex: 1;
     min-height: 0;
+    overflow: hidden;
+  }
+  #imageModal .image-container img {
+    max-height: 100%;
+  }
+  #imageModal .enlarged-image-wrapper {
+    max-height: 100%;
   }
 
   /* ---------- confirm modals: mobile responsive ---------- */
@@ -880,6 +901,12 @@ function updateButtonStates() {
   prevButton.disabled = currentIndex <= 0 || currentIndex === -1;
   nextButton.disabled = currentIndex >= filteredImagesData.length - 1 || currentIndex === -1;
 }
+
+function closeImageModal() {
+  const modal = document.getElementById('imageModal');
+  if (modal) modal.dismiss();
+}
+window.closeImageModal = closeImageModal;
 
 function showEnlargedImage(src, rotation, image_id) {
   if (isSelectionMode) return;
@@ -1611,6 +1638,14 @@ function Main(attrs: {}, context: DynamicContext) {
       <ion-modal id="imageModal" backdropDismiss={true}>
         <ion-content>
           <div class="modal-content">
+            <ion-button
+              class="modal-back-button"
+              fill="clear"
+              onclick="closeImageModal()"
+            >
+              <ion-icon name="arrow-back" slot="start"></ion-icon>
+              <Locale en="Back" zh_hk="返回" zh_cn="返回" />
+            </ion-button>
             <div class="sidebar">
               <h3>
                 <Locale en="Label Status" zh_hk="標籤狀態" zh_cn="标签状态" />
