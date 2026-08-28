@@ -2492,12 +2492,15 @@ function BatchDelete(attrs: {}, context: WsContext) {
           errors.push(`Image ID ${image_id}: not found in project`)
           return
         }
+        // capture filename before deleting the DB row, because the row
+        // proxy returns undefined for properties after the row is deleted
+        const filename = image.filename
         del(proxy.image_bounding_box_confirmation, { image_id })
         del(proxy.image_bounding_box, { image_id })
         del(proxy.image_label, { image_id })
         del(proxy.image, { id: image_id })
         try {
-          const filePath = join(env.UPLOAD_DIR, image.filename)
+          const filePath = join(env.UPLOAD_DIR, filename)
           fsPromises.rm(filePath, { force: true })
         } catch (err) {
           errors.push(`Image ID ${image_id}: file delete failed: ${err}`)

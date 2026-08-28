@@ -18,6 +18,7 @@ import { renderError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy, User } from '../../../db/proxy.js'
+import { db } from '../../../db/db.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
 import { createUploadForm } from '../upload.js'
@@ -630,13 +631,30 @@ async function RemoveAllImages(context: ExpressContext) {
     if (!project_id) throw 'invalid project id'
     let images = filter(proxy.image, { project_id })
     let uploadDir = env.UPLOAD_DIR || ''
-    for (let image of images) {
-      del(proxy.image_label, { image_id: image.id! })
-      del(proxy.image_bounding_box, { image_id: image.id! })
-      del(proxy.image_bounding_box_confirmation, { image_id: image.id! })
-      del(proxy.image, { filename: image.filename })
-      if (uploadDir && image.filename) {
-        let file = join(uploadDir, image.filename)
+
+    // Capture filenames before deletion (row proxy returns undefined after delete)
+    let filenames = images
+      .map(image => image.filename)
+      .filter((f): f is string => typeof f === 'string')
+
+    // Delete all DB records atomically in a transaction
+    db.transaction(() => {
+      for (let image of images) {
+        let image_id = image.id
+        if (!image_id) continue
+
+        // delete child tables first to satisfy FOREIGN KEY constraints
+        del(proxy.image_bounding_box_confirmation, { image_id })
+        del(proxy.image_bounding_box, { image_id })
+        del(proxy.image_label, { image_id })
+        del(proxy.image, { id: image_id })
+      }
+    })()
+
+    // Delete files after successful DB transaction
+    for (let filename of filenames) {
+      if (uploadDir && filename) {
+        let file = join(uploadDir, filename)
         await rm(file, { force: true })
       }
     }
