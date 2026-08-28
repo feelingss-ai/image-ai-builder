@@ -203,6 +203,18 @@ let style = Style(/* css */ `
   --ionicon-stroke-width: 32px;
   color: #999;
 }
+/* dropdown / label-toggle-container 裡的 label-state-button 需要更大空間才能顯示 icon */
+#ManageDataset #bbox-count-dropdown .label-state-button,
+#ManageDataset #label-toggle-container .label-state-button {
+  width: auto;
+  height: auto;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+}
+#ManageDataset #bbox-count-dropdown .label-state-button ion-icon,
+#ManageDataset #label-toggle-container .label-state-button ion-icon {
+  font-size: 1.2rem;
+}
 #ManageDataset .browse-toolbar {
   position: sticky;
   top: 0;
@@ -1461,76 +1473,80 @@ function Main(attrs: {}, context: DynamicContext) {
               <Locale en="Show BBox" zh_hk="顯示框" zh_cn="显示框" />
             </span>
           </ion-button>
-          <ion-button
-            id="bbox-count-button"
-            style="display: none;"
-            onclick="window.toggleBboxCountDropdown()"
-          >
-            <span>
-              <Locale en="Box Count" zh_hk="框數量" zh_cn="框数量" />
-            </span>
-            <ion-icon
-              name="chevron-down"
-              style="margin-left: 0.25rem; font-size: 0.8rem;"
-            ></ion-icon>
-          </ion-button>
-          <ion-button id="toggle-labels-button" onclick="toggleLabels()">
-            <span>
-              <Locale en="Hide" zh_hk="隱藏" zh_cn="隐藏" />
-            </span>
-          </ion-button>
-        </div>
-        <div
-          id="bbox-count-dropdown"
-          style="position: fixed; right: 9rem; top: 7.5rem; display: none; flex-direction: column; gap: 0.25rem; z-index: 10;"
-        >
-          {mapArray(bboxCounts, n => (
-            <div class="label-container">
-              <div class="class-label">{n}</div>
-              <ion-button
-                id={`bbox-count-state-${n}`}
-                class="label-state-button"
-                fill="clear"
-                onclick={`window.setBboxCountFilter(${n})`}
-              >
-                <ion-icon
-                  name="ellipse-outline"
-                  style="--ionicon-stroke-width: 32px; color: #999;"
-                ></ion-icon>
-              </ion-button>
+          <div style="position: relative;">
+            <ion-button
+              id="bbox-count-button"
+              style="display: none;"
+              onclick="window.toggleBboxCountDropdown()"
+            >
+              <span>
+                <Locale en="Box Count" zh_hk="框數量" zh_cn="框数量" />
+              </span>
+              <ion-icon
+                name="chevron-down"
+                style="margin-left: 0.25rem; font-size: 0.8rem;"
+              ></ion-icon>
+            </ion-button>
+            <div
+              id="bbox-count-dropdown"
+              style="position: absolute; top: 100%; right: 0; margin-top: 0.25rem; display: none; flex-direction: column; gap: 0.25rem; z-index: 10;"
+            >
+              {mapArray(bboxCounts, n => (
+                <div class="label-container">
+                  <div class="class-label">{n}</div>
+                  <ion-button
+                    id={`bbox-count-state-${n}`}
+                    class="label-state-button"
+                    fill="clear"
+                    onclick={`window.setBboxCountFilter(${n})`}
+                  >
+                    <ion-icon
+                      name="ellipse-outline"
+                      style="--ionicon-stroke-width: 32px; color: #999;"
+                    ></ion-icon>
+                  </ion-button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div
-          id="label-toggle-container"
-          style="position: fixed; right: 0.5rem; top: 8rem; display: flex; flex-direction: column; gap: 0.25rem; z-index: 10;"
-        >
-          {mapArray(labels, label => {
-            let annotated_count = count_annotated_images.get({
-              label_id: label.id!,
-              project_id,
-            })
-            return (
-              <div class="label-container">
-                <div class="class-label">{label.title}</div>
-                <ion-button
-                  id={`label-state-button-${label.id}`}
-                  class="label-state-button empty"
-                  fill="clear"
-                  onclick={`toggleLabelState(${label.id})`}
-                >
-                  <ion-icon
-                    name="ellipse-outline"
-                    style="--ionicon-stroke-width: 32px; color: #999;"
-                  ></ion-icon>
-                </ion-button>
-                <progress
-                  value={annotated_count}
-                  max={totalImages || 1}
-                ></progress>
-              </div>
-            )
-          })}
+          </div>
+          <div style="position: relative;">
+            <ion-button id="toggle-labels-button" onclick="toggleLabels()">
+              <span>
+                <Locale en="Hide" zh_hk="隱藏" zh_cn="隐藏" />
+              </span>
+            </ion-button>
+            <div
+              id="label-toggle-container"
+              style="position: absolute; top: 100%; right: 0; margin-top: 0.25rem; display: flex; flex-direction: column; gap: 0.25rem; z-index: 10;"
+            >
+              {mapArray(labels, label => {
+                let annotated_count = count_annotated_images.get({
+                  label_id: label.id!,
+                  project_id,
+                })
+                return (
+                  <div class="label-container">
+                    <div class="class-label">{label.title}</div>
+                    <ion-button
+                      id={`label-state-button-${label.id}`}
+                      class="label-state-button empty"
+                      fill="clear"
+                      onclick={`toggleLabelState(${label.id})`}
+                    >
+                      <ion-icon
+                        name="ellipse-outline"
+                        style="--ionicon-stroke-width: 32px; color: #999;"
+                      ></ion-icon>
+                    </ion-button>
+                    <progress
+                      value={annotated_count}
+                      max={totalImages || 1}
+                    ></progress>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
         <div class="section all-images-section">
           <div class="image-grid">
@@ -1669,7 +1685,7 @@ function ToggleLabels(attrs: {}, context: WsContext) {
           nodeToVNode(
             <div
               id="label-toggle-container"
-              style={`position: fixed; right: 0.5rem; top: 8rem; display: ${input.isLabelVisible ? 'flex' : 'none'}; flex-direction: column; gap: 0.25rem; z-index: 10;`}
+              style={`position: absolute; top: 100%; right: 0; margin-top: 0.25rem; display: ${input.isLabelVisible ? 'flex' : 'none'}; flex-direction: column; gap: 0.25rem; z-index: 10;`}
             >
               {mapArray(labels, label => {
                 let annotated_count = count_annotated_images.get({
@@ -1707,9 +1723,9 @@ function ToggleLabels(attrs: {}, context: WsContext) {
           nodeToVNode(
             <span>
               <Locale
-                en={input.isLabelVisible ? 'Hide' : 'Show'}
-                zh_hk={input.isLabelVisible ? '隱藏' : '顯示'}
-                zh_cn={input.isLabelVisible ? '隐藏' : '显示'}
+                en={input.isLabelVisible ? 'Hide Labels' : 'Show Labels'}
+                zh_hk={input.isLabelVisible ? '隱藏標籤' : '顯示標籤'}
+                zh_cn={input.isLabelVisible ? '隐藏标签' : '显示标签'}
               />
             </span>,
             context,
