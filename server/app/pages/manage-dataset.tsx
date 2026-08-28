@@ -417,6 +417,25 @@ let style = Style(/* css */ `
   #exportConfirmModal > div > div:last-child > div:first-child > ion-button {
     width: 100% !important;
   }
+
+  /* ---------- browse toolbar: mobile responsive ---------- */
+  #ManageDataset .browse-toolbar {
+    gap: 0.25rem;
+    padding: 0.25rem;
+  }
+  #ManageDataset .browse-toolbar ion-button {
+    --padding-start: 0.35rem;
+    --padding-end: 0.35rem;
+    font-size: 0.8rem;
+  }
+  /* import / export: icon only on phone */
+  #ManageDataset .browse-toolbar ion-button.icon-only-mobile span {
+    display: none;
+  }
+  #ManageDataset .browse-toolbar ion-button.icon-only-mobile {
+    --padding-start: 0.5rem;
+    --padding-end: 0.5rem;
+  }
 }
 #labelStatus.loading {
   text-align: center;
@@ -1601,7 +1620,7 @@ function Main(attrs: {}, context: DynamicContext) {
               <Locale en="Select All" zh_hk="全選" zh_cn="全选" />
             </span>
           </ion-button>
-          <ion-button onclick="exportDataset()">
+          <ion-button class="icon-only-mobile" onclick="exportDataset()">
             <ion-icon name="download" slot="start"></ion-icon>
             <span>
               <Locale
@@ -1611,7 +1630,10 @@ function Main(attrs: {}, context: DynamicContext) {
               />
             </span>
           </ion-button>
-          <ion-button onclick="document.getElementById('import-dataset-input').click()">
+          <ion-button
+            class="icon-only-mobile"
+            onclick="document.getElementById('import-dataset-input').click()"
+          >
             <ion-icon name="cloud-upload" slot="start"></ion-icon>
             <span>
               <Locale
