@@ -1,15 +1,20 @@
 import { o } from '../jsx/jsx.js'
-import { Routes } from '../routes.js'
+import { Routes, ajaxRoute } from '../routes.js'
 import { apiEndpointTitle, LayoutType } from '../../config.js'
 import Style from '../components/style.js'
-import { DynamicContext, getContextFormBody, WsContext } from '../context.js'
+import {
+  DynamicContext,
+  ExpressContext,
+  getContextFormBody,
+  WsContext,
+} from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { array, boolean, id, object, string, values } from 'cast.ts'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, ProjectPageTitle, makeThrows } from '../components/locale.js'
-import { del, filter } from 'better-sqlite3-proxy'
+import { del, filter, seedRow } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
@@ -24,8 +29,9 @@ import { NoProjectMessage } from '../components/no-project-message.js'
 import { IonButton } from '../components/ion-button.js'
 import { env } from '../../env.js'
 import { join } from 'path'
-import { promises as fsPromises } from 'fs'
+import { promises as fsPromises, rmSync } from 'fs'
 import AdmZip from 'adm-zip'
+import { createUploadForm } from '../upload.js'
 
 let pageTitle = (
   <Locale en="Manage Dataset" zh_hk="管理數據集" zh_cn="管理数据集" />
@@ -784,6 +790,49 @@ function exportImages() {
   toggleSelectionMode();
 }
 
+// ---------- browse: dataset export / import ----------
+function exportDataset() {
+  emit('/manage-dataset/export-dataset', { project_id: getProjectId() });
+}
+function importDataset(event) {
+  const input = event.target;
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  fetch('/manage-dataset/import-dataset?project=' + getProjectId(), {
+    method: 'POST',
+    body: formData,
+  })
+    .then(res => res.json())
+    .then(json => {
+      if (json.error) {
+        if (typeof showError === 'function') showError(json.error);
+        else alert(json.error);
+        return;
+      }
+      if (typeof showToast === 'function') {
+        showToast(
+          'Imported ' + json.imported_images + ' images, ' +
+          json.imported_labels + ' labels, ' +
+          json.imported_boxes + ' boxes. ' +
+          json.skipped_images + ' skipped, ' +
+          json.created_labels + ' labels created.',
+          'success'
+        );
+      }
+      // reload the page to reflect imported data
+      window.location.reload();
+    })
+    .catch(err => {
+      if (typeof showError === 'function') showError(err);
+      else alert(err);
+    })
+    .finally(() => {
+      input.value = '';
+    });
+}
+
 // ---------- browse: image modal ----------
 function initAnnotationImage(image) {
   let degree = +image.dataset.rotation || 0;
@@ -1118,6 +1167,67 @@ let get_project_bounding_boxes = db.prepare<
          image_bounding_box.width, image_bounding_box.height, image_bounding_box.rotate
   FROM image_bounding_box
   INNER JOIN image ON image.id = image_bounding_box.image_id
+  WHERE image.project_id = :project_id
+`)
+
+// ---------------------------------------------------------------------------
+// dataset export helpers (labels + bounding boxes with label titles)
+// ---------------------------------------------------------------------------
+
+// all labels in a project with dependency title + display order
+let select_project_labels_full = db.prepare<
+  { project_id: number },
+  {
+    id: number
+    title: string
+    dependency_title: string | null
+    display_order: number | null
+  }
+>(/* sql */ `
+  SELECT l.id, l.title, dep.title AS dependency_title, l.display_order
+  FROM label l
+  LEFT JOIN label dep ON dep.id = l.dependency_id
+  WHERE l.project_id = :project_id
+  ORDER BY l.display_order ASC
+`)
+
+// latest answer per image+label in a project (with label title)
+let select_project_image_labels = db.prepare<
+  { project_id: number },
+  {
+    image_id: number
+    label_title: string
+    answer: number
+  }
+>(/* sql */ `
+  SELECT il.image_id, l.title AS label_title, il.answer
+  FROM image_label il
+  INNER JOIN image ON image.id = il.image_id
+  INNER JOIN label l ON l.id = il.label_id
+  WHERE image.project_id = :project_id
+  AND il.id = (
+    SELECT MAX(il2.id) FROM image_label il2
+    WHERE il2.image_id = il.image_id AND il2.label_id = il.label_id
+  )
+`)
+
+// all bounding boxes in a project (with label title)
+let select_project_bounding_boxes_full = db.prepare<
+  { project_id: number },
+  {
+    image_id: number
+    label_title: string
+    x: number
+    y: number
+    width: number
+    height: number
+    rotate: number
+  }
+>(/* sql */ `
+  SELECT ibb.image_id, l.title AS label_title, ibb.x, ibb.y, ibb.width, ibb.height, ibb.rotate
+  FROM image_bounding_box ibb
+  INNER JOIN image ON image.id = ibb.image_id
+  INNER JOIN label l ON l.id = ibb.label_id
   WHERE image.project_id = :project_id
 `)
 
@@ -1491,6 +1601,33 @@ function Main(attrs: {}, context: DynamicContext) {
               <Locale en="Select All" zh_hk="全選" zh_cn="全选" />
             </span>
           </ion-button>
+          <ion-button onclick="exportDataset()">
+            <ion-icon name="download" slot="start"></ion-icon>
+            <span>
+              <Locale
+                en="Export Dataset"
+                zh_hk="匯出數據集"
+                zh_cn="导出数据集"
+              />
+            </span>
+          </ion-button>
+          <ion-button onclick="document.getElementById('import-dataset-input').click()">
+            <ion-icon name="cloud-upload" slot="start"></ion-icon>
+            <span>
+              <Locale
+                en="Import Dataset"
+                zh_hk="匯入數據集"
+                zh_cn="导入数据集"
+              />
+            </span>
+          </ion-button>
+          <input
+            type="file"
+            id="import-dataset-input"
+            accept=".zip,application/zip,application/x-zip-compressed"
+            style="display: none;"
+            onchange="importDataset(event)"
+          />
           <div style="flex: 1;"></div>
           <ion-button
             id="toggle-bbox-button"
@@ -2594,6 +2731,350 @@ function BatchExport(attrs: {}, context: WsContext) {
 }
 
 // ---------------------------------------------------------------------------
+// dataset export (whole project: images + labels + bounding boxes)
+// ---------------------------------------------------------------------------
+let exportDatasetParser = object({
+  project_id: id(),
+})
+
+function ExportDataset(attrs: {}, context: WsContext) {
+  try {
+    let user_id = getAuthUserId(context)!
+    if (!user_id) throw 'Login required'
+
+    let body = getContextFormBody(context)
+    let input = exportDatasetParser.parse(body)
+    let project = proxy.project[input.project_id]
+    if (!project) throw 'Project not found'
+    let project_id = project.id!
+
+    let images = getProjectImages(project_id)
+    let labels = select_project_labels_full.all({ project_id })
+    let imageLabels = select_project_image_labels.all({ project_id })
+    let boxes = select_project_bounding_boxes_full.all({ project_id })
+
+    // group image_labels by image_id
+    let labelsByImage = new Map<
+      number,
+      { label_title: string; answer: number }[]
+    >()
+    for (let il of imageLabels) {
+      if (!labelsByImage.has(il.image_id)) labelsByImage.set(il.image_id, [])
+      labelsByImage.get(il.image_id)!.push({
+        label_title: il.label_title,
+        answer: il.answer,
+      })
+    }
+
+    // group bounding boxes by image_id
+    let boxesByImage = new Map<
+      number,
+      {
+        label_title: string
+        x: number
+        y: number
+        width: number
+        height: number
+        rotate: number
+      }[]
+    >()
+    for (let b of boxes) {
+      if (!boxesByImage.has(b.image_id)) boxesByImage.set(b.image_id, [])
+      boxesByImage.get(b.image_id)!.push({
+        label_title: b.label_title,
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        rotate: b.rotate,
+      })
+    }
+
+    let metadata = {
+      project_title: project.title,
+      labels: labels.map(l => ({
+        title: l.title,
+        dependency_title: l.dependency_title,
+        display_order: l.display_order,
+      })),
+      images: images.map(img => ({
+        filename: img.filename,
+        original_filename: img.original_filename,
+        rotation: img.rotation || 0,
+        content_hash: img.content_hash,
+        labels: labelsByImage.get(img.id!) || [],
+        bounding_boxes: boxesByImage.get(img.id!) || [],
+      })),
+    }
+
+    const zip = new AdmZip()
+    zip.addFile(
+      'metadata.json',
+      Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8'),
+    )
+    for (let img of images) {
+      if (!img.filename) continue
+      let filePath = join(env.UPLOAD_DIR, img.filename)
+      try {
+        zip.addLocalFile(filePath, 'images', img.filename)
+      } catch (e) {
+        console.error('ExportDataset: missing image file', img.filename, e)
+      }
+    }
+
+    const zipBuffer = zip.toBuffer()
+    const base64Zip = zipBuffer.toString('base64')
+
+    context.ws.send([
+      'eval',
+      `
+      const byteCharacters = atob('${base64Zip}');
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'dataset_${project_id}_${new Date().toISOString()}.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+      const toast = document.createElement('ion-toast');
+      toast.message = 'Exported ${images.length} images.';
+      toast.duration = 5000;
+      document.body.appendChild(toast);
+      toast.present();
+      `,
+    ])
+    throw EarlyTerminate
+  } catch (error) {
+    if (error !== EarlyTerminate) {
+      console.error('ExportDataset Error:', error)
+      context.ws.send(showError(error))
+    }
+    throw EarlyTerminate
+  }
+}
+
+// ---------------------------------------------------------------------------
+// dataset import (whole project: images + labels + bounding boxes)
+// ---------------------------------------------------------------------------
+let insert_bounding_box = db.prepare<
+  {
+    image_id: number
+    user_id: number
+    label_id: number
+    x: number
+    y: number
+    width: number
+    height: number
+    rotate: number
+  },
+  { id: number }
+>(/* sql */ `
+  INSERT INTO image_bounding_box (image_id, user_id, label_id, x, y, width, height, rotate)
+  VALUES (:image_id, :user_id, :label_id, :x, :y, :width, :height, :rotate)
+  RETURNING id
+`)
+
+async function ImportDataset(context: ExpressContext) {
+  let user_id = getAuthUserId(context)
+  if (!user_id) throw 'Login required'
+
+  let project_id_str = context.req.query.project
+  if (typeof project_id_str !== 'string') throw 'project is required'
+  let project_id = +project_id_str
+  if (!project_id) throw 'invalid project id'
+
+  let project = proxy.project[project_id]
+  if (!project) throw 'Project not found'
+
+  let form = createUploadForm({
+    mimeTypeRegex: /^application\/zip$|^application\/x-zip-compressed$/,
+    maxFileSize: 1024 * 1024 * 1024,
+    maxFiles: 1,
+  })
+
+  let [_fields, files] = await form.parse(context.req)
+  let uploaded = files.file
+  if (!uploaded) throw 'No file uploaded'
+  let file = Array.isArray(uploaded) ? uploaded[0] : uploaded
+  if (!file) throw 'No file uploaded'
+
+  let zip = new AdmZip(file.filepath)
+  let metadataEntry = zip.getEntry('metadata.json')
+  if (!metadataEntry) throw 'Invalid dataset zip: missing metadata.json'
+
+  let metadata = JSON.parse(metadataEntry.getData().toString('utf-8')) as {
+    project_title?: string
+    labels?: Array<{
+      title: string
+      dependency_title: string | null
+      display_order: number | null
+    }>
+    images?: Array<{
+      filename: string
+      original_filename: string | null
+      rotation: number | null
+      content_hash: string | null
+      labels?: Array<{ label_title: string; answer: number }>
+      bounding_boxes?: Array<{
+        label_title: string
+        x: number
+        y: number
+        width: number
+        height: number
+        rotate: number
+      }>
+    }>
+  }
+  if (!metadata.labels || !Array.isArray(metadata.labels)) {
+    throw 'Invalid metadata.json: labels array missing'
+  }
+  if (!metadata.images || !Array.isArray(metadata.images)) {
+    throw 'Invalid metadata.json: images array missing'
+  }
+
+  // ---- 1. create / match labels by title ----
+  let projectLabels = filter(proxy.label, { project_id })
+  let titleToLabel = new Map(
+    projectLabels.map(label => [label.title, label] as const),
+  )
+  let created_labels = 0
+  let labelTitleToId = new Map<string, number>()
+
+  // first pass: create all labels (without dependency) so titles exist
+  for (let metaLabel of metadata.labels) {
+    let existing = titleToLabel.get(metaLabel.title)
+    if (existing && existing.id != null) {
+      labelTitleToId.set(metaLabel.title, existing.id)
+      continue
+    }
+    let newId = proxy.label.push({
+      title: metaLabel.title,
+      dependency_id: null,
+      project_id,
+      display_order: metaLabel.display_order ?? null,
+    })
+    labelTitleToId.set(metaLabel.title, newId)
+    created_labels++
+  }
+
+  // second pass: resolve dependency titles -> ids
+  for (let metaLabel of metadata.labels) {
+    if (!metaLabel.dependency_title) continue
+    let id = labelTitleToId.get(metaLabel.title)
+    let depId = labelTitleToId.get(metaLabel.dependency_title)
+    if (id == null || depId == null) continue
+    db.prepare(
+      /* sql */ `
+      UPDATE label SET dependency_id = ? WHERE id = ?
+    `,
+    ).run(depId, id)
+  }
+
+  // ---- 2. import images (dedup by content_hash) ----
+  let imported_images = 0
+  let skipped_images = 0
+  let imageIdByFilename = new Map<string, number>()
+
+  for (let metaImage of metadata.images) {
+    if (!metaImage.filename) continue
+
+    // dedup by content_hash within this project
+    if (metaImage.content_hash) {
+      let existing = filter(proxy.image, {
+        project_id,
+        content_hash: metaImage.content_hash,
+      })
+      if (existing.length > 0) {
+        skipped_images++
+        if (existing[0].id != null) {
+          imageIdByFilename.set(metaImage.filename, existing[0].id)
+        }
+        continue
+      }
+    }
+
+    // extract image from zip into upload dir
+    let entry = zip.getEntry('images/' + metaImage.filename)
+    if (!entry) {
+      skipped_images++
+      continue
+    }
+    let destPath = join(env.UPLOAD_DIR, metaImage.filename)
+    let data = entry.getData()
+    await fsPromises.writeFile(destPath, data)
+
+    let newId = proxy.image.push({
+      original_filename: metaImage.original_filename ?? null,
+      filename: metaImage.filename,
+      user_id,
+      rotation: metaImage.rotation ?? null,
+      project_id,
+      content_hash: metaImage.content_hash ?? null,
+    })
+    imageIdByFilename.set(metaImage.filename, newId)
+    imported_images++
+  }
+
+  // ---- 3. restore image_label (latest answer) ----
+  let imported_labels = 0
+  for (let metaImage of metadata.images) {
+    let imageId = imageIdByFilename.get(metaImage.filename)
+    if (imageId == null) continue
+    for (let il of metaImage.labels || []) {
+      let labelId = labelTitleToId.get(il.label_title)
+      if (labelId == null) continue
+      seedRow(
+        proxy.image_label,
+        { image_id: imageId, label_id: labelId, user_id },
+        { answer: il.answer },
+      )
+      imported_labels++
+    }
+  }
+
+  // ---- 4. restore bounding boxes ----
+  let imported_boxes = 0
+  for (let metaImage of metadata.images) {
+    let imageId = imageIdByFilename.get(metaImage.filename)
+    if (imageId == null) continue
+    for (let b of metaImage.bounding_boxes || []) {
+      let labelId = labelTitleToId.get(b.label_title)
+      if (labelId == null) continue
+      insert_bounding_box.run({
+        image_id: imageId,
+        user_id,
+        label_id: labelId,
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        rotate: b.rotate,
+      })
+      imported_boxes++
+    }
+  }
+
+  // cleanup uploaded temp file
+  try {
+    rmSync(file.filepath, { force: true })
+  } catch {}
+
+  return {
+    success: true,
+    imported_images,
+    skipped_images,
+    created_labels,
+    imported_labels,
+    imported_boxes,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // review: reclassify (from review-annotation branch)
 // ---------------------------------------------------------------------------
 let reclassifyParser = object({
@@ -2771,6 +3252,17 @@ let routes = {
     description: 'Batch export selected images as ZIP',
     node: <BatchExport />,
   },
+  '/manage-dataset/export-dataset': {
+    title: apiEndpointTitle,
+    description:
+      'Export whole dataset (images + labels + bounding boxes) as ZIP',
+    node: <ExportDataset />,
+  },
+  '/manage-dataset/import-dataset': ajaxRoute({
+    description:
+      'Import whole dataset (images + labels + bounding boxes) from ZIP',
+    api: ImportDataset,
+  }),
   '/manage-dataset/reclassify': {
     title: apiEndpointTitle,
     description: 'Reclassify selected images answer for a label',
