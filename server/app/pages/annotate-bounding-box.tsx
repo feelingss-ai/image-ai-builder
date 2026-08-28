@@ -199,6 +199,24 @@ ion-popover.select-popover ion-radio-group ion-item ion-label {
   object-fit: contain;
 }
 
+/* Button rows: use a smaller gap on small screens so all buttons stay visible */
+.bbox-button-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+@media (max-width: 480px) {
+  .bbox-button-row {
+    gap: 0.2rem;
+  }
+  .bbox-button-row ion-button {
+    --padding-start: 4px;
+    --padding-end: 4px;
+    font-size: 12px;
+  }
+}
+
 `)
 
 let script = Script(/* js */ `
@@ -2053,7 +2071,7 @@ function Main(
           </div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-          <div style="display: flex; justify-content: space-between; gap: 1rem;">
+          <div class="bbox-button-row">
             <ion-button
               color="secondary"
               style="flex: 1;"
@@ -2199,7 +2217,7 @@ function Main(
               <ion-icon name="refresh" slot="icon-only"></ion-icon>
             </ion-button>
           </div>
-          <div style="display: flex; justify-content: space-between; gap: 1rem;">
+          <div class="bbox-button-row">
             <ion-button
               color="primary"
               style="flex: 1;"
@@ -2907,7 +2925,9 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
       // When editing from the review page, the image may already be confirmed.
       // Allow re-confirmation by deleting the old record and inserting a new one.
       if (input.from === 'review') {
-        console.log('SubmitBoundingBox: from=review, re-confirming already confirmed image')
+        console.log(
+          'SubmitBoundingBox: from=review, re-confirming already confirmed image',
+        )
         delete_bounding_box_confirmation.run({
           image_id: input.image_id,
           user_id: user_id,
