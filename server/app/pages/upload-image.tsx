@@ -92,6 +92,80 @@ let style = Style(/* css */ `
   width: 100%;
   pointer-events: none;
 }
+#UploadImage #uploadQueueList,
+#UploadImage #uploadedList {
+  display: flex;
+  justify-content: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  min-height: 60px;
+}
+#UploadImage #uploadQueueList {
+  flex-wrap: wrap;
+}
+#UploadImage #uploadedList {
+  flex-direction: row-reverse;
+  flex-wrap: wrap-reverse;
+}
+#UploadImage #uploadQueueList .image-item,
+#UploadImage #uploadedList .image-item {
+  text-align: center;
+  width: 60px;
+  height: 60px;
+  box-sizing: border-box;
+  background-color: white;
+  padding: 0.1rem;
+  border-radius: 0.25rem;
+  border: 1px solid #eee;
+  overflow: hidden;
+}
+#UploadImage #uploadQueueList .image-item img,
+#UploadImage #uploadedList .image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#UploadImage #uploadQueueList .image-item--filename,
+#UploadImage #uploadedList .image-item--filename {
+  display: none;
+}
+#UploadImage #uploadQueueList .image-item--buttons,
+#UploadImage #uploadedList .image-item--buttons {
+  display: none;
+}
+#UploadImage #uploadQueueList .image-item {
+  position: relative;
+}
+#UploadImage #uploadQueueList .image-item--upload-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+#UploadImage #uploadQueueList .image-item--upload-progress-bar {
+  width: 80%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#UploadImage #uploadQueueList .image-item--upload-progress-bar::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: #4caf50;
+  transition: width 0.1s linear;
+}
+#UploadImage #uploadQueueList .image-item--upload-progress.done {
+  display: none;
+}
 `)
 
 let imagePlugin = loadClientPlugin({
@@ -119,70 +193,120 @@ async function pickImage(event) {
     multiple: true,
   })
 
-  // Calculate layout params matching virtual-scroll positioning
-  let listEl = document.getElementById('imageList')
-  let containerW = listEl.clientWidth
-  let vsLayout = listEl.dataset.layout || 'multi'
-  let nCol = vsLayout === 'single' ? 1 : Math.max(1, Math.floor(containerW / 260))
-  let itemW = vsLayout === 'single' ? containerW : 260
-  let itemH = 310
-
-  // Count existing preview items (not template, not virtual-scroll managed)
-  let previewCount = listEl.querySelectorAll('.image-item:not(.image-item--template):not(.image-item--vs)').length
-
-  for (let i = 0; i < files.length; i++) {
-    let _file = files[i]
-    let imageItem = imageItemTemplate.cloneNode(true)
+  // Previews render in separate containers that virtual scroll does not
+  // manage, so they never collide with the virtual-scroll items or its spacer.
+  // Two lists: an upload queue (pending files) and a newly-uploaded list.
+  // Each is capped so the DOM stays bounded even for huge batches.
+  let queueListEl = document.getElementById('uploadQueueList')
+  let uploadedListEl = document.getElementById('uploadedList')
+  let queueStatusEl = document.getElementById('uploadQueueStatus')
+  let queueSectionEl = document.getElementById('uploadQueueSection')
+  let uploadedSectionEl = document.getElementById('uploadedSection')
+  let MAX_PREVIEWS = 10
+  if (queueSectionEl) queueSectionEl.hidden = false
+  if (uploadedSectionEl) uploadedSectionEl.hidden = false
+  var queueItems = []
+  var queueCount_ = Math.min(MAX_PREVIEWS, files.length)
+  for (let p = 0; p < queueCount_; p++) {
+    var _file = files[p]
+    var imageItem = imageItemTemplate.cloneNode(true)
     imageItem.classList.remove('image-item--template')
-    let image = imageItem.querySelector('img')
+    var image = imageItem.querySelector('img')
     image.src = URL.createObjectURL(_file)
     image.file = _file
     imageItem.querySelector('.image-item--filename').textContent = _file.name
 
-    // Position the preview item to avoid overlap with other previews
-    let idx = previewCount + i
-    let col = idx % nCol
-    let row = Math.floor(idx / nCol)
-    imageItem.style.top = '0'
-    imageItem.style.left = '0'
-    imageItem.style.transform = 'translate(' + (col * itemW) + 'px, ' + (row * itemH) + 'px)'
-
-    imageList.appendChild(imageItem)
-    let uploadButton = imageItem.querySelector('.image-item--upload')
+    var uploadButton = imageItem.querySelector('.image-item--upload')
     uploadButton.setAttribute('color', 'primary')
     uploadButton.removeAttribute('disabled')
+
+    queueListEl.appendChild(imageItem)
+    queueItems[p] = imageItem
   }
-  let buttons = imageList.querySelectorAll('.image-item--upload[color="primary"]')
-  for (let button of buttons) {
-    let imageItem = button.closest('.image-item')
-    let image = imageItem.querySelector('img')
-    let file = image.file
-    if (!file) continue
-    let formData = new FormData()
+  if (queueStatusEl) {
+    queueStatusEl.hidden = false
+    queueStatusEl.textContent = '0/' + files.length
+  }
+  // Next file index to add to the queue as earlier ones finish uploading.
+  var nextQueueIndex = queueCount_
+  for (let i = 0; i < files.length; i++) {
+    var file = files[i]
+    var queueItem = queueItems[i]
+    var formData = new FormData()
     formData.append('image', file)
-    let res = await fetch('/upload-image/submit?project=' + project_id, {
-      method: 'POST',
-      body: formData,
+    // Use XMLHttpRequest so we can show per-image upload progress.
+    var json = await new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest()
+      xhr.open('POST', '/upload-image/submit?project=' + project_id)
+      xhr.upload.onprogress = function (e) {
+        if (queueItem && e.lengthComputable) {
+          var pct = Math.round((e.loaded / e.total) * 100)
+          var bar = queueItem.querySelector('.image-item--upload-progress-bar')
+          if (bar) bar.style.width = pct + '%'
+        }
+      }
+      xhr.onload = function () {
+        try { resolve(JSON.parse(xhr.responseText)) } catch (err) { reject(err) }
+      }
+      xhr.onerror = function () { reject(new Error('upload failed')) }
+      xhr.send(formData)
     })
-    let json = await res.json()
     if (json.error) {
       showError(json.error)
       return
     }
+    // Revoke the queue preview blob URL now that the upload is done.
+    if (queueItem) {
+      var img = queueItem.querySelector('img')
+      var blobUrl = img.getAttribute('src')
+      if (blobUrl && blobUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(blobUrl)
+      }
+      var prog = queueItem.querySelector('.image-item--upload-progress')
+      if (prog) prog.classList.add('done')
+      queueItem.remove()
+    }
+    // Roll the queue: add the next pending file to keep it full.
+    if (nextQueueIndex < files.length) {
+      var nextFile = files[nextQueueIndex]
+      var nextItem = imageItemTemplate.cloneNode(true)
+      nextItem.classList.remove('image-item--template')
+      var nimg = nextItem.querySelector('img')
+      nimg.src = URL.createObjectURL(nextFile)
+      nextItem.querySelector('.image-item--filename').textContent = nextFile.name
+      queueListEl.appendChild(nextItem)
+      queueItems[nextQueueIndex] = nextItem
+      nextQueueIndex++
+    }
     if (json.duplicate) {
       if (typeof showToast === 'function') showToast('Duplicate image skipped', 'info')
-      imageItem.remove()
     } else {
-      let url = json.url
-      image.src = url
-      button.setAttribute('color', 'success')
+      // Move this file into the newly-uploaded list (capped).
+      var doneItem = imageItemTemplate.cloneNode(true)
+      doneItem.classList.remove('image-item--template')
+      var dimg = doneItem.querySelector('img')
+      // Clear the template's placeholder src first so the real image doesn't
+      // flash the placeholder before it loads.
+      dimg.removeAttribute('src')
+      dimg.src = json.url
+      doneItem.querySelector('.image-item--filename').textContent = file.name
+      uploadedListEl.appendChild(doneItem)
+      while (uploadedListEl.childElementCount > MAX_PREVIEWS) {
+        uploadedListEl.firstElementChild.remove()
+      }
     }
     imageCount.textContent = json.count.toLocaleString()
+    if (queueStatusEl) {
+      queueStatusEl.textContent = (i + 1) + '/' + files.length
+    }
   }
 
-  // Remove all preview items and refresh the virtual-scroll list
-  let previews = imageList.querySelectorAll('.image-item:not(.image-item--template):not(.image-item--vs)')
-  previews.forEach(function(el) { el.remove() })
+  // Remove any remaining queue items and refresh the virtual-scroll list
+  var queueEls = queueListEl.querySelectorAll('.image-item')
+  queueEls.forEach(function(el) { el.remove() })
+  if (queueStatusEl) queueStatusEl.hidden = true
+  if (queueSectionEl) queueSectionEl.hidden = true
+  if (uploadedSectionEl) uploadedSectionEl.hidden = true
   if (typeof window.__vsRefresh === 'function') {
     window.__vsRefresh()
   }
@@ -339,6 +463,19 @@ function Main(attrs: {}, context: DynamicContext) {
             </ion-button>
           </div>
         ) : null}
+        <div id="uploadQueueStatus" hidden style="margin-top: 0.5rem; font-weight: 600;"></div>
+        <div id="uploadQueueSection" hidden>
+          <div style="font-size: 0.75rem; color: #666; margin-top: 0.5rem;">
+            <Locale en="Upload Queue" zh_hk="上傳佇列" zh_cn="上传队列" />
+          </div>
+          <div id="uploadQueueList"></div>
+        </div>
+        <div id="uploadedSection" hidden>
+          <div style="font-size: 0.75rem; color: #666; margin-top: 0.5rem;">
+            <Locale en="Newly Uploaded" zh_hk="新上傳" zh_cn="新上传" />
+          </div>
+          <div id="uploadedList"></div>
+        </div>
         <div
           id="imageList"
           class={layout === 'single' ? 'single-column' : ''}
@@ -379,6 +516,9 @@ function ImageItem(attrs: {
         )}
       </div>
       <img src={attrs.image_url} />
+      <div class="image-item--upload-progress">
+        <div class="image-item--upload-progress-bar"></div>
+      </div>
       <div class="image-item--filename">{attrs.filename}</div>
     </div>
   )
