@@ -228,6 +228,7 @@ let style = Style(/* css */ `
   z-index: 10;
   background: transparent;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem;
@@ -236,6 +237,12 @@ let style = Style(/* css */ `
   --padding-start: 0.5rem;
   --padding-end: 0.5rem;
   font-size: 0.9rem;
+}
+#ManageDataset .browse-toolbar ion-button.icon-only-mobile ion-icon {
+  margin-inline-end: 0.35rem;
+}
+#ManageDataset .browse-toolbar ion-button.icon-only-mobile {
+  --padding-start: 0.75rem;
 }
 #label-toggle-container {
   z-index: 10;
@@ -434,8 +441,13 @@ let style = Style(/* css */ `
     display: none;
   }
   #ManageDataset .browse-toolbar ion-button.icon-only-mobile {
-    --padding-start: 0.5rem;
-    --padding-end: 0.5rem;
+    width: 40px;
+    height: 40px;
+    --padding-start: 0;
+    --padding-end: 0;
+  }
+  #ManageDataset .browse-toolbar ion-button.icon-only-mobile ion-icon {
+    margin: 0;
   }
 }
 #labelStatus.loading {
