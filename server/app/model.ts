@@ -8,6 +8,8 @@ import {
 } from 'tensorflow-helpers'
 import { Label, Project } from '../../db/proxy.js'
 import * as tf from '@tensorflow/tfjs'
+import { existsSync } from 'fs'
+import { join } from 'path'
 
 // label -> model
 export let classifierModelCache: Record<string, Promise<Model>> = {}
@@ -91,13 +93,18 @@ export async function modelCheckpoint(option: {
     bestModel.classifierModel.evaluate(x, y),
   ) as [number, number]
 
-  if (latestModelLoss < bestModelLoss) {
+  let bestDir = `saved_models/project-${project_id}/best/label-${label.id}`
+  let hasBest = existsSync(join(bestDir, 'model.json'))
+
+  // Save the first best checkpoint unconditionally; afterwards only save when
+  // the latest model improves on it. Without this, a label with no best yet
+  // would compare against a fresh untrained model whose loss can be lower by
+  // chance, so best would never be saved.
+  if (!hasBest || latestModelLoss < bestModelLoss) {
     console.log(
       `Latest Model ${label.title} Loss: ${latestModelLoss}, Best Model ${label.title} Loss: ${bestModelLoss}`,
     )
-    await latestModel.save(
-      `saved_models/project-${project_id}/best/label-${label.id}`,
-    )
+    await latestModel.save(bestDir)
     await latestModel.save()
     delete classifierModelCache[label.title + '-best']
   } else {
