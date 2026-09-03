@@ -303,6 +303,20 @@ function stopRealtimeDetection() {
 var currentStream = null;
 var facingMode = 'environment'; // 'environment' = back, 'user' = front
 
+// Request the camera for the given facingMode. Uses exact (hard constraint)
+// so phones actually switch cameras, falling back to preferred if unavailable.
+async function getCameraStream(mode) {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { exact: mode } },
+    })
+  } catch (err) {
+    return await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { preferred: mode } },
+    })
+  }
+}
+
 function stopWebcam() {
     console.log('stopping webcam')
     shouldUpdateProgress = false;
@@ -351,7 +365,7 @@ async function toggleWebcam() {
   } else {
     try {
     console.log('starting')
-    currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { preferred: facingMode } } });
+    currentStream = await getCameraStream(facingMode);
     // Attach the stream to a video element:
     const video = document.querySelector('video'); 
     video.srcObject = currentStream;
@@ -377,9 +391,7 @@ async function toggleCameraDirection() {
     stopRealtimeDetection()
     document.querySelector('#webcamOutput').hidden = false
     try {
-      currentStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { preferred: facingMode } },
-      })
+      currentStream = await getCameraStream(facingMode)
       const video = document.querySelector('video')
       video.srcObject = currentStream
       video.play()
