@@ -303,9 +303,23 @@ function stopRealtimeDetection() {
 var currentStream = null;
 var facingMode = 'environment'; // 'environment' = back, 'user' = front
 
-// Request the camera for the given facingMode. Uses exact (hard constraint)
-// so phones actually switch cameras, falling back to preferred if unavailable.
+// Request the camera for the given facingMode. Enumerates devices and picks
+// the actual camera by facingMode so phones reliably switch front/back.
 async function getCameraStream(mode) {
+  let devices = await navigator.mediaDevices.enumerateDevices()
+  let videoDevices = devices.filter(d => d.kind === 'videoinput')
+  // Match by facingMode label (e.g. "environment", "back", "user", "front").
+  let match = videoDevices.find(d => {
+    let label = (d.label || '').toLowerCase()
+    if (mode === 'environment') return label.includes('back') || label.includes('environment')
+    return label.includes('front') || label.includes('user')
+  })
+  if (match && match.deviceId) {
+    return await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: match.deviceId } },
+    })
+  }
+  // Fall back to facingMode constraint.
   try {
     return await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { exact: mode } },
