@@ -93,14 +93,14 @@ export function renderIonicTemplate(
         display: none;
       }
     </style>
-    <script src="https://hammerjs.github.io/dist/hammer.min.js"></script>
+    <script src="/npm/hammerjs/hammer.min.js"></script>
     `)
   typeof options.app == 'function' ? options.app(stream) : stream.write(options.app)
   stream.write(/* html */ `
     <script
       defer
       async
-      src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"
+      src="/npm/@tensorflow/tfjs/dist/tf.min.js"
     ></script>
   </body>
 </html>

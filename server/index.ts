@@ -64,6 +64,11 @@ app.use(
   express.static('node_modules/datatables.net-dt'),
 )
 app.use('/npm/chart.js', express.static('node_modules/chart.js'))
+app.use('/npm/hammerjs', express.static('node_modules/hammerjs'))
+app.use(
+  '/npm/@tensorflow/tfjs',
+  express.static('node_modules/@tensorflow/tfjs'),
+)
 app.use(express.static('public'))
 
 app.use(express.json())
