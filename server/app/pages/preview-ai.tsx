@@ -40,6 +40,12 @@ let style = Style(/* css */ `
 #PreviewAI .label-container progress {
   width: 5rem;
 }
+#PreviewAI #webcamOutput[data-mode='camera'] #webcamCanvas {
+  display: none;
+}
+#PreviewAI #webcamOutput[data-mode='frozen'] #webcamVideo {
+  display: none;
+}
 `)
 
 let script = Script(/* js */ `
@@ -121,18 +127,18 @@ function showLoading(show) {
   if (el) el.style.display = show ? 'block' : 'none'
 }
 
-document.querySelector('#webcamOutput').style.display = 'none';
-document.querySelector('#image').style.display='none';
+document.querySelector('#webcamOutput').hidden = true;
+document.querySelector('#image').hidden = true;
 
 function pickPreviewPhoto() {
   document.querySelector('#previewPhotoInput').click();
-  document.querySelector('#webcamOutput').style.display = 'none';
-  document.querySelector('#image').style.display='block';
+  document.querySelector('#webcamOutput').hidden = true;
+  document.querySelector('#image').hidden = false;
   stopRealtimeDetection();
   stopWebcam();
-  document.querySelector('#webcamOutput').style.display = 'none';
-  document.querySelector("#webcamBtnOff").style.display="none";
-  document.querySelector("#webcamBtnOn").style.display="block";
+  document.querySelector("#webcamBtnOff").hidden = true;
+  document.querySelector("#webcamBtnOn").hidden = false;
+  document.querySelector("#cameraDirectionBtn").hidden = true;
   document.querySelectorAll("progress").forEach(progress => progress.value= "0")
 }
 
@@ -314,20 +320,34 @@ function stopWebcam() {
 }
 
 async function toggleWebcam() {
-  document.querySelector('#image').style.display='none';
-  document.querySelector('#webcamOutput').style.display = 'block';
-  document.querySelector("#webcamBtnOn").style.display="none";
-  document.querySelector("#webcamBtnOff").style.display="block";
-  document.querySelector("#cameraDirectionBtn").style.display="block";
+  document.querySelector('#image').hidden = true;
+  document.querySelector('#webcamOutput').hidden = false;
+  document.querySelector("#webcamBtnOn").hidden = true;
+  document.querySelector("#webcamBtnOff").hidden = false;
+  document.querySelector("#cameraDirectionBtn").hidden = false;
 
   if (currentStream) {
+    // Freeze the last video frame onto the canvas before stopping the stream.
+    let video = document.querySelector('video');
+    let canvas = document.querySelector('canvas');
+    if (video && canvas && video.readyState >= 2) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      let ctx = canvas.getContext('2d');
+      // Preserve the selfie mirror (front camera) in the frozen frame.
+      if (facingMode === 'user') {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
     stopWebcam();
     stopRealtimeDetection();
-    document.querySelector('#webcamOutput').style.display = 'none';
-    document.querySelector("#webcamBtnOff").style.display="none";
-    document.querySelector("#webcamBtnOn").style.display="block";
-    document.querySelector("#cameraDirectionBtn").style.display="none";
-    document.querySelectorAll("progress").forEach(progress => progress.value = 0)
+    // Show the frozen frame (canvas), hide the live video.
+    document.querySelector('#webcamOutput').setAttribute('data-mode', 'frozen');
+    document.querySelector("#webcamBtnOff").hidden = true;
+    document.querySelector("#webcamBtnOn").hidden = false;
+    document.querySelector("#cameraDirectionBtn").hidden = true;
   } else {
     try {
     console.log('starting')
@@ -336,6 +356,8 @@ async function toggleWebcam() {
     const video = document.querySelector('video'); 
     video.srcObject = currentStream;
     video.play();
+    // Show the live video, hide the frozen frame.
+    document.querySelector('#webcamOutput').setAttribute('data-mode', 'camera');
     // Mirror the video when using the front camera, like a selfie view.
     video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : '';
     startRealtimeDetection();
@@ -353,7 +375,7 @@ async function toggleCameraDirection() {
   if (currentStream) {
     stopWebcam()
     stopRealtimeDetection()
-    document.querySelector('#webcamOutput').style.display = 'block'
+    document.querySelector('#webcamOutput').hidden = false
     try {
       currentStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { preferred: facingMode } },
@@ -463,7 +485,7 @@ function Main(attrs: {}, context: DynamicContext) {
           <ion-button
             id="webcamBtnOff"
             onclick="toggleWebcam()"
-            style="display: none;"
+            hidden
           >
             <ion-icon name="camera-outline" slot="start"></ion-icon>{' '}
             <Locale en="Close Camera" zh_hk="關閉相機" zh_cn="关闭相机" />
@@ -471,7 +493,7 @@ function Main(attrs: {}, context: DynamicContext) {
           <ion-button
             id="cameraDirectionBtn"
             onclick="toggleCameraDirection()"
-            style="display: none;"
+            hidden
           >
             <ion-icon name="camera-reverse-outline" slot="start"></ion-icon>{' '}
             <Locale en="Flip Camera" zh_hk="切換鏡頭" zh_cn="切换镜头" />
@@ -494,9 +516,10 @@ function Main(attrs: {}, context: DynamicContext) {
         <div
           style="border-radius: 0.5rem; box-shadow: 0 2px 8px #0001; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 200px;"
           id="webcamOutput"
+          data-mode="camera"
         >
-          <video id="webcamVideo" muted playsinline></video>
-          <canvas id="webcamCanvas"></canvas>
+          <video id="webcamVideo" muted playsinline style="width: 100%; height: 100%; object-fit: contain;"></video>
+          <canvas id="webcamCanvas" style="width: 100%; height: 100%; object-fit: contain;"></canvas>
         </div>
         {/* placeholder to display user selected image */}
         <div
