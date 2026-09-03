@@ -21,7 +21,7 @@ import { classifierModelCache } from '../model.js'
 import { EarlyTerminate } from '../../exception.js'
 import { showError } from '../components/error.js'
 import { id, object } from 'cast.ts'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
 import AdmZip from 'adm-zip'
 import { createUploadForm } from '../upload.js'
@@ -548,9 +548,14 @@ async function ImportModel(context: ExpressContext) {
 function extractZipDir(zip: AdmZip, zipDir: string, destDir: string) {
   let entries = zip.getEntries()
   let prefix = zipDir + '/'
+  let destResolved = resolve(destDir)
   for (let entry of entries) {
     if (!entry.entryName.startsWith(prefix)) continue
     if (entry.isDirectory) continue
+    // Guard against zip-slip: the resolved target must stay inside destDir.
+    // A crafted entry like `latest/label-1/../../evil` would otherwise escape.
+    let target = resolve(destDir, entry.entryName.slice(prefix.length))
+    if (!target.startsWith(destResolved + '/')) continue
     // extractEntryTo(entry, targetPath, maintainEntryPath=false, overwrite=true)
     zip.extractEntryTo(entry, destDir, false, true)
   }

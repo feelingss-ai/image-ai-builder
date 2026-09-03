@@ -29,7 +29,7 @@ import {
 import { NoProjectMessage } from '../components/no-project-message.js'
 import { IonButton } from '../components/ion-button.js'
 import { env } from '../../env.js'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { promises as fsPromises, rmSync } from 'fs'
 import AdmZip from 'adm-zip'
 import { createUploadForm } from '../upload.js'
@@ -3042,19 +3042,26 @@ async function ImportDataset(context: ExpressContext) {
       skipped_images++
       continue
     }
-    let destPath = join(env.UPLOAD_DIR, metaImage.filename)
+    // Guard against path traversal: only allow a plain filename, never a path
+    // that could escape the upload dir (e.g. `../../etc/evil`).
+    let safeFilename = basename(metaImage.filename)
+    if (safeFilename !== metaImage.filename) {
+      skipped_images++
+      continue
+    }
+    let destPath = join(env.UPLOAD_DIR, safeFilename)
     let data = entry.getData()
     await fsPromises.writeFile(destPath, data)
 
     let newId = proxy.image.push({
       original_filename: metaImage.original_filename ?? null,
-      filename: metaImage.filename,
+      filename: safeFilename,
       user_id,
       rotation: metaImage.rotation ?? null,
       project_id,
       content_hash: metaImage.content_hash ?? null,
     })
-    imageIdByFilename.set(metaImage.filename, newId)
+    imageIdByFilename.set(safeFilename, newId)
     imported_images++
   }
 
