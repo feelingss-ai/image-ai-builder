@@ -3,7 +3,8 @@ import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { apiEndpointTitle } from '../../config.js'
 import Style from '../components/style.js'
 import { Script } from '../components/script.js'
-import { Routes, ajaxRoute } from '../routes.js'
+import { Routes } from '../routes.js'
+import { ajaxRoute } from '../api-route.js'
 import {
   DynamicContext,
   ExpressContext,

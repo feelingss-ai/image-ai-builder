@@ -1,5 +1,6 @@
 import { o } from '../jsx/jsx.js'
-import { Routes, ajaxRoute } from '../routes.js'
+import { Routes } from '../routes.js'
+import { ajaxRoute } from '../api-route.js'
 import { apiEndpointTitle, LayoutType } from '../../config.js'
 import Style from '../components/style.js'
 import {
