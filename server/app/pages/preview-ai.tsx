@@ -295,6 +295,7 @@ function stopRealtimeDetection() {
 }
 
 var currentStream = null;
+var facingMode = 'environment'; // 'environment' = back, 'user' = front
 
 function stopWebcam() {
     console.log('stopping webcam')
@@ -317,6 +318,7 @@ async function toggleWebcam() {
   document.querySelector('#webcamOutput').style.display = 'block';
   document.querySelector("#webcamBtnOn").style.display="none";
   document.querySelector("#webcamBtnOff").style.display="block";
+  document.querySelector("#cameraDirectionBtn").style.display="block";
 
   if (currentStream) {
     stopWebcam();
@@ -324,19 +326,46 @@ async function toggleWebcam() {
     document.querySelector('#webcamOutput').style.display = 'none';
     document.querySelector("#webcamBtnOff").style.display="none";
     document.querySelector("#webcamBtnOn").style.display="block";
+    document.querySelector("#cameraDirectionBtn").style.display="none";
     document.querySelectorAll("progress").forEach(progress => progress.value = 0)
   } else {
     try {
     console.log('starting')
-    currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { preferred: "environment" } } });
+    currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { preferred: facingMode } } });
     // Attach the stream to a video element:
     const video = document.querySelector('video'); 
     video.srcObject = currentStream;
     video.play();
+    // Mirror the video when using the front camera, like a selfie view.
+    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : '';
     startRealtimeDetection();
     return currentStream;
   } catch (err) {
     console.error('Webcam access denied or error:', err);
+    }
+  }
+}
+
+async function toggleCameraDirection() {
+  // Switch between front (user) and back (environment) camera.
+  facingMode = facingMode === 'user' ? 'environment' : 'user'
+  // If the webcam is already open, restart it with the new direction.
+  if (currentStream) {
+    stopWebcam()
+    stopRealtimeDetection()
+    document.querySelector('#webcamOutput').style.display = 'block'
+    try {
+      currentStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { preferred: facingMode } },
+      })
+      const video = document.querySelector('video')
+      video.srcObject = currentStream
+      video.play()
+      // Mirror the video when using the front camera, like a selfie view.
+      video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : ''
+      startRealtimeDetection()
+    } catch (err) {
+      console.error('Webcam switch error:', err)
     }
   }
 }
@@ -422,7 +451,7 @@ function Main(attrs: {}, context: DynamicContext) {
   return (
     <>
       <div style="padding: 30px; display: flex; justify-content: center; margin-bottom: 1rem;">
-        <div style="display: flex; flex-direction: row; gap: 3rem; align-items: center;">
+        <div style="display: flex; flex-direction: row; gap: 0.5rem; align-items: center;">
           <ion-button onclick="pickPreviewPhoto()">
             <ion-icon name="image-outline" slot="start"></ion-icon>{' '}
             <Locale en="Select Photo" zh_hk="選擇照片" zh_cn="选择照片" />
@@ -438,6 +467,14 @@ function Main(attrs: {}, context: DynamicContext) {
           >
             <ion-icon name="camera-outline" slot="start"></ion-icon>{' '}
             <Locale en="Close Camera" zh_hk="關閉相機" zh_cn="关闭相机" />
+          </ion-button>
+          <ion-button
+            id="cameraDirectionBtn"
+            onclick="toggleCameraDirection()"
+            style="display: none;"
+          >
+            <ion-icon name="camera-reverse-outline" slot="start"></ion-icon>{' '}
+            <Locale en="Flip Camera" zh_hk="切換鏡頭" zh_cn="切换镜头" />
           </ion-button>
         </div>
       </div>
