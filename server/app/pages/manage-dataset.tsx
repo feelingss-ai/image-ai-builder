@@ -34,6 +34,22 @@ import { existsSync, promises as fsPromises, rmSync } from 'fs'
 import { randomUUID } from 'crypto'
 import AdmZip from 'adm-zip'
 import { createUploadForm } from '../upload.js'
+// YOLO format helpers, vendored from dataset-helpers (src/label.ts +
+// src/yaml.ts) into server/app/yolo-format.ts so the project does not
+// depend on a sibling folder / external build. Includes the fix for
+// parseMultilineArray where `if (+key)` is falsy for key "0".
+import {
+  toDetectLabelString,
+  parseLabelString,
+  toDataYamlString,
+  parseDataYaml,
+} from '../yolo-format.js'
+
+// same rule as dataset-helpers toLabelFilename (fs.ts) — reimplemented here
+// because fs.ts pulls in the native `canvas` module via its imports
+function toLabelFilename(image_filename: string): string {
+  return basename(image_filename, extname(image_filename)) + '.txt'
+}
 
 let pageTitle = (
   <Locale en="Manage Dataset" zh_hk="管理數據集" zh_cn="管理数据集" />
@@ -1427,11 +1443,12 @@ let select_project_image_labels = db.prepare<
   )
 `)
 
-// all bounding boxes in a project (with label title)
+// all bounding boxes in a project (with label id + title)
 let select_project_bounding_boxes_full = db.prepare<
   { project_id: number },
   {
     image_id: number
+    label_id: number
     label_title: string
     x: number
     y: number
@@ -1440,7 +1457,7 @@ let select_project_bounding_boxes_full = db.prepare<
     rotate: number
   }
 >(/* sql */ `
-  SELECT ibb.image_id, l.title AS label_title, ibb.x, ibb.y, ibb.width, ibb.height, ibb.rotate
+  SELECT ibb.image_id, ibb.label_id, l.title AS label_title, ibb.x, ibb.y, ibb.width, ibb.height, ibb.rotate
   FROM image_bounding_box ibb
   INNER JOIN image ON image.id = ibb.image_id
   INNER JOIN label l ON l.id = ibb.label_id
@@ -1811,6 +1828,13 @@ function Main(attrs: {}, context: DynamicContext) {
               en="Filter images to export"
               zh_hk="篩選要匯出的圖片"
               zh_cn="筛选要导出的图片"
+            />
+          </div>
+          <div style="font-size:0.8rem; color:#666; margin-bottom:1rem;">
+            <Locale
+              en="YOLO detect format (data.yaml + train/images + train/labels) with supplementary metadata"
+              zh_hk="YOLO detect 格式(data.yaml + train/images + train/labels)附補充 metadata"
+              zh_cn="YOLO detect 格式(data.yaml + train/images + train/labels)附补充 metadata"
             />
           </div>
           <div style="font-size:0.8rem; color:#666; margin-bottom:1rem;">
@@ -3136,6 +3160,7 @@ function ExportDataset(attrs: {}, context: WsContext) {
     let boxesByImage = new Map<
       number,
       {
+        label_id: number
         label_title: string
         x: number
         y: number
@@ -3147,6 +3172,7 @@ function ExportDataset(attrs: {}, context: WsContext) {
     for (let b of boxes) {
       if (!boxesByImage.has(b.image_id)) boxesByImage.set(b.image_id, [])
       boxesByImage.get(b.image_id)!.push({
+        label_id: b.label_id,
         label_title: b.label_title,
         x: b.x,
         y: b.y,
@@ -3156,7 +3182,34 @@ function ExportDataset(attrs: {}, context: WsContext) {
       })
     }
 
+    // ---- YOLO detect format (data.yaml + train/images + train/labels) ----
+    // class_idx = index of the label in display_order (labels is already
+    // sorted by display_order from select_project_labels_full)
+    let labelIdToClassIdx = new Map<number, number>()
+    labels.forEach((label, idx) => {
+      if (label.id != null) labelIdToClassIdx.set(label.id, idx)
+    })
+    let n_class = labels.length
+    let class_names = labels.map(l => l.title)
+    // guard: the simple YAML parser in dataset-helpers splits values on ':',
+    // a class name containing ':' would corrupt data.yaml on import
+    for (let class_name of class_names) {
+      if (class_name.includes(':')) {
+        throw `Label title "${class_name}" contains ":" which is not supported in YOLO data.yaml, please rename the label first`
+      }
+    }
+
+    let dataYaml = toDataYamlString('detect', {
+      train_dir: 'train',
+      val_dir: 'val',
+      test_dir: 'test',
+      n_class,
+      class_names,
+    })
+
     let metadata = {
+      format:
+        'image-ai-builder-dataset-v2 (YOLO detect + supplementary metadata)',
       project_title: project.title,
       labels: labels.map(l => ({
         title: l.title,
@@ -3174,6 +3227,9 @@ function ExportDataset(attrs: {}, context: WsContext) {
     }
 
     const zip = new AdmZip()
+    zip.addFile('data.yaml', Buffer.from(dataYaml, 'utf-8'))
+    // supplementary metadata: YOLO has no image-level classification /
+    // rotation / content_hash, these are preserved here for round-trip
     zip.addFile(
       'metadata.json',
       Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8'),
@@ -3182,10 +3238,33 @@ function ExportDataset(attrs: {}, context: WsContext) {
       if (!img.filename) continue
       let filePath = join(env.UPLOAD_DIR, img.filename)
       try {
-        zip.addLocalFile(filePath, 'images', img.filename)
+        zip.addLocalFile(filePath, 'train/images', img.filename)
       } catch (e) {
         console.error('ExportDataset: missing image file', img.filename, e)
+        continue
       }
+      // one line per box: class_idx x y w h (normalized, center-based)
+      // NOTE: box rotation is not representable in YOLO detect format,
+      // it is preserved in metadata.json only
+      let boxes = boxesByImage.get(img.id!) || []
+      let lines = boxes
+        .map(box => {
+          let class_idx = labelIdToClassIdx.get(box.label_id)
+          if (class_idx == null) return null
+          return toDetectLabelString({
+            class_idx,
+            n_class,
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+          })
+        })
+        .filter((line): line is string => line != null)
+      zip.addFile(
+        'train/labels/' + toLabelFilename(img.filename),
+        Buffer.from(lines.join('\n') + '\n', 'utf-8'),
+      )
     }
 
     const zipBuffer = zip.toBuffer()
@@ -3245,6 +3324,350 @@ let insert_bounding_box = db.prepare<
   RETURNING id
 `)
 
+// image extensions allowed inside an imported dataset zip
+const DATASET_IMAGE_EXTENSIONS = [
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.webp',
+  '.bmp',
+]
+
+// create (or match by title) labels for a project, returns title -> label_id.
+// Two passes: create all labels without dependency first, then resolve
+// dependency titles -> ids (a dependency may reference a label created in
+// the same batch).
+function ensureLabelsByTitle(options: {
+  labels: Array<{
+    title: string
+    dependency_title?: string | null
+    display_order?: number | null
+  }>
+  project_id: number
+}): { labelTitleToId: Map<string, number>; created_labels: number } {
+  let { labels, project_id } = options
+  let projectLabels = filter(proxy.label, { project_id })
+  let titleToLabel = new Map(
+    projectLabels.map(label => [label.title, label] as const),
+  )
+  let labelTitleToId = new Map<string, number>()
+  let created_labels = 0
+
+  // first pass: create all labels (without dependency) so titles exist
+  for (let metaLabel of labels) {
+    let existing = titleToLabel.get(metaLabel.title)
+    if (existing && existing.id != null) {
+      labelTitleToId.set(metaLabel.title, existing.id)
+      continue
+    }
+    let newId = proxy.label.push({
+      title: metaLabel.title,
+      dependency_id: null,
+      project_id,
+      display_order: metaLabel.display_order ?? null,
+    })
+    labelTitleToId.set(metaLabel.title, newId)
+    created_labels++
+  }
+
+  // second pass: resolve dependency titles -> ids
+  for (let metaLabel of labels) {
+    if (!metaLabel.dependency_title) continue
+    let id = labelTitleToId.get(metaLabel.title)
+    let depId = labelTitleToId.get(metaLabel.dependency_title)
+    if (id == null || depId == null) continue
+    db.prepare(
+      /* sql */ `
+      UPDATE label SET dependency_id = ? WHERE id = ?
+    `,
+    ).run(depId, id)
+  }
+
+  return { labelTitleToId, created_labels }
+}
+
+// extract an image entry from the zip into the upload dir with a fresh
+// unique filename, returns the new image row id (or null when skipped)
+async function storeImageFromZipEntry(options: {
+  entry: AdmZip.IZipEntry
+  /** filename as referenced by metadata (may contain a path) */
+  original_filename: string | null
+  rotation: number | null
+  content_hash: string | null
+  user_id: number
+  project_id: number
+}): Promise<number | null> {
+  let {
+    entry,
+    original_filename,
+    rotation,
+    content_hash,
+    user_id,
+    project_id,
+  } = options
+  let entryName = entry.entryName
+  let imageFilename = basename(entryName)
+  // Guard against path traversal: only allow a plain filename, never a path
+  // that could escape the upload dir (e.g. `../../etc/evil`).
+  if (imageFilename !== entryName.split('/').pop()) {
+    return null
+  }
+  let ext = extname(imageFilename).toLowerCase()
+  if (!DATASET_IMAGE_EXTENSIONS.includes(ext)) {
+    return null
+  }
+  // generate a fresh unique filename so the imported image does not
+  // share the same physical file with rows in other projects
+  // (deleting it in one project would break the other project)
+  let storedFilename = ''
+  for (let i = 0; i < 10; i++) {
+    let candidate = randomUUID() + ext
+    if (!existsSync(join(env.UPLOAD_DIR, candidate))) {
+      storedFilename = candidate
+      break
+    }
+  }
+  if (!storedFilename) {
+    return null
+  }
+  let destPath = join(env.UPLOAD_DIR, storedFilename)
+  let data = entry.getData()
+  await fsPromises.writeFile(destPath, data)
+
+  return proxy.image.push({
+    original_filename: original_filename ?? imageFilename,
+    filename: storedFilename,
+    user_id,
+    rotation,
+    project_id,
+    content_hash: content_hash ?? null,
+  })
+}
+
+// restore image_label answers (latest answer semantics) for imported images
+function restoreImageLabels(options: {
+  items: Array<{
+    imageId: number
+    labels: Array<{ label_title: string; answer: number }>
+  }>
+  labelTitleToId: Map<string, number>
+  user_id: number
+}): number {
+  let { items, labelTitleToId, user_id } = options
+  let imported_labels = 0
+  for (let item of items) {
+    for (let il of item.labels) {
+      let labelId = labelTitleToId.get(il.label_title)
+      if (labelId == null) continue
+      seedRow(
+        proxy.image_label,
+        { image_id: item.imageId, label_id: labelId, user_id },
+        { answer: il.answer },
+      )
+      imported_labels++
+    }
+  }
+  return imported_labels
+}
+
+// ---------------------------------------------------------------------------
+// YOLO dataset import (data.yaml + {train,val,test}/{images,labels})
+// ---------------------------------------------------------------------------
+async function importYoloDataset(options: {
+  zip: AdmZip
+  dataYamlContent: string
+  user_id: number
+  project_id: number
+}): Promise<{
+  success: boolean
+  imported_images: number
+  skipped_images: number
+  created_labels: number
+  imported_labels: number
+  imported_boxes: number
+}> {
+  let { zip, dataYamlContent, user_id, project_id } = options
+
+  // pose (keypoint) datasets are not supported yet: the DB has no keypoint
+  // storage, importing one would silently drop the keypoints
+  if (dataYamlContent.includes('kpt_shape')) {
+    throw 'Pose (keypoint) dataset is not supported yet, please use a detect dataset'
+  }
+
+  let dataYaml = parseDataYaml('detect', dataYamlContent)
+  let class_names = dataYaml.class_names ?? []
+  if (class_names.length === 0) {
+    throw 'Invalid data.yaml: names missing (class names are required to map class_idx back to labels)'
+  }
+  if (class_names.length !== dataYaml.n_class) {
+    throw `Invalid data.yaml: nc (${dataYaml.n_class}) does not match names length (${class_names.length})`
+  }
+
+  let { labelTitleToId, created_labels } = ensureLabelsByTitle({
+    labels: class_names.map(title => ({ title })),
+    project_id,
+  })
+
+  // optional supplementary metadata from our own export (round-trip):
+  // classification answers / rotation / content_hash
+  let metadataEntry = zip.getEntry('metadata.json')
+  let metadata: {
+    images?: Array<{
+      filename: string
+      original_filename?: string | null
+      rotation?: number | null
+      content_hash?: string | null
+      labels?: Array<{ label_title: string; answer: number }>
+    }>
+  } | null = null
+  if (metadataEntry) {
+    try {
+      metadata = JSON.parse(metadataEntry.getData().toString('utf-8'))
+    } catch {
+      metadata = null
+    }
+  }
+  // metadata filename (basename) -> supplementary info
+  let metaByFilename = new Map<
+    string,
+    {
+      original_filename: string | null
+      rotation: number | null
+      content_hash: string | null
+      labels: Array<{ label_title: string; answer: number }>
+    }
+  >()
+  for (let metaImage of metadata?.images ?? []) {
+    if (!metaImage.filename) continue
+    metaByFilename.set(basename(metaImage.filename), {
+      original_filename: metaImage.original_filename ?? null,
+      rotation: metaImage.rotation ?? null,
+      content_hash: metaImage.content_hash ?? null,
+      labels: metaImage.labels ?? [],
+    })
+  }
+
+  let imported_images = 0
+  let skipped_images = 0
+  let imported_boxes = 0
+  let labelItems: Array<{
+    imageId: number
+    labels: Array<{ label_title: string; answer: number }>
+  }> = []
+
+  for (let group of ['train', 'val', 'test'] as const) {
+    let imageEntries = zip
+      .getEntries()
+      .filter(
+        entry =>
+          !entry.isDirectory && entry.entryName.startsWith(`${group}/images/`),
+      )
+    for (let imageEntry of imageEntries) {
+      let imageFilename = basename(imageEntry.entryName)
+      let meta = metaByFilename.get(imageFilename)
+
+      // dedup by content_hash within this project (supplementary metadata only)
+      if (meta?.content_hash) {
+        let existing = filter(proxy.image, {
+          project_id,
+          content_hash: meta.content_hash,
+        })
+        if (existing.length > 0) {
+          skipped_images++
+          continue
+        }
+      }
+
+      let newId = await storeImageFromZipEntry({
+        entry: imageEntry,
+        original_filename: meta?.original_filename ?? null,
+        rotation: meta?.rotation ?? null,
+        content_hash: meta?.content_hash ?? null,
+        user_id,
+        project_id,
+      })
+      if (newId == null) {
+        skipped_images++
+        continue
+      }
+      imported_images++
+
+      // missing label file = negative sample (zero boxes), which is valid
+      let labelEntry = zip.getEntry(
+        `${group}/labels/` + toLabelFilename(imageFilename),
+      )
+      if (labelEntry) {
+        let boxes = parseLabelLines(
+          labelEntry.getData().toString('utf-8'),
+          dataYaml.n_class,
+        )
+        for (let box of boxes) {
+          let labelTitle = class_names[box.class_idx]
+          let labelId = labelTitleToId.get(labelTitle)
+          if (labelId == null) continue
+          insert_bounding_box.run({
+            image_id: newId,
+            user_id,
+            label_id: labelId,
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            // rotation is not representable in YOLO detect format
+            rotate: 0,
+          })
+          imported_boxes++
+        }
+      }
+
+      if (meta && meta.labels.length > 0) {
+        labelItems.push({ imageId: newId, labels: meta.labels })
+      }
+    }
+  }
+
+  let imported_labels = restoreImageLabels({
+    items: labelItems,
+    labelTitleToId,
+    user_id,
+  })
+
+  return {
+    success: true,
+    imported_images,
+    skipped_images,
+    created_labels,
+    imported_labels,
+    imported_boxes,
+  }
+}
+
+// parse YOLO detect label lines: "class_idx x y w h" per line
+// (uses dataset-helpers parseLabelString for validation)
+function parseLabelLines(content: string, n_class: number) {
+  let boxes: {
+    class_idx: number
+    x: number
+    y: number
+    width: number
+    height: number
+  }[] = []
+  for (let line of content.split('\n')) {
+    if (!line.trim()) continue
+    boxes.push(
+      parseLabelString('detect', { line, n_class }) as {
+        class_idx: number
+        x: number
+        y: number
+        width: number
+        height: number
+      },
+    )
+  }
+  return boxes
+}
+
 async function ImportDataset(context: ExpressContext) {
   let user_id = getAuthUserId(context)
   if (!user_id) throw 'Login required'
@@ -3270,8 +3693,26 @@ async function ImportDataset(context: ExpressContext) {
   if (!file) throw 'No file uploaded'
 
   let zip = new AdmZip(file.filepath)
+
+  // ---- format detection ----
+  // data.yaml present -> YOLO detect format (train/val/test images+labels)
+  // metadata.json only -> legacy image-ai-builder custom format
+  // both present -> YOLO branch, metadata.json supplements classification
+  //   answers / rotation / content_hash (our own export round-trip)
+  let dataYamlEntry = zip.getEntry('data.yaml')
+  if (dataYamlEntry) {
+    return await importYoloDataset({
+      zip,
+      dataYamlContent: dataYamlEntry.getData().toString('utf-8'),
+      user_id,
+      project_id,
+    })
+  }
+
   let metadataEntry = zip.getEntry('metadata.json')
-  if (!metadataEntry) throw 'Invalid dataset zip: missing metadata.json'
+  if (!metadataEntry) {
+    throw 'Invalid dataset zip: missing data.yaml (YOLO format) or metadata.json (legacy format)'
+  }
 
   let metadata = JSON.parse(metadataEntry.getData().toString('utf-8')) as {
     project_title?: string
@@ -3304,42 +3745,10 @@ async function ImportDataset(context: ExpressContext) {
   }
 
   // ---- 1. create / match labels by title ----
-  let projectLabels = filter(proxy.label, { project_id })
-  let titleToLabel = new Map(
-    projectLabels.map(label => [label.title, label] as const),
-  )
-  let created_labels = 0
-  let labelTitleToId = new Map<string, number>()
-
-  // first pass: create all labels (without dependency) so titles exist
-  for (let metaLabel of metadata.labels) {
-    let existing = titleToLabel.get(metaLabel.title)
-    if (existing && existing.id != null) {
-      labelTitleToId.set(metaLabel.title, existing.id)
-      continue
-    }
-    let newId = proxy.label.push({
-      title: metaLabel.title,
-      dependency_id: null,
-      project_id,
-      display_order: metaLabel.display_order ?? null,
-    })
-    labelTitleToId.set(metaLabel.title, newId)
-    created_labels++
-  }
-
-  // second pass: resolve dependency titles -> ids
-  for (let metaLabel of metadata.labels) {
-    if (!metaLabel.dependency_title) continue
-    let id = labelTitleToId.get(metaLabel.title)
-    let depId = labelTitleToId.get(metaLabel.dependency_title)
-    if (id == null || depId == null) continue
-    db.prepare(
-      /* sql */ `
-      UPDATE label SET dependency_id = ? WHERE id = ?
-    `,
-    ).run(depId, id)
-  }
+  let { labelTitleToId, created_labels } = ensureLabelsByTitle({
+    labels: metadata.labels,
+    project_id,
+  })
 
   // ---- 2. import images (dedup by content_hash) ----
   let imported_images = 0
@@ -3370,61 +3779,40 @@ async function ImportDataset(context: ExpressContext) {
       skipped_images++
       continue
     }
-    // Guard against path traversal: only allow a plain filename, never a path
-    // that could escape the upload dir (e.g. `../../etc/evil`).
-    let safeFilename = basename(metaImage.filename)
-    if (safeFilename !== metaImage.filename) {
-      skipped_images++
-      continue
-    }
-    // generate a fresh unique filename so the imported image does not
-    // share the same physical file with rows in other projects
-    // (deleting it in one project would break the other project)
-    let ext = extname(safeFilename)
-    let storedFilename = ''
-    for (let i = 0; i < 10; i++) {
-      let candidate = randomUUID() + ext
-      if (!existsSync(join(env.UPLOAD_DIR, candidate))) {
-        storedFilename = candidate
-        break
-      }
-    }
-    if (!storedFilename) {
-      skipped_images++
-      continue
-    }
-    let destPath = join(env.UPLOAD_DIR, storedFilename)
-    let data = entry.getData()
-    await fsPromises.writeFile(destPath, data)
-
-    let newId = proxy.image.push({
-      original_filename: metaImage.original_filename ?? safeFilename,
-      filename: storedFilename,
-      user_id,
+    let newId = await storeImageFromZipEntry({
+      entry,
+      original_filename: metaImage.original_filename,
       rotation: metaImage.rotation ?? null,
-      project_id,
       content_hash: metaImage.content_hash ?? null,
+      user_id,
+      project_id,
     })
-    imageIdByFilename.set(safeFilename, newId)
+    if (newId == null) {
+      skipped_images++
+      continue
+    }
+    imageIdByFilename.set(basename(metaImage.filename), newId)
     imported_images++
   }
 
   // ---- 3. restore image_label (latest answer) ----
-  let imported_labels = 0
-  for (let metaImage of metadata.images) {
-    let imageId = imageIdByFilename.get(metaImage.filename)
-    if (imageId == null) continue
-    for (let il of metaImage.labels || []) {
-      let labelId = labelTitleToId.get(il.label_title)
-      if (labelId == null) continue
-      seedRow(
-        proxy.image_label,
-        { image_id: imageId, label_id: labelId, user_id },
-        { answer: il.answer },
-      )
-      imported_labels++
-    }
-  }
+  let imported_labels = restoreImageLabels({
+    items: metadata.images
+      .map(metaImage => ({
+        imageId: imageIdByFilename.get(basename(metaImage.filename)),
+        labels: metaImage.labels || [],
+      }))
+      .filter(
+        (
+          item,
+        ): item is {
+          imageId: number
+          labels: { label_title: string; answer: number }[]
+        } => item.imageId != null,
+      ),
+    labelTitleToId,
+    user_id,
+  })
 
   // ---- 4. restore bounding boxes ----
   let imported_boxes = 0
@@ -3644,12 +4032,12 @@ let routes = {
   '/manage-dataset/export-dataset': {
     title: apiEndpointTitle,
     description:
-      'Export whole dataset (images + labels + bounding boxes) as ZIP',
+      'Export whole dataset (YOLO detect format: data.yaml + train/images + train/labels, plus supplementary metadata.json) as ZIP',
     node: <ExportDataset />,
   },
   '/manage-dataset/import-dataset': ajaxRoute({
     description:
-      'Import whole dataset (images + labels + bounding boxes) from ZIP',
+      'Import whole dataset from ZIP (YOLO detect format with data.yaml, or legacy metadata.json format)',
     api: ImportDataset,
   }),
   '/manage-dataset/reclassify': {
