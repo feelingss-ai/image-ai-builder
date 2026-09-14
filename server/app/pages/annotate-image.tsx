@@ -233,7 +233,7 @@ function toggleAIAssist(event) {
   if (!enabled) {
     clearAISuggestion()
   }
-  // blur so keyboard shortcuts (e.g. Space) work right after clicking
+  // blur so keyboard shortcuts (e.g. ArrowDown) work right after clicking
   event.target.blur()
 }
 
@@ -339,7 +339,7 @@ if (!window.__annotateImageBound) {
       label_id: labelId,
       project_id: getProjectId(),
     })
-    // blur so keyboard shortcuts (e.g. Space) work right after selecting
+    // blur so keyboard shortcuts (e.g. ArrowDown) work right after selecting
     target.blur?.()
   })
 }
@@ -351,13 +351,13 @@ function getProjectId() {
 }
 
 // Keyboard shortcuts for annotating images:
-//   Space      -> accept the AI suggestion (annotate as suggested)
+//   ArrowDown  -> accept the AI suggestion (annotate as suggested)
 //   ArrowLeft  -> annotate as NO  (reject)
 //   ArrowRight -> annotate as YES (agree)
 //   ArrowUp    -> undo last annotation
 //   Esc        -> dismiss the AI suggestion (no annotation)
-// Space never opens the label select (it conflicts with the shortcut above)
-// — open the select with a mouse click or Enter instead.
+// ArrowDown never opens the label select (it conflicts with the shortcut
+// above) — open the select with a mouse click or Enter instead.
 // When the label select overlay (alert/popover) is open, the image shortcuts
 // above are disabled — the arrow keys control the label options instead
 // (Ionic's built-in keyboard navigation), Space/Enter picks, Esc closes.
@@ -388,11 +388,9 @@ document.addEventListener('keydown', function(event) {
     return
   }
 
-  // Space accepts the AI suggestion (when one is showing). Also block the
-  // browser default of opening the focused label select with Space — it
-  // conflicts with this shortcut (open the select by mouse click or Enter).
-  // Text inputs still type spaces normally.
-  if (key === ' ') {
+  // ArrowDown accepts the AI suggestion (when one is showing). Text inputs
+  // still use ArrowDown to move the cursor normally.
+  if (key === 'ArrowDown') {
     const isTextEntry =
       tag === 'input' ||
       tag === 'textarea' ||
