@@ -356,6 +356,7 @@ function getProjectId() {
 //   ArrowRight -> annotate as YES (agree)
 //   ArrowUp    -> undo last annotation
 //   Esc        -> dismiss the AI suggestion (no annotation)
+//   Space      -> rotate the image 90° (same as clicking the image)
 // ArrowDown never opens the label select (it conflicts with the shortcut
 // above) — open the select with a mouse click or Enter instead.
 // When the label select overlay (alert/popover) is open, the image shortcuts
@@ -412,6 +413,22 @@ document.addEventListener('keydown', function(event) {
     tag === 'ion-select' ||
     (target && target.isContentEditable)
   if (isEditable) return
+
+  // Space rotates the image 90° (same as clicking the image).
+  // Must come after the isEditable check so text inputs still insert spaces.
+  if (key === ' ' || event.code === 'Space') {
+    // don't hijack Space when a button is focused — Space should activate it
+    const isButton =
+      tag === 'button' || (target.closest && target.closest('ion-button'))
+    if (!isButton) {
+      event.preventDefault() // avoid page scrolling
+      if (!event.repeat) {
+        const image = document.getElementById('label_image')
+        if (image && !image.hidden) rotateAnnotationImage(image)
+      }
+    }
+    return
+  }
 
   // Esc dismisses the AI suggestion without annotating
   if (key === 'Escape' && aiSuggestYes !== null) {
