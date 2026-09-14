@@ -957,19 +957,100 @@ function importDataset(event) {
 }
 
 // ---------- browse: image modal ----------
+// Cache of rotated image srcs so grid re-renders / modal re-opens don't
+// re-encode the (large) image every time.
+// Key: src + ':' + degree + ':' + maxSize
+var rotatedSrcCache = {};
+var ROTATED_SRC_CACHE_MAX = 12;
+
+function cacheRotatedSrc(key, dataUrl) {
+  if (rotatedSrcCache[key]) return;
+  rotatedSrcCache[key] = dataUrl;
+  var keys = Object.keys(rotatedSrcCache);
+  while (keys.length > ROTATED_SRC_CACHE_MAX) {
+    delete rotatedSrcCache[keys.shift()];
+    keys = Object.keys(rotatedSrcCache);
+  }
+}
+
+// Rotates the image content by turns * 90° in ONE canvas pass.
+// NOTE: the old code looped 90° at a time via onload — each step re-encoded
+// the full-resolution image to a PNG dataURL and reloaded it, so a 270°
+// image took 3 encodes + 4 reloads (seconds of delay per image).
+function rotateImageTurns(image, turns, maxSize) {
+  turns = ((turns % 4) + 4) % 4;
+  if (!turns) return;
+  var w = image.naturalWidth || image.width;
+  var h = image.naturalHeight || image.height;
+  if (!w || !h) return;
+  var swap = turns % 2 === 1; // 90° / 270° swap width & height
+  var cw = swap ? h : w;
+  var ch = swap ? w : h;
+  var scale = maxSize && Math.max(cw, ch) > maxSize
+    ? maxSize / Math.max(cw, ch)
+    : 1;
+  var canvas = document.createElement('canvas');
+  canvas.width = Math.round(cw * scale);
+  canvas.height = Math.round(ch * scale);
+  var ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((turns * Math.PI) / 2);
+  ctx.scale(scale, scale);
+  ctx.translate(-w / 2, -h / 2);
+  ctx.drawImage(image, 0, 0);
+  image.src = canvas.toDataURL();
+}
+
 function initAnnotationImage(image) {
-  let degree = +image.dataset.rotation || 0;
-  function check() {
-    if (!degree) {
+  var degree = +image.dataset.rotation || 0;
+  if (!degree) {
+    image.onload = null;
+    drawBoxesWhenLoaded(image);
+    return;
+  }
+  // grid thumbnails display at 150px — rotate + downscale to 400px (2x for
+  // retina) so the PNG encode takes ~20ms instead of encoding the full
+  // image; the modal keeps a higher resolution (bounding box coordinates
+  // are normalized, so any resolution stays aligned)
+  var maxSize = image.closest && image.closest('.image-grid') ? 400 : 2048;
+  var key = image.src + ':' + degree + ':' + maxSize;
+  var cached = rotatedSrcCache[key];
+
+  function afterRotatedLoad() {
+    image.onload = null;
+    drawBoundingBoxes(image);
+  }
+  function rotateNow() {
+    var before = image.src;
+    rotateImageTurns(image, degree / 90, maxSize);
+    // only cache when the src actually changed (guards against broken
+    // images where rotateImageTurns bailed out early)
+    if (image.src !== before) cacheRotatedSrc(key, image.src);
+    image.onload = afterRotatedLoad;
+    // the rotated dataURL may already be decoded (small image) — fall back
+    if (image.complete && image.naturalWidth) afterRotatedLoad();
+  }
+
+  if (cached) {
+    if (image.src === cached) {
+      // already showing the rotated image — just (re)draw the boxes
       image.onload = null;
       drawBoundingBoxes(image);
       return;
     }
-    degree -= 90;
-    rotateImageInline(image);
-    image.onload = check;
+    image.onload = afterRotatedLoad;
+    image.src = cached;
+    if (image.complete && image.naturalWidth) afterRotatedLoad();
+    return;
   }
-  check();
+  if (image.complete && image.naturalWidth) {
+    // grid case: onload already fired with the correct content
+    rotateNow();
+  } else {
+    // modal case: src was just assigned — wait for the load, then rotate
+    image.onload = rotateNow;
+  }
 }
 
 function drawBoundingBoxes(image) {
@@ -1090,17 +1171,23 @@ function showEnlargedImage(src, rotation, image_id) {
   const modal = document.getElementById('imageModal');
   const img = document.getElementById('enlargedImage');
   const labelStatus = document.getElementById('labelStatus');
+  // cancel any pending rotation chain from the previously shown image —
+  // must happen BEFORE changing src, otherwise the stale onload would
+  // rotate the new image with the old degree
+  img.onload = null;
   img.src = src;
   img.dataset.rotation = rotation || 0;
   img.dataset.image_id = image_id;
   var imgData = filteredImagesData.find(function(item) { return item.image_id === image_id; });
   img.dataset.boxes = JSON.stringify(imgData ? (imgData.boxes || []) : []);
   if (labelStatus) { labelStatus.classList.add('loading'); labelStatus.innerHTML = 'Loading...'; }
-  if (typeof initAnnotationImage === 'function') {
-    initAnnotationImage(img);
-    if (img.src !== src) img.src = src;
-  }
-  drawBoxesWhenLoaded(img);
+  // rotate (single-pass, cached) then draw boxes once the final image loads.
+  // NOTE: the old code re-assigned img.src back to the original here
+  // ("if (img.src !== src) img.src = src"), which discarded the first
+  // rotation and restarted the whole chain — extra reloads AND a wrong
+  // final angle (e.g. 270° displayed as 180°). initAnnotationImage now
+  // owns the full load -> rotate -> draw-boxes flow.
+  initAnnotationImage(img);
   if (!modal.isOpen) {
     modal.present();
     modal.addEventListener('ionModalDidPresent', () => updateButtonStates());

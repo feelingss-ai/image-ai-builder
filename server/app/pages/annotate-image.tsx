@@ -257,7 +257,10 @@ function undoAnnotation() {
 }
 
 function rotateAnnotationImage(image) {
-  let degree = image.dataset.rotation || 0
+  // NOTE: dataset values are always strings — must convert with unary +,
+  // otherwise (degree + 90) does string concatenation ("90" + 90 = "9090")
+  // and the rotation value gets stuck at 90 after the first click
+  let degree = +image.dataset.rotation || 0
   degree = (degree + 90) % 360
   image.dataset.rotation = degree
   rotateImageInline(image)
