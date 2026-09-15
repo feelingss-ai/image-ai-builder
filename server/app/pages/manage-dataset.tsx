@@ -11,17 +11,19 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
-import { array, boolean, id, object, string, values } from 'cast.ts'
+import { array, boolean, id, object, optional, string, values } from 'cast.ts'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, ProjectPageTitle, makeThrows } from '../components/locale.js'
-import { del, filter, seedRow } from 'better-sqlite3-proxy'
+import { del, filter, seedRow, count } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
+import { sessions } from '../session.js'
+import { ServerMessage } from '../../../client/types.js'
 import {
   getContextProject,
   select_project_label,
@@ -44,6 +46,15 @@ import {
   toDataYamlString,
   parseDataYaml,
 } from '../yolo-format.js'
+import { getImageEmbedding } from '../embedding.js'
+import {
+  deriveWeightFromClassifier,
+  ensureProjectEmbeddings,
+  findSimilarImages,
+  invalidateProjectVectorCache,
+  saveEmbeddingWeight,
+  EMBEDDING_MODEL_VERSION,
+} from '../embedding.js'
 
 // same rule as dataset-helpers toLabelFilename (fs.ts) — reimplemented here
 // because fs.ts pulls in the native `canvas` module via its imports
@@ -359,6 +370,59 @@ let style = Style(/* css */ `
 #imageModal .sidebar .label-item .control-buttons ion-button.half-transparent {
   --background: #999;
   --color: #fff;
+}
+#imageModal .sidebar .similar-section {
+  margin-top: 1rem;
+  border-top: 1px solid #ddd;
+  padding-top: 0.75rem;
+}
+#imageModal .sidebar .similar-section select {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0.25rem;
+  font-size: 0.85rem;
+}
+#imageModal .sidebar .similar-section .similar-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+#imageModal .sidebar .similar-section .similar-actions ion-button {
+  flex: 1;
+  margin: 0;
+  height: 2rem;
+  font-size: 0.75rem;
+  --padding-start: 0.25rem;
+  --padding-end: 0.25rem;
+}
+#imageModal .sidebar .similar-section #similarResults {
+  margin-top: 0.5rem;
+}
+#imageModal .sidebar .similar-section .similar-pair {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+}
+#imageModal .sidebar .similar-section .similar-pair img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  flex-shrink: 0;
+}
+#imageModal .sidebar .similar-section .similar-pair .similar-score {
+  font-size: 0.75rem;
+  color: #666;
+  flex: 1;
+  text-align: right;
+}
+#imageModal .sidebar .similar-section .similar-hint {
+  font-size: 0.75rem;
+  color: #999;
+  margin: 0.25rem 0;
 }
 #imageModal .image-container {
   flex: 1;
@@ -1197,6 +1261,18 @@ function showEnlargedImage(src, rotation, image_id) {
   var imgData = filteredImagesData.find(function(item) { return item.image_id === image_id; });
   img.dataset.boxes = JSON.stringify(imgData ? (imgData.boxes || []) : []);
   if (labelStatus) { labelStatus.classList.add('loading'); labelStatus.innerHTML = 'Loading...'; }
+  // reset the similar-results panel for the newly shown image
+  const similarResults = document.getElementById('similarResults');
+  if (similarResults) {
+    similarResults.className = 'similar-hint';
+    similarResults.innerHTML = '';
+  }
+  // if the modal is already open (e.g. jumped to a similar image from the
+  // similar-pairs list), re-run the search for the new query image
+  // NOTE: modal.isOpen is a prop, not live state — use the show-modal class
+  if (modal.classList.contains('show-modal') && typeof findSimilar === 'function') {
+    findSimilar();
+  }
   // rotate (single-pass, cached) then draw boxes once the final image loads.
   // NOTE: the old code re-assigned img.src back to the original here
   // ("if (img.src !== src) img.src = src"), which discarded the first
@@ -1218,6 +1294,8 @@ function showEnlargedImage(src, rotation, image_id) {
     var canvas = img.parentElement.querySelector('canvas.bounding-box-canvas');
     if (canvas) { var ctx = canvas.getContext('2d'); if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); }
     if (labelStatus) { labelStatus.classList.remove('loading'); labelStatus.innerHTML = ''; }
+    const similarResults = document.getElementById('similarResults');
+    if (similarResults) { similarResults.className = 'similar-hint'; similarResults.innerHTML = ''; }
   }, { once: true });
 }
 
@@ -1230,6 +1308,75 @@ function showPreviousImage() {
     showEnlargedImage('/uploads/' + prevImage.filename, prevImage.rotation || 0, prevImage.image_id);
   }
 }
+
+// ---------- find similar images ----------
+function findSimilar() {
+  const img = document.getElementById('enlargedImage');
+  const image_id = parseInt(img.dataset.image_id);
+  if (!image_id) return;
+  const labelSelect = document.getElementById('similarLabelSelect');
+  const label_id = labelSelect ? (labelSelect.value ? parseInt(labelSelect.value) : null) : null;
+  const container = document.getElementById('similarResults');
+  if (container) {
+    container.className = 'similar-hint';
+    container.textContent = 'Searching...';
+  }
+  emit('/manage-dataset/find-similar', {
+    image_id,
+    project_id: getProjectId(),
+    label_id,
+  });
+}
+
+async function applyAIWeight() {
+  const img = document.getElementById('enlargedImage');
+  const image_id = parseInt(img.dataset.image_id);
+  if (!image_id) return;
+  const labelSelect = document.getElementById('similarLabelSelect');
+  const label_id = labelSelect ? labelSelect.value : '';
+  if (!label_id) {
+    const container = document.getElementById('similarResults');
+    if (container) { container.className = 'similar-hint'; container.textContent = 'Select a label first'; }
+    return;
+  }
+  const container = document.getElementById('similarResults');
+  if (container) { container.className = 'similar-hint'; container.textContent = 'Deriving weights from trained AI...'; }
+  try {
+    const json = await fetch_json('/manage-dataset/derive-weight?project=' + getProjectId() + '&label=' + label_id);
+    if (json.error) {
+      if (container) { container.className = 'similar-hint'; container.textContent = 'Error: ' + json.error; }
+    } else if (json.saved) {
+      if (container) { container.className = 'similar-hint'; container.textContent = 'Weights applied, searching...'; }
+      findSimilar();
+    } else {
+      if (container) { container.className = 'similar-hint'; container.textContent = 'No trained AI model for this label yet'; }
+    }
+  } catch (error) {
+    if (container) { container.className = 'similar-hint'; container.textContent = 'Error: ' + error; }
+  }
+}
+
+async function computeEmbeddings() {
+  // show progress as a toast so the toolbar layout is not affected
+  if (typeof showToast === 'function') {
+    showToast('Computing embeddings...', 'info', 'top-end', 0);
+  }
+  try {
+    const json = await fetch_json('/manage-dataset/compute-embeddings?project=' + getProjectId());
+    if (json.error) {
+      if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
+      else alert('Error: ' + json.error);
+    } else {
+      if (typeof showToast === 'function') {
+        showToast('Done: ' + json.embedded + ' embedded, ' + json.skipped + ' skipped', 'success');
+      } else alert('Done: ' + json.embedded + ' embedded, ' + json.skipped + ' skipped');
+    }
+  } catch (error) {
+    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
+    else alert('Error: ' + error);
+  }
+}
+
 function showNextImage() {
   const img = document.getElementById('enlargedImage');
   const currentImageId = parseInt(img.dataset.image_id);
@@ -1959,6 +2106,20 @@ function Main(attrs: {}, context: DynamicContext) {
             style="display: none;"
             onchange="importDataset(event)"
           />
+          <ion-button
+            class="icon-only-mobile"
+            onclick="computeEmbeddings()"
+            color="medium"
+          >
+            <ion-icon name="sparkles" slot="start"></ion-icon>
+            <span>
+              <Locale
+                en="Compute Embeddings"
+                zh_hk="計算向量"
+                zh_cn="计算向量"
+              />
+            </span>
+          </ion-button>
           <div style="flex: 1;"></div>
           <div class="toolbar-right-group">
             <ion-button
@@ -2129,6 +2290,46 @@ function Main(attrs: {}, context: DynamicContext) {
               </h3>
               <div id="labelStatus" class="loading">
                 Loading...
+              </div>
+              <div class="similar-section">
+                <h3>
+                  <Locale en="Similar" zh_hk="相似" zh_cn="相似" />
+                </h3>
+                <select id="similarLabelSelect">
+                  <option value="">
+                    <Locale
+                      en="No weight"
+                      zh_hk="不使用權重"
+                      zh_cn="不使用权重"
+                    />
+                  </option>
+                  {mapArray(labels, label => (
+                    <option value={label.id}>{label.title}</option>
+                  ))}
+                </select>
+                <div class="similar-actions">
+                  <ion-button
+                    size="small"
+                    color="primary"
+                    onclick="findSimilar()"
+                  >
+                    <Locale en="Find Similar" zh_hk="找相似" zh_cn="找相似" />
+                  </ion-button>
+                  <ion-button
+                    size="small"
+                    color="secondary"
+                    onclick="applyAIWeight()"
+                  >
+                    <Locale en="AI Weight" zh_hk="AI 權重" zh_cn="AI 权重" />
+                  </ion-button>
+                </div>
+                <div id="similarResults" class="similar-hint">
+                  <Locale
+                    en="Click Find Similar to see similar images."
+                    zh_hk="按「找相似」查看相似圖片。"
+                    zh_cn="按「找相似」查看相似图片。"
+                  />
+                </div>
               </div>
             </div>
             <div class="image-container">
@@ -2658,6 +2859,204 @@ function LoadLabelStatus(attrs: {}, context: WsContext) {
 }
 
 // ---------------------------------------------------------------------------
+// find similar images (image modal sidebar)
+// ---------------------------------------------------------------------------
+let findSimilarParser = object({
+  image_id: id(),
+  project_id: id(),
+  label_id: optional(id()),
+})
+
+function FindSimilar(attrs: {}, context: WsContext) {
+  // must be a sync component: async components are invoked synchronously by
+  // componentToVNode, which turns the return value into a Promise and breaks
+  // nodeToVNode (and the EarlyTerminate rejection would crash the server)
+  try {
+    let user_id = getAuthUserId(context)!
+    if (!user_id) throw 'Login required'
+
+    let body = getContextFormBody(context)
+    let input = findSimilarParser.parse(body)
+    let project = proxy.project[input.project_id]
+    if (!project) throw 'Project not found'
+    let project_id = project.id!
+
+    findSimilarImages({
+      image_id: input.image_id,
+      project_id,
+      label_id: input.label_id,
+      k: 20,
+    })
+      .then(results => sendSimilarResults(results, input.image_id, context))
+      .catch(error => {
+        if (error !== EarlyTerminate) {
+          console.error('FindSimilar Error:', error)
+          context.ws.send(showError(error))
+        }
+      })
+    throw EarlyTerminate
+  } catch (error) {
+    if (error !== EarlyTerminate) {
+      console.error('FindSimilar Error:', error)
+      context.ws.send(showError(error))
+    }
+    throw EarlyTerminate
+  }
+}
+
+function sendSimilarResults(
+  results: Awaited<ReturnType<typeof findSimilarImages>>,
+  image_id: number,
+  context: WsContext,
+) {
+  let queryImage = proxy.image[image_id]
+
+  if (!results || results.length === 0) {
+    context.ws.send([
+      'update-in',
+      '#similarResults',
+      nodeToVNode(
+        <div class="similar-hint">
+          <p>
+            <Locale
+              en="No similar images found. Run Compute Embeddings first."
+              zh_hk="找不到相似圖片。請先按「計算向量」。"
+              zh_cn="找不到相似图片。请先按「计算向量」。"
+            />
+          </p>
+        </div>,
+        context,
+      ),
+    ])
+  } else {
+    context.ws.send([
+      'update-in',
+      '#similarResults',
+      nodeToVNode(
+        <div>
+          {mapArray(results, item => {
+            let candidate = proxy.image[item.image_id]
+            return (
+              <div
+                class="similar-pair"
+                onclick={`showEnlargedImage('/uploads/${item.filename}', ${candidate?.rotation || 0}, ${item.image_id})`}
+                title={
+                  <Locale
+                    en="Open this similar image"
+                    zh_hk="開啟這張相似圖片"
+                    zh_cn="打开这张相似图片"
+                  />
+                }
+              >
+                {queryImage ? (
+                  <img src={`/uploads/${queryImage.filename}`} alt="query" />
+                ) : null}
+                <img
+                  src={`/uploads/${item.filename}`}
+                  alt="similar"
+                  loading="lazy"
+                />
+                <div class="similar-score">
+                  {(item.score * 100).toFixed(1)}%
+                </div>
+              </div>
+            )
+          })}
+        </div>,
+        context,
+      ),
+    ])
+  }
+}
+
+// ---------------------------------------------------------------------------
+// compute embeddings (toolbar backfill) + derive AI weight (modal)
+// ---------------------------------------------------------------------------
+function broadcastProgress(project_id: number, done: number, total: number) {
+  let message: ServerMessage = [
+    'eval',
+    `if (typeof document !== 'undefined' && typeof Swal !== 'undefined') {
+      if (Swal.isVisible()) {
+        Swal.update({ title: 'Computing embeddings... ${done}/${total}' })
+      } else {
+        showToast('Computing embeddings... ${done}/${total}', 'info', 'top-end', 0)
+      }
+    }`,
+  ]
+  sessions.forEach(session => {
+    if (session.url?.startsWith('/manage-dataset')) {
+      session.ws.send(message)
+    }
+  })
+}
+
+async function ComputeEmbeddings(context: ExpressContext) {
+  let { req } = context
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'not login'
+    let project_id = +req.query.project!
+    if (!project_id) throw 'missing project id in query'
+    let project = proxy.project[project_id]
+    if (!project) throw 'project not found'
+
+    let images = filter(proxy.image, { project_id })
+    let total = images.length
+    let embedded = 0
+    let skipped = 0
+    await ensureProjectEmbeddings({
+      project_id,
+      onProgress: (done, total) => {
+        broadcastProgress(project_id, done, total)
+      },
+    })
+    // count how many already had a cached embedding
+    for (let image of images) {
+      let cached = db
+        .prepare<{ image_id: number; model_version: string }, unknown>(
+          /* sql */ `select 1 from image_embedding where image_id = :image_id and model_version = :model_version limit 1`,
+        )
+        .get({ image_id: image.id!, model_version: EMBEDDING_MODEL_VERSION })
+      if (cached) skipped++
+    }
+    embedded = total - skipped
+    return { embedded, skipped, total }
+  } catch (error) {
+    console.error(error)
+    return { error: String(error) }
+  }
+}
+
+async function DeriveWeight(context: ExpressContext) {
+  let { req } = context
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'not login'
+    let project_id = +req.query.project!
+    let label_id = +req.query.label!
+    if (!project_id) throw 'missing project id in query'
+    if (!label_id) throw 'missing label id in query'
+    let project = proxy.project[project_id]
+    if (!project) throw 'project not found'
+    let label = proxy.label[label_id]
+    if (!label || label.project_id !== project_id) throw 'label not found'
+
+    let weight = await deriveWeightFromClassifier({ label, project_id })
+    if (!weight) return { saved: false }
+    saveEmbeddingWeight({
+      project_id,
+      label_id,
+      weight,
+      source: 'classifier',
+    })
+    return { saved: true }
+  } catch (error) {
+    console.error(error)
+    return { error: String(error) }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // update annotation (single image, from modal)
 // ---------------------------------------------------------------------------
 let updateAnnotationParser = object({
@@ -2835,6 +3234,7 @@ function BatchDelete(attrs: {}, context: WsContext) {
         // capture filename before deleting the DB row, because the row
         // proxy returns undefined for properties after the row is deleted
         const filename = image.filename
+        del(proxy.image_embedding, { image_id })
         del(proxy.image_bounding_box_confirmation, { image_id })
         del(proxy.image_bounding_box, { image_id })
         del(proxy.image_label, { image_id })
@@ -2860,6 +3260,8 @@ function BatchDelete(attrs: {}, context: WsContext) {
         }
       })
     })()
+    // embeddings were deleted above; drop the cached vector matrix
+    invalidateProjectVectorCache(input.project_id)
 
     context.ws.send([
       'eval',
@@ -3435,7 +3837,7 @@ async function storeImageFromZipEntry(options: {
   let data = entry.getData()
   await fsPromises.writeFile(destPath, data)
 
-  return proxy.image.push({
+  let imageId = proxy.image.push({
     original_filename: original_filename ?? imageFilename,
     filename: storedFilename,
     user_id,
@@ -3443,6 +3845,17 @@ async function storeImageFromZipEntry(options: {
     project_id,
     content_hash: content_hash ?? null,
   })
+  // compute and cache the embedding for find-similar in the background;
+  // bulk imports are backfilled by ensureProjectEmbeddings instead
+  ;(async () => {
+    try {
+      await getImageEmbedding(imageId)
+    } catch (error) {
+      console.error('failed to compute embedding for image', imageId, error)
+    }
+  })()
+
+  return imageId
 }
 
 // restore image_label answers (latest answer semantics) for imported images
@@ -3984,6 +4397,20 @@ let routes = {
     description: 'Load label status for an image in the modal',
     node: <LoadLabelStatus />,
   },
+  '/manage-dataset/find-similar': {
+    title: apiEndpointTitle,
+    description: 'Find images similar to the image in the modal',
+    node: <FindSimilar />,
+  },
+  '/manage-dataset/compute-embeddings': ajaxRoute({
+    description: 'compute embeddings for all images in a project',
+    api: ComputeEmbeddings,
+  }),
+  '/manage-dataset/derive-weight': ajaxRoute({
+    description:
+      'derive embedding weights from the trained classifier of a label',
+    api: DeriveWeight,
+  }),
   '/manage-dataset/toggle-labels': {
     title: apiEndpointTitle,
     description: 'Toggle label container visibility',

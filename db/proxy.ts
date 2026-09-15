@@ -226,6 +226,28 @@ export type ImageBoundingBoxConfirmation = {
   label?: Label
 }
 
+export type ImageEmbedding = {
+  id?: null | number
+  image_id: number
+  image?: Image
+  project_id: number
+  project?: Project
+  vector: Buffer
+  model_version: string
+  created_at: number
+}
+
+export type EmbeddingWeight = {
+  id?: null | number
+  project_id: number
+  project?: Project
+  label_id: null | number
+  label?: Label
+  vector: Buffer
+  source: string
+  trained_at: number
+}
+
 export type DBProxy = {
   request_log: RequestLog[]
   method: Method[]
@@ -250,6 +272,8 @@ export type DBProxy = {
   training_stats: TrainingStats[]
   image_bounding_box: ImageBoundingBox[]
   image_bounding_box_confirmation: ImageBoundingBoxConfirmation[]
+  image_embedding: ImageEmbedding[]
+  embedding_weight: EmbeddingWeight[]
 }
 
 export let proxy = proxySchema<DBProxy>({
@@ -335,6 +359,16 @@ export let proxy = proxySchema<DBProxy>({
       /* foreign references */
       ['image', { field: 'image_id', table: 'image' }],
       ['user', { field: 'user_id', table: 'user' }],
+      ['label', { field: 'label_id', table: 'label' }],
+    ],
+    image_embedding: [
+      /* foreign references */
+      ['image', { field: 'image_id', table: 'image' }],
+      ['project', { field: 'project_id', table: 'project' }],
+    ],
+    embedding_weight: [
+      /* foreign references */
+      ['project', { field: 'project_id', table: 'project' }],
       ['label', { field: 'label_id', table: 'label' }],
     ],
   },

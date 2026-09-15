@@ -36,6 +36,10 @@ import { randomUUID } from 'crypto'
 import { getContextProject } from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
+import {
+  getImageEmbedding,
+  invalidateProjectVectorCache,
+} from '../embedding.js'
 import { render } from '@ionic/core/dist/types/stencil-public-runtime.js'
 
 let pageTitle = <Locale en="Upload Image" zh_hk="上傳圖片" zh_cn="上传图片" />
@@ -697,6 +701,13 @@ async function UploadImage(context: ExpressContext) {
         project_id,
         content_hash: contentHash || null,
       }) as number
+      // compute and cache the embedding for find-similar (single image,
+      // fast enough to await; failure must not block the upload)
+      try {
+        await getImageEmbedding(image_id)
+      } catch (error) {
+        console.error('failed to compute embedding for image', image_id, error)
+      }
       let new_count = count(proxy.image, { project_id })
       let url = '/uploads/' + file.newFilename
       return { url, count: new_count, image_id }
@@ -719,6 +730,10 @@ async function RemoveImage(context: ExpressContext) {
     let image = find(proxy.image, { filename })
     if (image) {
       // Delete related records in the correct order (child tables first)
+      // Delete the cached embedding
+      del(proxy.image_embedding, { image_id: image.id! })
+      invalidateProjectVectorCache(project_id)
+
       // Delete bounding box confirmations
       del(proxy.image_bounding_box_confirmation, { image_id: image.id! })
 
@@ -801,12 +816,14 @@ async function RemoveAllImages(context: ExpressContext) {
         if (!image_id) continue
 
         // delete child tables first to satisfy FOREIGN KEY constraints
+        del(proxy.image_embedding, { image_id })
         del(proxy.image_bounding_box_confirmation, { image_id })
         del(proxy.image_bounding_box, { image_id })
         del(proxy.image_label, { image_id })
         del(proxy.image, { id: image_id })
       }
     })()
+    invalidateProjectVectorCache(project_id)
 
     // Delete files after successful DB transaction
     for (let filename of filenames) {

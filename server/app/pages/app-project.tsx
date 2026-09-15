@@ -18,6 +18,7 @@ import { Script } from '../components/script.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { int, object, string } from 'cast.ts'
 import { EarlyTerminate } from '../../exception.js'
+import { invalidateProjectVectorCache } from '../embedding.js'
 import { proxy } from '../../../db/proxy.js'
 import { nodeToVNode } from '../jsx/vnode.js'
 import { db } from '../../../db/db.js'
@@ -452,6 +453,12 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
         }
       }
     }
+
+    // Delete all cached embeddings for images in this project
+    for (let img of project_images) {
+      del(proxy.image_embedding, { image_id: img.id! })
+    }
+    invalidateProjectVectorCache(project_id)
 
     // Delete all bounding box confirmations for images in this project
     for (let img of project_images) {
