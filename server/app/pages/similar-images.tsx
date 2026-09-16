@@ -11,7 +11,7 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
-import { array, id, object } from 'cast.ts'
+import { array, id, object, optional } from 'cast.ts'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
@@ -52,9 +52,13 @@ let style = Style(/* css */ `
   gap: 0.5rem;
   margin-bottom: 1rem;
   flex-wrap: wrap;
+  align-items: center;
 }
 .similar-toolbar ion-button {
   margin: 0;
+}
+.similar-toolbar .top-k-select {
+  max-width: 8rem;
 }
 .similar-section {
   margin-top: 0.5rem;
@@ -174,8 +178,11 @@ function findSimilarPairs() {
     container.className = 'similar-hint';
     container.textContent = 'Searching...';
   }
+  const kSelect = document.getElementById('topKSelect');
+  const k = kSelect ? parseInt(kSelect.value) : 5;
   emit('/similar-images/find-pairs', {
     project_id: getProjectId(),
+    k: k,
   });
 }
 
@@ -241,11 +248,25 @@ function initSimilarImages() {
     setTimeout(initSimilarImages, 100);
     return;
   }
+  bindTopKSelect();
   if (getProjectId()) {
     findSimilarPairs();
   }
 }
 initSimilarImages();
+
+// ion-select is an Ionic web component: it does NOT fire a native
+// 'change' event, so an inline onchange attribute never runs. Bind an
+// 'ionChange' listener instead (dataset.bound guards against double
+// binding when the framework re-executes this script on ws updates).
+function bindTopKSelect() {
+  const kSelect = document.getElementById('topKSelect');
+  if (!kSelect || kSelect.dataset.bound) return;
+  kSelect.addEventListener('ionChange', function (event) {
+    findSimilarPairs();
+  });
+  kSelect.dataset.bound = '1';
+}
 `)
 
 // back to the manage-dataset page this page is opened from (not the
@@ -312,6 +333,22 @@ function Main(attrs: {}, context: DynamicContext) {
             />
           </span>
         </ion-button>
+        <ion-select
+          id="topKSelect"
+          class="top-k-select"
+          interface="popover"
+          value="5"
+        >
+          <ion-select-option value="5">
+            <Locale en="Top 5" zh_hk="前 5" zh_cn="前 5" />
+          </ion-select-option>
+          <ion-select-option value="10">
+            <Locale en="Top 10" zh_hk="前 10" zh_cn="前 10" />
+          </ion-select-option>
+          <ion-select-option value="20">
+            <Locale en="Top 20" zh_hk="前 20" zh_cn="前 20" />
+          </ion-select-option>
+        </ion-select>
       </div>
       <div class="similar-section">
         <h3>
@@ -343,6 +380,7 @@ function Main(attrs: {}, context: DynamicContext) {
 
 let findPairsParser = object({
   project_id: id(),
+  k: optional(id()),
 })
 
 // Loads the user's existing votes for the given pairs (normalized a<b),
@@ -519,7 +557,7 @@ function FindSimilarPairs(attrs: {}, context: WsContext) {
     if (!project) throw 'Project not found'
     let project_id = project.id!
 
-    let results = findTopSimilarPairs({ project_id, k: 5 })
+    let results = findTopSimilarPairs({ project_id, k: input.k ?? 5 })
     let votes = getExistingVotes({
       user_id,
       project_id,
