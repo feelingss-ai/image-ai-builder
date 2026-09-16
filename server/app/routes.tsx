@@ -1,5 +1,6 @@
 import ManageLabels from './pages/manage-labels.js'
 import ManageDataset from './pages/manage-dataset.js'
+import SimilarImages from './pages/similar-images.js'
 import Stats from './pages/stats.js'
 import PreviewAI from './pages/preview-ai.js'
 import TrainAI from './pages/train-ai.js'
@@ -94,6 +95,7 @@ export type Routes = Record<string, PageRoute>
 let routeDict = {
   ...ManageLabels.routes,
   ...ManageDataset.routes,
+  ...SimilarImages.routes,
   ...Stats.routes,
   ...PreviewAI.routes,
   ...TrainAI.routes,

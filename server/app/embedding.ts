@@ -269,6 +269,82 @@ function norm(vector: Float32Array): number {
   return Math.sqrt(sum)
 }
 
+export type SimilarPair = {
+  image_id_a: number
+  filename_a: string
+  image_id_b: number
+  filename_b: string
+  score: number
+}
+
+/**
+ * Find the top-K most similar image pairs across a whole project
+ * (pairwise, not anchored to a single query image). Plain cosine
+ * similarity; images without an embedding are skipped. Uses the same
+ * project vector cache as findSimilarImages.
+ */
+export function findTopSimilarPairs(options: {
+  project_id: number
+  k?: number
+}): SimilarPair[] {
+  let { project_id, k = 5 } = options
+  k = Math.min(k, 100)
+
+  // load (or reuse) the project's full embedding matrix
+  let cache = projectVectorCache.get(project_id)
+  if (!cache || cache.model_version !== EMBEDDING_MODEL_VERSION) {
+    let rows = select_project_embeddings.all({
+      project_id,
+      model_version: EMBEDDING_MODEL_VERSION,
+    })
+    cache = {
+      image_ids: rows.map(row => row.image_id),
+      vectors: rows.map(row => blobToVector(row.vector)),
+      model_version: EMBEDDING_MODEL_VERSION,
+    }
+    projectVectorCache.set(project_id, cache)
+  }
+
+  let n = cache.image_ids.length
+  if (n < 2) return []
+
+  // pre-normalize all vectors so each pair score is a plain dot product
+  let normalized = cache.vectors.map(vector => {
+    let length = norm(vector)
+    if (length === 0) return null
+    let scaled = new Float32Array(vector.length)
+    for (let i = 0; i < vector.length; i++) {
+      scaled[i] = vector[i] / length
+    }
+    return scaled
+  })
+
+  // upper triangle only: each unordered pair (i, j) once, i < j
+  let pairs: SimilarPair[] = []
+  for (let i = 0; i < n; i++) {
+    let vectorA = normalized[i]
+    if (!vectorA) continue
+    for (let j = i + 1; j < n; j++) {
+      let vectorB = normalized[j]
+      if (!vectorB) continue
+      let dot = 0
+      for (let d = 0; d < vectorA.length; d++) {
+        dot += vectorA[d] * vectorB[d]
+      }
+      pairs.push({
+        image_id_a: cache.image_ids[i],
+        filename_a: proxy.image[cache.image_ids[i]]?.filename ?? '',
+        image_id_b: cache.image_ids[j],
+        filename_b: proxy.image[cache.image_ids[j]]?.filename ?? '',
+        score: dot,
+      })
+    }
+  }
+
+  pairs.sort((a, b) => b.score - a.score)
+  return pairs.slice(0, k)
+}
+
 /**
  * Derive a weight vector from the first Dense layer of the trained
  * classifier of a label: each input dimension is weighted by the L2 norm
