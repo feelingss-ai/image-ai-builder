@@ -244,6 +244,18 @@ source text
 trained_at integer
 
 
+similar_pair_feedback
+---------------------
+id integer PK
+project_id integer FK >0- project.id
+image_a_id integer FK >0- image.id
+image_b_id integer FK >0- image.id
+user_id integer FK >0- user.id
+is_similar integer
+rank integer NULL
+created_at integer
+
+
 # zoom: 1.000
 # view: (0, 0)
 # text-bg: #6495ed

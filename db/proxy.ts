@@ -248,6 +248,21 @@ export type EmbeddingWeight = {
   trained_at: number
 }
 
+export type SimilarPairFeedback = {
+  id?: null | number
+  project_id: number
+  project?: Project
+  image_a_id: number
+  image_a?: Image
+  image_b_id: number
+  image_b?: Image
+  user_id: number
+  user?: User
+  is_similar: number
+  rank: null | number
+  created_at: number
+}
+
 export type DBProxy = {
   request_log: RequestLog[]
   method: Method[]
@@ -274,6 +289,7 @@ export type DBProxy = {
   image_bounding_box_confirmation: ImageBoundingBoxConfirmation[]
   image_embedding: ImageEmbedding[]
   embedding_weight: EmbeddingWeight[]
+  similar_pair_feedback: SimilarPairFeedback[]
 }
 
 export let proxy = proxySchema<DBProxy>({
@@ -370,6 +386,13 @@ export let proxy = proxySchema<DBProxy>({
       /* foreign references */
       ['project', { field: 'project_id', table: 'project' }],
       ['label', { field: 'label_id', table: 'label' }],
+    ],
+    similar_pair_feedback: [
+      /* foreign references */
+      ['project', { field: 'project_id', table: 'project' }],
+      ['image_a', { field: 'image_a_id', table: 'image' }],
+      ['image_b', { field: 'image_b_id', table: 'image' }],
+      ['user', { field: 'user_id', table: 'user' }],
     ],
   },
 })

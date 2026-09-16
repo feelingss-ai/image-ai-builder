@@ -290,6 +290,9 @@ export function findTopSimilarPairs(options: {
   let { project_id, k = 5 } = options
   k = Math.min(k, 100)
 
+  // learned weight from user feedback (null = plain cosine)
+  let weight = getEmbeddingWeight({ project_id })
+
   // load (or reuse) the project's full embedding matrix
   let cache = projectVectorCache.get(project_id)
   if (!cache || cache.model_version !== EMBEDDING_MODEL_VERSION) {
@@ -308,13 +311,15 @@ export function findTopSimilarPairs(options: {
   let n = cache.image_ids.length
   if (n < 2) return []
 
-  // pre-normalize all vectors so each pair score is a plain dot product
+  // pre-normalize all vectors so each pair score is a plain dot product.
+  // with a trained weight, each dimension is scaled by weight[d] BEFORE
+  // normalizing, so the dot product becomes weighted cosine similarity
   let normalized = cache.vectors.map(vector => {
     let length = norm(vector)
     if (length === 0) return null
     let scaled = new Float32Array(vector.length)
     for (let i = 0; i < vector.length; i++) {
-      scaled[i] = vector[i] / length
+      scaled[i] = (vector[i] * (weight ? weight[i] : 1)) / length
     }
     return scaled
   })
@@ -437,6 +442,149 @@ export function saveEmbeddingWeight(options: {
     trained_at: Math.floor(Date.now() / 1000),
   })
   return result!.id
+}
+
+// ---------------------------------------------------------------------------
+// train weight from pair ranking feedback
+// ---------------------------------------------------------------------------
+
+// all ranked pair feedback of a project (latest vote per pair per user,
+// ordered by rank ascending = most similar first)
+let select_ranked_feedback = db.prepare<
+  { project_id: number },
+  { image_a_id: number; image_b_id: number; rank: number }
+>(/* sql */ `
+  select image_a_id, image_b_id, rank
+  from similar_pair_feedback
+  where project_id = :project_id
+    and rank is not null
+  order by rank asc
+`)
+
+/**
+ * Train a per-project embedding weight vector from the user's pair
+ * ranking feedback (similar_pair_feedback.rank).
+ *
+ * Idea: the ranking says "pair ranked higher should be MORE similar than
+ * a pair ranked lower". For every violated constraint (scoreHigh <=
+ * scoreLow) we nudge the weight along the contrast direction: dimensions
+ * that make the higher-ranked pair's two images differ get boosted, and
+ * the same for the lower-ranked pair gets damped — so after re-scoring,
+ * the higher pair's weighted cosine rises relative to the lower one.
+ *
+ * This is a simple contrastive gradient approximation (no tfjs backprop):
+ * fast (milliseconds), dependency-free, and interpretable. The result is
+ * mean-normalized to 1 (same convention as deriveWeightFromClassifier)
+ * and clamped to [0.1, 10] to avoid runaway weights.
+ *
+ * Returns null when there is not enough feedback (fewer than 2 ranked
+ * pairs) to learn from.
+ */
+export function deriveWeightFromFeedback(options: {
+  project_id: number
+}): EmbeddingVector | null {
+  let { project_id } = options
+
+  // load (or reuse) the project's full embedding matrix
+  let cache = projectVectorCache.get(project_id)
+  if (!cache || cache.model_version !== EMBEDDING_MODEL_VERSION) {
+    let rows = select_project_embeddings.all({
+      project_id,
+      model_version: EMBEDDING_MODEL_VERSION,
+    })
+    cache = {
+      image_ids: rows.map(row => row.image_id),
+      vectors: rows.map(row => blobToVector(row.vector)),
+      model_version: EMBEDDING_MODEL_VERSION,
+    }
+    projectVectorCache.set(project_id, cache)
+  }
+  let idToIndex = new Map<number, number>()
+  cache.image_ids.forEach((image_id, index) => idToIndex.set(image_id, index))
+
+  // ranked pairs (most similar first), only pairs whose images have embeddings
+  let ranked: { i: number; j: number }[] = []
+  for (let row of select_ranked_feedback.all({ project_id })) {
+    let i = idToIndex.get(row.image_a_id)
+    let j = idToIndex.get(row.image_b_id)
+    if (i == null || j == null || i === j) continue
+    ranked.push({ i, j })
+  }
+  // need at least 2 ranked pairs to form a meaningful ordering constraint
+  if (ranked.length < 2) return null
+
+  let dims = EMBEDDING_DIMS
+  let weight = new Float32Array(dims)
+  weight.fill(1)
+
+  const LEARNING_RATE = 0.05
+  const ITERATIONS = 50
+  const WEIGHT_MIN = 0.1
+  const WEIGHT_MAX = 10
+
+  // pre-normalize embeddings once (plain cosine space, like findTopSimilarPairs)
+  let normalized: (Float32Array | null)[] = cache.vectors.map(vector => {
+    let length = norm(vector)
+    if (length === 0) return null
+    let scaled = new Float32Array(vector.length)
+    for (let d = 0; d < vector.length; d++) {
+      scaled[d] = vector[d] / length
+    }
+    return scaled
+  })
+
+  function pairScore(i: number, j: number): number {
+    let a = normalized[i]
+    let b = normalized[j]
+    if (!a || !b) return 0
+    let dot = 0
+    for (let d = 0; d < dims; d++) {
+      dot += a[d] * weight[d] * b[d] * weight[d]
+    }
+    return dot
+  }
+
+  for (let iter = 0; iter < ITERATIONS; iter++) {
+    let changed = false
+    for (let r = 0; r < ranked.length; r++) {
+      for (let s = r + 1; s < ranked.length; s++) {
+        let high = ranked[r]!
+        let low = ranked[s]!
+        let scoreHigh = pairScore(high.i, high.j)
+        let scoreLow = pairScore(low.i, low.j)
+        // only nudge when the ranking is violated (or nearly tied)
+        if (scoreHigh >= scoreLow - 1e-6) continue
+        changed = true
+        let margin = scoreLow - scoreHigh
+        // contrast direction per dimension: the higher-ranked pair's
+        // |a-b| profile minus the lower-ranked pair's — boosting these
+        // dimensions raises scoreHigh relative to scoreLow
+        for (let d = 0; d < dims; d++) {
+          let aHigh = normalized[high.i]![d]
+          let bHigh = normalized[high.j]![d]
+          let aLow = normalized[low.i]![d]
+          let bLow = normalized[low.j]![d]
+          let contrast =
+            Math.abs(aHigh - bHigh) - Math.abs(aLow - bLow)
+          weight[d] += LEARNING_RATE * margin * contrast
+          if (weight[d] < WEIGHT_MIN) weight[d] = WEIGHT_MIN
+          if (weight[d] > WEIGHT_MAX) weight[d] = WEIGHT_MAX
+        }
+      }
+    }
+    if (!changed) break
+  }
+
+  // normalize so the mean weight is 1 (keeps scores in a familiar range)
+  let mean = 0
+  for (let d = 0; d < dims; d++) mean += weight[d]!
+  mean /= dims
+  if (mean > 0) {
+    for (let d = 0; d < dims; d++) {
+      weight[d] = Math.min(WEIGHT_MAX, Math.max(WEIGHT_MIN, weight[d]! / mean))
+    }
+  }
+  return weight
 }
 
 /**
