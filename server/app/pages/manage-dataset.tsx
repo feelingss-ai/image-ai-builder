@@ -409,7 +409,7 @@ let style = Style(/* css */ `
 }
 
 /* ---------- image modal: mobile responsive ---------- */
-@media (max-width: 600px) {
+@media (max-width: 710px) {
   #imageModal {
     --width: 92vw;
     --height: 92vh;

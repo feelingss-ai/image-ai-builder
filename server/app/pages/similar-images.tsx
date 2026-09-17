@@ -15,7 +15,7 @@ import { array, id, object, optional } from 'cast.ts'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
-import { filter, seedRow } from 'better-sqlite3-proxy'
+import { filter, seedRow, del } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
@@ -26,11 +26,15 @@ import { sessions } from '../session.js'
 import { ServerMessage } from '../../../client/types.js'
 import { getContextProject } from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { env } from '../../env.js'
+import { join } from 'path'
+import { promises as fsPromises } from 'fs'
 import {
   findTopSimilarPairs,
   ensureProjectEmbeddings,
   deriveWeightFromFeedbackGA,
   saveEmbeddingWeight,
+  invalidateProjectVectorCache,
   EMBEDDING_MODEL_VERSION,
 } from '../embedding.js'
 
@@ -85,6 +89,36 @@ let style = Style(/* css */ `
   border: 1px solid #ccc;
   flex-shrink: 0;
   cursor: pointer;
+}
+/* delete button on the top-right corner of each thumbnail */
+.similar-pair .img-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+.similar-pair .img-wrapper img {
+  display: block;
+}
+.similar-pair .img-wrapper .img-delete-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: none;
+  border-radius: 50%;
+  background: #dc3545;
+  color: #fff;
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 1;
+}
+.similar-pair .img-wrapper .img-delete-btn:hover {
+  background: #c82333;
 }
 .similar-pair .similar-score {
   font-size: 0.9rem;
@@ -172,17 +206,23 @@ async function computeEmbeddings() {
   }
 }
 
+// Reads the user-selected number of pairs to display (Top 5/10/20).
+// Shared by findSimilarPairs and deleteImage so the re-rendered list
+// always matches the current selection.
+function getTopK() {
+  const kSelect = document.getElementById('topKSelect');
+  return kSelect ? parseInt(kSelect.value) : 5;
+}
+
 function findSimilarPairs() {
   const container = document.getElementById('similarPairs');
   if (container) {
     container.className = 'similar-hint';
     container.textContent = 'Searching...';
   }
-  const kSelect = document.getElementById('topKSelect');
-  const k = kSelect ? parseInt(kSelect.value) : 5;
   emit('/similar-images/find-pairs', {
     project_id: getProjectId(),
-    k: k,
+    k: getTopK(),
   });
 }
 
@@ -239,6 +279,38 @@ function trainWeight() {
   emit('/similar-images/train-weight', {
     project_id: getProjectId(),
   });
+}
+
+// Deletes one image (from a similar pair) after user confirmation.
+// The server cleans up the DB rows + file, then re-renders the list
+// with the currently selected number of pairs.
+function deleteImage(btn, image_id) {
+  const doDelete = () => {
+    emit('/similar-images/delete-image', {
+      project_id: getProjectId(),
+      image_id: image_id,
+      k: getTopK(),
+    });
+  };
+  if (typeof Swal !== 'undefined') {
+    // heightAuto: false — required on ionic pages: ionic sets
+    // body { position: fixed }, and swal2's default height-auto
+    // class collapses the body to 0px (white screen)
+    Swal.fire({
+      title: 'Delete this image?',
+      text: 'It will be removed from the dataset (including annotations).',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#dc3545',
+      heightAuto: false,
+    }).then(result => {
+      if (result.isConfirmed) doDelete();
+    });
+  } else {
+    if (confirm('Delete this image? It will be removed from the dataset.')) doDelete();
+  }
 }
 
 // run once on mount — defer until the client bundle defines emit()
@@ -623,18 +695,38 @@ function sendSimilarPairs(
                 data-image-a-id={a}
                 data-image-b-id={b}
               >
-                <img
-                  src={`/uploads/${item.filename_a}`}
-                  alt="a"
-                  loading="lazy"
-                  onclick={`window.open('/uploads/${item.filename_a}', '_blank')`}
-                />
-                <img
-                  src={`/uploads/${item.filename_b}`}
-                  alt="b"
-                  loading="lazy"
-                  onclick={`window.open('/uploads/${item.filename_b}', '_blank')`}
-                />
+                <div class="img-wrapper">
+                  <img
+                    src={`/uploads/${item.filename_a}`}
+                    alt="a"
+                    loading="lazy"
+                    onclick={`window.open('/uploads/${item.filename_a}', '_blank')`}
+                  />
+                  <button
+                    type="button"
+                    class="img-delete-btn"
+                    title="Delete this image"
+                    onclick={`deleteImage(this, ${item.image_id_a})`}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div class="img-wrapper">
+                  <img
+                    src={`/uploads/${item.filename_b}`}
+                    alt="b"
+                    loading="lazy"
+                    onclick={`window.open('/uploads/${item.filename_b}', '_blank')`}
+                  />
+                  <button
+                    type="button"
+                    class="img-delete-btn"
+                    title="Delete this image"
+                    onclick={`deleteImage(this, ${item.image_id_b})`}
+                  >
+                    ×
+                  </button>
+                </div>
                 <div class="similar-score">
                   {(item.score * 100).toFixed(1)}%
                 </div>
@@ -666,6 +758,92 @@ function sendSimilarPairs(
         context,
       ),
     ])
+  }
+}
+
+// ---------------------------------------------------------------------------
+// delete one image (from a similar pair)
+// ---------------------------------------------------------------------------
+let deleteImageParser = object({
+  project_id: id(),
+  image_id: id(),
+  k: optional(id()),
+})
+
+// Deletes a single image with full cleanup (same chain as manage-dataset
+// BatchDelete): embedding, bounding boxes + confirmations, labels, the
+// image row itself, and the physical file when no other row references it.
+// Also removes the pair feedback rows the image took part in. Then
+// re-renders the pairs list with the user-selected number of pairs.
+function DeleteImage(attrs: {}, context: WsContext) {
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'Login required'
+
+    let body = getContextFormBody(context)
+    let input = deleteImageParser.parse(body)
+    let project = proxy.project[input.project_id]
+    if (!project) throw 'Project not found'
+    let image = proxy.image[input.image_id]
+    if (!image || image.project_id !== input.project_id) {
+      throw 'Image not found in project'
+    }
+
+    let filename = image.filename
+    db.transaction(() => {
+      del(proxy.image_embedding, { image_id: input.image_id })
+      del(proxy.image_bounding_box_confirmation, { image_id: input.image_id })
+      del(proxy.image_bounding_box, { image_id: input.image_id })
+      del(proxy.image_label, { image_id: input.image_id })
+      del(proxy.similar_pair_feedback, { image_a_id: input.image_id })
+      del(proxy.similar_pair_feedback, { image_b_id: input.image_id })
+      del(proxy.image, { id: input.image_id })
+    })()
+    // only delete the physical file when no other image row references it
+    let stillUsed = db
+      .prepare<{ filename: string; image_id: number }, number>(
+        /* sql */ `
+        select count(*) from image
+        where filename = :filename and id != :image_id
+        `,
+      )
+      .pluck()
+      .get({ filename, image_id: input.image_id })
+    if (!stillUsed) {
+      let filePath = join(env.UPLOAD_DIR, filename)
+      fsPromises.rm(filePath, { force: true }).catch(err => {
+        console.error('DeleteImage file delete failed:', err)
+      })
+    }
+    // embeddings were deleted above; drop the cached vector matrix
+    invalidateProjectVectorCache(input.project_id)
+
+    // re-render the pairs list (the deleted image is gone from the DB,
+    // so findTopSimilarPairs no longer returns it)
+    let results = findTopSimilarPairs({
+      project_id: input.project_id,
+      k: input.k ?? 5,
+    })
+    let votes = getExistingVotes({
+      user_id: user.id!,
+      project_id: input.project_id,
+      pairs: results.map(item => ({
+        image_a_id: item.image_id_a,
+        image_b_id: item.image_id_b,
+      })),
+    })
+    sendSimilarPairs(results, votes, context)
+    context.ws.send([
+      'eval',
+      `if (typeof showToast === 'function') showToast('Image deleted', 'success')`,
+    ])
+    throw EarlyTerminate
+  } catch (error) {
+    if (error !== EarlyTerminate) {
+      console.error('DeleteImage Error:', error)
+      context.ws.send(showError(error))
+    }
+    throw EarlyTerminate
   }
 }
 
@@ -751,6 +929,11 @@ let routes = {
     title: apiEndpointTitle,
     description: 'train embedding weight from pair ranking feedback',
     node: <TrainSimilarWeight />,
+  },
+  '/similar-images/delete-image': {
+    title: apiEndpointTitle,
+    description: 'delete one image from the dataset',
+    node: <DeleteImage />,
   },
   '/similar-images/compute-embeddings': ajaxRoute({
     description: 'compute embeddings for all images in a project',
