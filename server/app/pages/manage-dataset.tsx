@@ -1965,9 +1965,9 @@ function Main(attrs: {}, context: DynamicContext) {
           <ion-button
             class="icon-only-mobile"
             onclick="window.location.href='/similar-images?project=' + getProjectId()"
-            color="medium"
+            color="tertiary"
           >
-            <ion-icon name="sparkles" slot="start"></ion-icon>
+            <ion-icon name="copy-outline" slot="start"></ion-icon>
             <span>
               <Locale en="Similar Images" zh_hk="相似圖片" zh_cn="相似图片" />
             </span>

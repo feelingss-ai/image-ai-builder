@@ -177,6 +177,23 @@ let style = Style(/* css */ `
   color: #999;
   margin: 0.5rem 0;
 }
+/* banner shown when some images don't have an embedding yet */
+.embed-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 1rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 193, 7, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.5);
+  color: #856404;
+  font-size: 0.9rem;
+}
+.embed-hint ion-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
 `)
 
 let script = Script(/* js */ `
@@ -195,9 +212,18 @@ async function computeEmbeddings() {
       if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
       else alert('Error: ' + json.error);
     } else {
+      // clarify the "all skipped" case: it means every image already had
+      // an embedding (e.g. computed during upload), not that nothing ran
       if (typeof showToast === 'function') {
-        showToast('Done: ' + json.embedded + ' embedded, ' + json.skipped + ' skipped', 'success');
+        if (json.embedded > 0) {
+          showToast('Done: ' + json.embedded + ' embedded, ' + json.skipped + ' skipped', 'success');
+        } else {
+          showToast('All ' + json.skipped + ' images already have embeddings — nothing to compute', 'info');
+        }
       } else alert('Done: ' + json.embedded + ' embedded, ' + json.skipped + ' skipped');
+      // the missing-embedding banner is now stale — remove it
+      const hint = document.getElementById('embedHint');
+      if (hint) hint.remove();
       findSimilarPairs();
     }
   } catch (error) {
@@ -243,6 +269,10 @@ function movePair(btn, direction) {
   } else {
     parent.insertBefore(sibling, row);
   }
+  // mark the ordering as locally modified (unsaved) so trainWeight()
+  // can remind the user to confirm before training
+  const list = document.getElementById('similarPairs');
+  if (list) list.dataset.dirty = '1';
   // refresh badges + button disabled states
   const rows = Array.from(parent.querySelectorAll('.similar-pair'));
   rows.forEach((item, index) => {
@@ -262,6 +292,8 @@ function confirmRanking() {
   if (!container) return;
   const rows = container.querySelectorAll('.similar-pair');
   if (rows.length === 0) return;
+  // the ordering is being saved now — clear the unsaved-changes flag
+  delete container.dataset.dirty;
   emit('/similar-images/rank', {
     project_id: getProjectId(),
     ordered_pairs: Array.from(rows).map(item => ({
@@ -272,13 +304,55 @@ function confirmRanking() {
 }
 
 // Trains the AI weight from the saved pair ranking feedback.
+// If the displayed ordering has been moved but not confirmed yet,
+// remind the user to confirm first (training reads the DB, not the
+// on-screen order) — with an option to confirm-and-train in one click.
 function trainWeight() {
-  if (typeof showToast === 'function') {
-    showToast('Training AI from your ranking...', 'info', 'top-end', 0);
+  const container = document.getElementById('similarPairs');
+  const hasUnsaved = container && container.dataset.dirty === '1';
+  const doTrain = () => {
+    if (typeof showToast === 'function') {
+      showToast('Training AI from your ranking...', 'info', 'top-end', 0);
+    }
+    emit('/similar-images/train-weight', {
+      project_id: getProjectId(),
+    });
+  };
+  if (hasUnsaved && typeof Swal !== 'undefined') {
+    // localized texts injected by the server (see SimilarTexts below);
+    // fall back to English when missing
+    const t = Object.assign(
+      {
+        title: 'Unconfirmed changes',
+        text: 'You moved pairs but have not confirmed the ranking yet. Training uses the last confirmed order. Confirm now and train?',
+        confirm: 'Confirm & Train',
+        deny: 'Train old order',
+        cancel: 'Cancel',
+      },
+      window.similarTexts || {},
+    )
+    // heightAuto: false — required on ionic pages (see deleteImage)
+    Swal.fire({
+      title: t.title,
+      text: t.text,
+      icon: 'question',
+      showCancelButton: true,
+      showDenyButton: true,
+      confirmButtonText: t.confirm,
+      denyButtonText: t.deny,
+      cancelButtonText: t.cancel,
+      heightAuto: false,
+    }).then(result => {
+      if (result.isConfirmed) {
+        confirmRanking();
+        doTrain();
+      } else if (result.isDenied) {
+        doTrain();
+      }
+    });
+    return;
   }
-  emit('/similar-images/train-weight', {
-    project_id: getProjectId(),
-  });
+  doTrain();
 }
 
 // Deletes one image (from a similar pair) after user confirmation.
@@ -371,17 +445,105 @@ let page = (
       <Main />
     </ion-content>
     {sweetAlertPlugin.node}
+    <SimilarTexts />
     {script}
   </>
 )
+
+// Injects localized texts for the train-confirm dialog (used by the client
+// script above, which is a static string and cannot use Locale directly)
+function SimilarTexts(attrs: {}, context: DynamicContext) {
+  let texts = {
+    title: Locale(
+      {
+        en: 'Unconfirmed changes',
+        zh_hk: '有未確認的變更',
+        zh_cn: '有未确认的变更',
+      },
+      context,
+    ),
+    text: Locale(
+      {
+        en: 'You moved pairs but have not confirmed the ranking yet. Training uses the last confirmed order. Confirm now and train?',
+        zh_hk:
+          '你移動了配對但尚未確認排序。訓練會使用上次確認的順序。要現在確認並訓練嗎？',
+        zh_cn:
+          '你移动了配对但尚未确认排序。训练会使用上次确认的顺序。要现在确认并训练吗？',
+      },
+      context,
+    ),
+    confirm: Locale(
+      {
+        en: 'Confirm & Train',
+        zh_hk: '確認並訓練',
+        zh_cn: '确认并训练',
+      },
+      context,
+    ),
+    deny: Locale(
+      {
+        en: 'Train old order',
+        zh_hk: '用舊順序訓練',
+        zh_cn: '用旧顺序训练',
+      },
+      context,
+    ),
+    cancel: Locale(
+      {
+        en: 'Cancel',
+        zh_hk: '取消',
+        zh_cn: '取消',
+      },
+      context,
+    ),
+  }
+  return <script>similarTexts = {JSON.stringify(texts)}</script>
+}
+
+// counts images of a project that have no embedding row for the current
+// model version — used to warn the user to run Compute Embeddings first
+// (bulk-imported images are NOT embedded on upload, only by that button)
+let count_missing_embeddings = db
+  .prepare<{ project_id: number; model_version: string }, number>(
+    /* sql */ `
+  select count(*) from image
+  where project_id = :project_id
+    and not exists (
+      select 1 from image_embedding
+      where image_embedding.image_id = image.id
+        and image_embedding.model_version = :model_version
+    )
+`,
+  )
+  .pluck()
 
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
 
+  // fresh projects (esp. bulk imports) have images without embeddings;
+  // Find Similar skips them, so warn the user to backfill first
+  let missingEmbeddings =
+    count_missing_embeddings.get({
+      project_id: project.id!,
+      model_version: EMBEDDING_MODEL_VERSION,
+    }) ?? 0
+
   return (
     <>
+      {missingEmbeddings > 0 && (
+        <div class="embed-hint" id="embedHint">
+          <ion-icon name="information-circle"></ion-icon>
+          <span>
+            <Locale
+              en={`${missingEmbeddings} image(s) have no embedding yet — click "Compute Embeddings" first, otherwise Find Similar will show nothing.`}
+              zh_hk={`還有 ${missingEmbeddings} 張圖片尚未計算向量 — 請先按「計算向量」，否則「找相似」不會有任何結果。`}
+              zh_cn={`还有 ${missingEmbeddings} 张图片尚未计算向量 — 请先按「计算向量」，否则「找相似」不会有任何结果。`}
+            />
+          </span>
+        </div>
+      )}
       <div class="similar-toolbar">
         <ion-button color="primary" onclick="findSimilarPairs()">
           <ion-icon name="search" slot="start"></ion-icon>
