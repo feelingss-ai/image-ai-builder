@@ -5,6 +5,7 @@ import { baseModel, getBestClassifierModel } from './model.js'
 import { env } from '../env.js'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import { GaIsland, best } from 'ga-island'
 
 /**
  * Embedding service for "find similar images".
@@ -313,13 +314,20 @@ export function findTopSimilarPairs(options: {
 
   // pre-normalize all vectors so each pair score is a plain dot product.
   // with a trained weight, each dimension is scaled by weight[d] BEFORE
-  // normalizing, so the dot product becomes weighted cosine similarity
+  // normalizing — and the norm is the WEIGHTED norm, so the dot product
+  // is a true weighted cosine in [-1, 1] (the displayed percentage
+  // therefore never exceeds 100%)
   let normalized = cache.vectors.map(vector => {
-    let length = norm(vector)
-    if (length === 0) return null
+    let weightedLength = 0
+    for (let i = 0; i < vector.length; i++) {
+      let value = vector[i]! * (weight ? weight[i]! : 1)
+      weightedLength += value * value
+    }
+    weightedLength = Math.sqrt(weightedLength)
+    if (weightedLength === 0) return null
     let scaled = new Float32Array(vector.length)
     for (let i = 0; i < vector.length; i++) {
-      scaled[i] = (vector[i] * (weight ? weight[i] : 1)) / length
+      scaled[i] = (vector[i]! * (weight ? weight[i]! : 1)) / weightedLength
     }
     return scaled
   })
@@ -582,6 +590,208 @@ export function deriveWeightFromFeedback(options: {
   if (mean > 0) {
     for (let d = 0; d < dims; d++) {
       weight[d] = Math.min(WEIGHT_MAX, Math.max(WEIGHT_MIN, weight[d]! / mean))
+    }
+  }
+  return weight
+}
+
+// ---------------------------------------------------------------------------
+// train weight from pair ranking feedback (genetic algorithm)
+// ---------------------------------------------------------------------------
+
+const GA_POPULATION_SIZE = 60
+const GA_GENERATIONS = 40
+const GA_WEIGHT_MIN = 0.1
+const GA_WEIGHT_MAX = 10
+const GA_MARGIN = 0.01
+
+type WeightGene = { w: Float32Array }
+
+/**
+ * Train the per-project embedding weight with a genetic algorithm
+ * (ga-island). The gene is the 1280-dim weight vector; fitness counts
+ * how well the weighted pair scores satisfy the user's ranking
+ * (a higher-ranked pair must outscore a lower-ranked one, with margin).
+ *
+ * The population is seeded with the all-1 vector and the result of the
+ * gradient method (deriveWeightFromFeedback), so the GA refines from a
+ * good starting point instead of searching blind.
+ *
+ * Returns null when there is not enough ranked feedback (< 2 pairs).
+ */
+export function deriveWeightFromFeedbackGA(options: {
+  project_id: number
+}): EmbeddingVector | null {
+  let { project_id } = options
+
+  // load (or reuse) the project's full embedding matrix
+  let cache = projectVectorCache.get(project_id)
+  if (!cache || cache.model_version !== EMBEDDING_MODEL_VERSION) {
+    let rows = select_project_embeddings.all({
+      project_id,
+      model_version: EMBEDDING_MODEL_VERSION,
+    })
+    cache = {
+      image_ids: rows.map(row => row.image_id),
+      vectors: rows.map(row => blobToVector(row.vector)),
+      model_version: EMBEDDING_MODEL_VERSION,
+    }
+    projectVectorCache.set(project_id, cache)
+  }
+  let idToIndex = new Map<number, number>()
+  cache.image_ids.forEach((image_id, index) => idToIndex.set(image_id, index))
+
+  // ranked pairs (most similar first), only pairs whose images have embeddings
+  let ranked: { i: number; j: number }[] = []
+  for (let row of select_ranked_feedback.all({ project_id })) {
+    let i = idToIndex.get(row.image_a_id)
+    let j = idToIndex.get(row.image_b_id)
+    if (i == null || j == null || i === j) continue
+    ranked.push({ i, j })
+  }
+  // need at least 2 ranked pairs to form a meaningful ordering constraint
+  if (ranked.length < 2) return null
+
+  let dims = EMBEDDING_DIMS
+
+  // pre-normalize embeddings once (plain cosine space, like findTopSimilarPairs)
+  let normalized: (Float32Array | null)[] = cache.vectors.map(vector => {
+    let length = norm(vector)
+    if (length === 0) return null
+    let scaled = new Float32Array(vector.length)
+    for (let d = 0; d < vector.length; d++) {
+      scaled[d] = vector[d] / length
+    }
+    return scaled
+  })
+
+  // weighted pair score with an explicit weight (not a closure variable).
+  // normalized by the weighted norms so the score is a weighted cosine
+  // in [-1, 1] — the same metric findTopSimilarPairs displays
+  function pairScoreWith(
+    w: Float32Array,
+    i: number,
+    j: number,
+  ): number {
+    let a = normalized[i]
+    let b = normalized[j]
+    if (!a || !b) return 0
+    let dot = 0
+    let normA = 0
+    let normB = 0
+    for (let d = 0; d < dims; d++) {
+      let wa = a[d]! * w[d]!
+      let wb = b[d]! * w[d]!
+      dot += wa * wb
+      normA += wa * wa
+      normB += wb * wb
+    }
+    if (normA === 0 || normB === 0) return 0
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+  }
+
+  // fitness: how well the ranking constraints are satisfied.
+  // sum of hinge losses over all rank pairs; 0 = perfect ordering.
+  // higher is better, so negate the loss and add a constant ceiling.
+  let ceiling = (ranked.length * (ranked.length - 1)) / 2
+  function fitness(gene: WeightGene): number {
+    let w = gene.w
+    let loss = 0
+    for (let r = 0; r < ranked.length; r++) {
+      for (let s = r + 1; s < ranked.length; s++) {
+        let scoreHigh = pairScoreWith(w, ranked[r]!.i, ranked[r]!.j)
+        let scoreLow = pairScoreWith(w, ranked[s]!.i, ranked[s]!.j)
+        // violated (or too close): penalize by the margin shortfall
+        if (scoreHigh < scoreLow + GA_MARGIN) {
+          loss += scoreLow + GA_MARGIN - scoreHigh
+        }
+      }
+    }
+    return ceiling - loss
+  }
+
+  function clampWeight(w: Float32Array): void {
+    for (let d = 0; d < dims; d++) {
+      if (w[d]! < GA_WEIGHT_MIN) w[d] = GA_WEIGHT_MIN
+      else if (w[d]! > GA_WEIGHT_MAX) w[d] = GA_WEIGHT_MAX
+    }
+  }
+
+  function randomWeight(): number {
+    // log-uniform in [GA_WEIGHT_MIN, GA_WEIGHT_MAX]
+    let lo = Math.log(GA_WEIGHT_MIN)
+    let hi = Math.log(GA_WEIGHT_MAX)
+    return Math.exp(lo + Math.random() * (hi - lo))
+  }
+
+  function randomIndividual(): WeightGene {
+    let w = new Float32Array(dims)
+    for (let d = 0; d < dims; d++) w[d] = randomWeight()
+    return { w }
+  }
+
+  function mutate(input: WeightGene, output: WeightGene): void {
+    let w = output.w
+    w.set(input.w)
+    // perturb a few random dimensions in log space
+    let nMutate = 8 + Math.floor(Math.random() * 24)
+    for (let k = 0; k < nMutate; k++) {
+      let d = Math.floor(Math.random() * dims)
+      let factor = Math.exp((Math.random() - 0.5) * 1.0) // ×0.6..×1.65
+      w[d] = Math.min(GA_WEIGHT_MAX, Math.max(GA_WEIGHT_MIN, w[d]! * factor))
+    }
+  }
+
+  function crossover(
+    aParent: WeightGene,
+    bParent: WeightGene,
+    child: WeightGene,
+  ): void {
+    let a = aParent.w
+    let b = bParent.w
+    let c = child.w
+    // uniform crossover per dimension
+    for (let d = 0; d < dims; d++) {
+      c[d] = Math.random() < 0.5 ? a[d]! : b[d]!
+    }
+  }
+
+  // seed the population: all-1 + gradient result + random individuals
+  let seedWeight = new Float32Array(dims)
+  seedWeight.fill(1)
+  let gradientWeight = deriveWeightFromFeedback({ project_id })
+
+  let population: WeightGene[] = [{ w: seedWeight }]
+  if (gradientWeight) population.push({ w: gradientWeight })
+  // GaIsland populates the rest via randomIndividual
+
+  let ga = new GaIsland<WeightGene>({
+    populationSize: GA_POPULATION_SIZE,
+    population,
+    randomIndividual,
+    mutate,
+    crossover,
+    fitness,
+    mutationRate: 0.5,
+  })
+
+  for (let gen = 0; gen < GA_GENERATIONS; gen++) {
+    ga.evolve()
+  }
+
+  let { gene } = best({ population: ga.options.population, fitness })
+  let weight = new Float32Array(gene.w) // copy out (the population is reused)
+  clampWeight(weight)
+  // normalize so the mean weight is 1 (keeps scores in a familiar range)
+  let mean = 0
+  for (let d = 0; d < dims; d++) mean += weight[d]!
+  mean /= dims
+  if (mean > 0) {
+    for (let d = 0; d < dims; d++) {
+      weight[d] = Math.min(
+        GA_WEIGHT_MAX,
+        Math.max(GA_WEIGHT_MIN, weight[d]! / mean),
+      )
     }
   }
   return weight

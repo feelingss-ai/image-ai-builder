@@ -29,7 +29,7 @@ import { NoProjectMessage } from '../components/no-project-message.js'
 import {
   findTopSimilarPairs,
   ensureProjectEmbeddings,
-  deriveWeightFromFeedback,
+  deriveWeightFromFeedbackGA,
   saveEmbeddingWeight,
   EMBEDDING_MODEL_VERSION,
 } from '../embedding.js'
@@ -511,7 +511,8 @@ function TrainSimilarWeight(attrs: {}, context: WsContext) {
     if (!project) throw 'Project not found'
     let project_id = project.id!
 
-    let weight = deriveWeightFromFeedback({ project_id })
+    let startedAt = Date.now()
+    let weight = deriveWeightFromFeedbackGA({ project_id })
     if (!weight) {
       context.ws.send([
         'eval',
@@ -528,10 +529,11 @@ function TrainSimilarWeight(attrs: {}, context: WsContext) {
       source: 'similar-feedback',
     })
 
+    let elapsedMs = Date.now() - startedAt
     context.ws.send([
       'eval',
       `if (typeof showToast === 'function')
-         showToast('AI trained from your ranking! Click Find Similar to see the improved order.', 'success')`,
+         showToast('AI trained from your ranking (GA, ${elapsedMs}ms)! Click Find Similar to see the improved order.', 'success')`,
     ])
     throw EarlyTerminate
   } catch (error) {

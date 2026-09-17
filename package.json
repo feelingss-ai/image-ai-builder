@@ -70,6 +70,7 @@
     "express": "^4.22.2",
     "fastest-levenshtein": "^1.0.16",
     "formidable": "^3.5.4",
+    "ga-island": "^3.1.1",
     "hammerjs": "^2.0.8",
     "heic2any": "^0.0.4",
     "http-status": "^1.8.1",
