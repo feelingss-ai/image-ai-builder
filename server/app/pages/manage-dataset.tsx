@@ -30,8 +30,8 @@ import { NoProjectMessage } from '../components/no-project-message.js'
 import { IonButton } from '../components/ion-button.js'
 import { env } from '../../env.js'
 import { basename, extname, join } from 'path'
-import { existsSync, promises as fsPromises, rmSync } from 'fs'
-import { randomUUID } from 'crypto'
+import { existsSync, promises as fsPromises, readFileSync, rmSync } from 'fs'
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto'
 import AdmZip from 'adm-zip'
 import { createUploadForm } from '../upload.js'
 // YOLO format helpers, vendored from dataset-helpers (src/label.ts +
@@ -3126,6 +3126,10 @@ function ExportDataset(attrs: {}, context: WsContext) {
     if (!project) throw 'Project not found'
     let project_id = project.id!
 
+    let user = getAuthUser(context)!
+    if (!isProjectMember({ user, project }))
+      throw 'You are not a member of this project'
+
     let images = getProjectImages(project_id)
     let labels = select_project_labels_full.all({ project_id })
     let imageLabels = select_project_image_labels.all({ project_id })
@@ -3236,7 +3240,11 @@ function ExportDataset(attrs: {}, context: WsContext) {
         filename: img.filename,
         original_filename: img.original_filename,
         rotation: img.rotation || 0,
-        content_hash: img.content_hash,
+        // recompute from the actual file bytes: the DB column may be null
+        // for rows created before content hashing was introduced
+        content_hash: img.filename
+          ? computeFileHash(join(env.UPLOAD_DIR, img.filename))
+          : null,
         labels: labelsByImage.get(img.id!) || [],
         bounding_boxes: boxesByImage.get(img.id!) || [],
       })),
@@ -3246,9 +3254,13 @@ function ExportDataset(attrs: {}, context: WsContext) {
     zip.addFile('data.yaml', Buffer.from(dataYaml, 'utf-8'))
     // supplementary metadata: YOLO has no image-level classification /
     // rotation / content_hash, these are preserved here for round-trip
+    const metadataBuf = Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8')
+    zip.addFile('metadata.json', metadataBuf)
+    // HMAC signature over the metadata bytes: proves the annotation data
+    // (labels / answers / boxes) came from this system unmodified
     zip.addFile(
-      'metadata.json',
-      Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8'),
+      'metadata.sig',
+      Buffer.from(signDatasetMetadata(metadataBuf), 'utf-8'),
     )
     for (let img of images) {
       if (!img.filename) continue
@@ -3350,6 +3362,59 @@ const DATASET_IMAGE_EXTENSIONS = [
   '.bmp',
 ]
 
+// max total uncompressed size of all entries in an imported dataset zip
+// (zip bomb guard)
+const DATASET_MAX_UNCOMPRESSED_SIZE = 2 * 1024 * 1024 * 1024 // 2GB
+
+// ---- dataset signature (HMAC-SHA256 over metadata.json bytes) ----
+// The signature proves the annotation data (labels / answers / boxes)
+// came from this system and was not modified after export. Image bytes
+// are always re-hashed on import regardless of the signature.
+
+function getDatasetSecret(): string {
+  return env.DATASET_SECRET || env.COOKIE_SECRET
+}
+
+function signDatasetMetadata(metadataBuf: Buffer): string {
+  return createHmac('sha256', getDatasetSecret())
+    .update(metadataBuf)
+    .digest('hex')
+}
+
+function verifyDatasetSignature(metadataBuf: Buffer, sigHex: string): boolean {
+  let expected = Buffer.from(sigHex, 'hex')
+  let actual = Buffer.from(signDatasetMetadata(metadataBuf), 'hex')
+  if (expected.length !== actual.length) return false
+  return timingSafeEqual(expected, actual)
+}
+
+// sha256 of a file on disk, or null when the file is missing/unreadable
+function computeFileHash(filePath: string): string | null {
+  try {
+    return createHash('sha256').update(readFileSync(filePath)).digest('hex')
+  } catch {
+    return null
+  }
+}
+
+// permission check for dataset import/export: admin, project creator,
+// or project member
+function isProjectMember(options: {
+  user: { id?: number | null; is_admin?: boolean | null }
+  project: { id?: number | null; creator_id?: number | null }
+}): boolean {
+  let { user, project } = options
+  if (!user.id) return false
+  if (user.is_admin) return true
+  if (project.creator_id === user.id) return true
+  return (
+    count(proxy.project_member, {
+      project_id: project.id!,
+      user_id: user.id,
+    }) > 0
+  )
+}
+
 // create (or match by title) labels for a project, returns title -> label_id.
 // Two passes: create all labels without dependency first, then resolve
 // dependency titles -> ids (a dependency may reference a label created in
@@ -3404,24 +3469,18 @@ function ensureLabelsByTitle(options: {
 }
 
 // extract an image entry from the zip into the upload dir with a fresh
-// unique filename, returns the new image row id (or null when skipped)
+// unique filename, returns the new image row id (or null when skipped).
+// The sha256 is always computed from the actual entry bytes (never trusted
+// from metadata) and used for dedup + the content_hash column.
 async function storeImageFromZipEntry(options: {
   entry: AdmZip.IZipEntry
   /** filename as referenced by metadata (may contain a path) */
   original_filename: string | null
   rotation: number | null
-  content_hash: string | null
   user_id: number
   project_id: number
-}): Promise<number | null> {
-  let {
-    entry,
-    original_filename,
-    rotation,
-    content_hash,
-    user_id,
-    project_id,
-  } = options
+}): Promise<{ image_id: number; content_hash: string } | null> {
+  let { entry, original_filename, rotation, user_id, project_id } = options
   let entryName = entry.entryName
   let imageFilename = basename(entryName)
   // Guard against path traversal: only allow a plain filename, never a path
@@ -3449,6 +3508,9 @@ async function storeImageFromZipEntry(options: {
   }
   let destPath = join(env.UPLOAD_DIR, storedFilename)
   let data = entry.getData()
+  // always compute the hash from the actual bytes, never trust the
+  // metadata-declared value (an attacker can forge it)
+  let contentHash = createHash('sha256').update(data).digest('hex')
   await fsPromises.writeFile(destPath, data)
 
   let imageId = proxy.image.push({
@@ -3457,7 +3519,7 @@ async function storeImageFromZipEntry(options: {
     user_id,
     rotation,
     project_id,
-    content_hash: content_hash ?? null,
+    content_hash: contentHash,
   })
   // compute and cache the embedding for find-similar in the background;
   // bulk imports are backfilled by ensureProjectEmbeddings instead
@@ -3469,7 +3531,7 @@ async function storeImageFromZipEntry(options: {
     }
   })()
 
-  return imageId
+  return { image_id: imageId, content_hash: contentHash }
 }
 
 // restore image_label answers (latest answer semantics) for imported images
@@ -3506,6 +3568,8 @@ async function importYoloDataset(options: {
   dataYamlContent: string
   user_id: number
   project_id: number
+  /** true when the zip carries a valid metadata.sig (our own export) */
+  trusted: boolean
 }): Promise<{
   success: boolean
   imported_images: number
@@ -3514,7 +3578,7 @@ async function importYoloDataset(options: {
   imported_labels: number
   imported_boxes: number
 }> {
-  let { zip, dataYamlContent, user_id, project_id } = options
+  let { zip, dataYamlContent, user_id, project_id, trusted } = options
 
   // pose (keypoint) datasets are not supported yet: the DB has no keypoint
   // storage, importing one would silently drop the keypoints
@@ -3594,30 +3658,39 @@ async function importYoloDataset(options: {
       let imageFilename = basename(imageEntry.entryName)
       let meta = metaByFilename.get(imageFilename)
 
-      // dedup by content_hash within this project (supplementary metadata only)
-      if (meta?.content_hash) {
-        let existing = filter(proxy.image, {
-          project_id,
-          content_hash: meta.content_hash,
-        })
-        if (existing.length > 0) {
-          skipped_images++
-          continue
-        }
-      }
-
-      let newId = await storeImageFromZipEntry({
-        entry: imageEntry,
-        original_filename: meta?.original_filename ?? null,
-        rotation: meta?.rotation ?? null,
-        content_hash: meta?.content_hash ?? null,
-        user_id,
+      // dedup by the hash computed from the actual entry bytes
+      // (adm-zip caches getData(), so this does not decompress twice)
+      let entryHash = createHash('sha256')
+        .update(imageEntry.getData())
+        .digest('hex')
+      let existing = filter(proxy.image, {
         project_id,
+        content_hash: entryHash,
       })
-      if (newId == null) {
+      if (existing.length > 0) {
         skipped_images++
         continue
       }
+
+      // trusted track: metadata-declared hash must match the actual bytes,
+      // otherwise the image was modified after export -> skip it
+      if (trusted && meta?.content_hash && meta.content_hash !== entryHash) {
+        skipped_images++
+        continue
+      }
+
+      let stored = await storeImageFromZipEntry({
+        entry: imageEntry,
+        original_filename: meta?.original_filename ?? null,
+        rotation: meta?.rotation ?? null,
+        user_id,
+        project_id,
+      })
+      if (stored == null) {
+        skipped_images++
+        continue
+      }
+      let newId = stored.image_id
       imported_images++
 
       // missing label file = negative sample (zero boxes), which is valid
@@ -3707,6 +3780,11 @@ async function ImportDataset(context: ExpressContext) {
   let project = proxy.project[project_id]
   if (!project) throw 'Project not found'
 
+  let user = getAuthUser(context)
+  if (!user) throw 'Login required'
+  if (!isProjectMember({ user, project }))
+    throw 'You are not a member of this project'
+
   let form = createUploadForm({
     mimeTypeRegex: /^application\/zip$|^application\/x-zip-compressed$/,
     maxFileSize: 1024 * 1024 * 1024,
@@ -3721,11 +3799,44 @@ async function ImportDataset(context: ExpressContext) {
 
   let zip = new AdmZip(file.filepath)
 
+  // ---- zip bomb guard ----
+  // sum of uncompressed entry sizes must stay within the limit
+  let totalUncompressedSize = zip
+    .getEntries()
+    .reduce((sum, entry) => sum + Number(entry.header.size), 0)
+  if (totalUncompressedSize > DATASET_MAX_UNCOMPRESSED_SIZE) {
+    throw 'Dataset zip is too large (uncompressed size exceeds the limit)'
+  }
+
   // ---- format detection ----
   // data.yaml present -> YOLO detect format (train/val/test images+labels)
   // metadata.json only -> legacy image-ai-builder custom format
   // both present -> YOLO branch, metadata.json supplements classification
   //   answers / rotation / content_hash (our own export round-trip)
+
+  // ---- signature verification (dual-track) ----
+  // metadata.sig present -> our own export: verify HMAC-SHA256 over the
+  //   metadata.json bytes; mismatch = the zip was modified -> reject all
+  // metadata.sig absent -> third-party zip (e.g. YOLO from other tools):
+  //   import without signature, image hashes are always recomputed anyway
+  let sigEntry = zip.getEntry('metadata.sig')
+  let trusted = false
+  if (sigEntry) {
+    let metadataEntryForSig = zip.getEntry('metadata.json')
+    if (!metadataEntryForSig) {
+      throw 'Invalid dataset zip: metadata.sig present but metadata.json missing'
+    }
+    if (
+      !verifyDatasetSignature(
+        metadataEntryForSig.getData(),
+        sigEntry.getData().toString('utf-8').trim(),
+      )
+    ) {
+      throw 'Dataset signature mismatch: the zip has been modified after export'
+    }
+    trusted = true
+  }
+
   let dataYamlEntry = zip.getEntry('data.yaml')
   if (dataYamlEntry) {
     return await importYoloDataset({
@@ -3733,6 +3844,7 @@ async function ImportDataset(context: ExpressContext) {
       dataYamlContent: dataYamlEntry.getData().toString('utf-8'),
       user_id,
       project_id,
+      trusted,
     })
   }
 
@@ -3785,40 +3897,51 @@ async function ImportDataset(context: ExpressContext) {
   for (let metaImage of metadata.images) {
     if (!metaImage.filename) continue
 
-    // dedup by content_hash within this project
-    if (metaImage.content_hash) {
-      let existing = filter(proxy.image, {
-        project_id,
-        content_hash: metaImage.content_hash,
-      })
-      if (existing.length > 0) {
-        skipped_images++
-        if (existing[0].id != null) {
-          imageIdByFilename.set(metaImage.filename, existing[0].id)
-        }
-        continue
-      }
-    }
-
     // extract image from zip into upload dir
     let entry = zip.getEntry('images/' + metaImage.filename)
     if (!entry) {
       skipped_images++
       continue
     }
-    let newId = await storeImageFromZipEntry({
-      entry,
-      original_filename: metaImage.original_filename,
-      rotation: metaImage.rotation ?? null,
-      content_hash: metaImage.content_hash ?? null,
-      user_id,
+
+    // dedup by the hash computed from the actual entry bytes
+    // (adm-zip caches getData(), so this does not decompress twice)
+    let entryHash = createHash('sha256').update(entry.getData()).digest('hex')
+    let existing = filter(proxy.image, {
       project_id,
+      content_hash: entryHash,
     })
-    if (newId == null) {
+    if (existing.length > 0) {
+      skipped_images++
+      if (existing[0].id != null) {
+        imageIdByFilename.set(metaImage.filename, existing[0].id)
+      }
+      continue
+    }
+
+    // trusted track: metadata-declared hash must match the actual bytes,
+    // otherwise the image was modified after export -> skip it
+    if (
+      trusted &&
+      metaImage.content_hash &&
+      metaImage.content_hash !== entryHash
+    ) {
       skipped_images++
       continue
     }
-    imageIdByFilename.set(basename(metaImage.filename), newId)
+
+    let stored = await storeImageFromZipEntry({
+      entry,
+      original_filename: metaImage.original_filename,
+      rotation: metaImage.rotation ?? null,
+      user_id,
+      project_id,
+    })
+    if (stored == null) {
+      skipped_images++
+      continue
+    }
+    imageIdByFilename.set(basename(metaImage.filename), stored.image_id)
     imported_images++
   }
 

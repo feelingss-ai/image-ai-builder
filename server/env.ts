@@ -25,6 +25,12 @@ export let env = {
   CADDY_PROXY: 'skip' as 'skip' | 'enable',
   PORT: 8100,
   COOKIE_SECRET: '',
+  // optional: shared secret for signing dataset export zips (HMAC).
+  // falls back to COOKIE_SECRET, which is machine-local — set this to
+  // share signed datasets across servers
+  // NOTE: must default to a non-empty placeholder because populateEnv
+  // (mode: 'halt') exits when a value is missing/empty
+  DATASET_SECRET: 'unset',
   EPOCH: 1, // to distinct initial run or restart in serve mode, auto-managed by dev.ts
   UPLOAD_DIR: 'uploads',
   ORIGIN: '',
@@ -54,6 +60,12 @@ function applyDefaultEnv() {
 }
 
 populateEnv(env, { mode: 'halt' })
+
+// fallback for the dataset signing secret: reuse the machine-local cookie
+// secret unless a dedicated cross-server secret is configured
+if (!env.DATASET_SECRET || env.DATASET_SECRET === 'unset') {
+  env.DATASET_SECRET = env.COOKIE_SECRET
+}
 
 if (env.CADDY_PROXY.toLocaleLowerCase().startsWith('enable')) {
   env.CADDY_PROXY = 'enable'
