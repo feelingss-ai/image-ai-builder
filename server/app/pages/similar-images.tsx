@@ -127,21 +127,6 @@ let style = Style(/* css */ `
   flex: 1;
   text-align: right;
 }
-.similar-confirm {
-  margin-top: 0.75rem;
-}
-.similar-confirm ion-button {
-  margin: 0;
-}
-/* confirmed state: highlight the pairs the user has confirmed */
-.similar-pair.voted-yes {
-  border-color: #28a745;
-  box-shadow: inset 3px 0 0 #28a745;
-}
-.similar-pair.voted-no {
-  border-color: #dc3545;
-  box-shadow: inset 3px 0 0 #dc3545;
-}
 /* rank controls: move up/down + position badge */
 .similar-pair .rank-controls {
   display: flex;
@@ -252,9 +237,9 @@ function findSimilarPairs() {
   });
 }
 
-// Moves a pair up/down in the displayed list (up = more similar).
-// Reordering is local only — nothing is saved until the user clicks
-// "Confirm Ranking", which persists the whole ordering at once.
+// Moves a pair up/down in the displayed list (up = more similar), then
+// saves the whole new ordering to the server right away — no separate
+// "confirm" step; the saved ranks are what "Train from Ranking" uses.
 function movePair(btn, direction) {
   const row = btn.closest('.similar-pair');
   if (!row) return;
@@ -269,12 +254,17 @@ function movePair(btn, direction) {
   } else {
     parent.insertBefore(sibling, row);
   }
-  // mark the ordering as locally modified (unsaved) so trainWeight()
-  // can remind the user to confirm before training
-  const list = document.getElementById('similarPairs');
-  if (list) list.dataset.dirty = '1';
-  // refresh badges + button disabled states
+  // persist the new ordering (most similar first) — each pair's rank is
+  // its index in the displayed list
   const rows = Array.from(parent.querySelectorAll('.similar-pair'));
+  emit('/similar-images/rank', {
+    project_id: getProjectId(),
+    ordered_pairs: rows.map(item => ({
+      image_a_id: parseInt(item.dataset.imageAId),
+      image_b_id: parseInt(item.dataset.imageBId),
+    })),
+  });
+  // refresh badges + button disabled states
   rows.forEach((item, index) => {
     const badge = item.querySelector('.rank-badge');
     if (badge) badge.textContent = String(index + 1);
@@ -285,74 +275,17 @@ function movePair(btn, direction) {
   });
 }
 
-// Confirms the whole current ordering at once: saves every pair's rank
-// (most similar first) as feedback used to train the AI weight.
-function confirmRanking() {
-  const container = document.getElementById('similarPairs');
-  if (!container) return;
-  const rows = container.querySelectorAll('.similar-pair');
-  if (rows.length === 0) return;
-  // the ordering is being saved now — clear the unsaved-changes flag
-  delete container.dataset.dirty;
-  emit('/similar-images/rank', {
-    project_id: getProjectId(),
-    ordered_pairs: Array.from(rows).map(item => ({
-      image_a_id: parseInt(item.dataset.imageAId),
-      image_b_id: parseInt(item.dataset.imageBId),
-    })),
-  });
-}
-
-// Trains the AI weight from the saved pair ranking feedback.
-// If the displayed ordering has been moved but not confirmed yet,
-// remind the user to confirm first (training reads the DB, not the
-// on-screen order) — with an option to confirm-and-train in one click.
+// Trains the AI weight from the saved pair ranking feedback, then the
+// server automatically re-runs the search with the newly trained weight
+// and refreshes the list — no manual "Find Similar" step.
 function trainWeight() {
-  const container = document.getElementById('similarPairs');
-  const hasUnsaved = container && container.dataset.dirty === '1';
-  const doTrain = () => {
-    if (typeof showToast === 'function') {
-      showToast('Training AI from your ranking...', 'info', 'top-end', 0);
-    }
-    emit('/similar-images/train-weight', {
-      project_id: getProjectId(),
-    });
-  };
-  if (hasUnsaved && typeof Swal !== 'undefined') {
-    // localized texts injected by the server (see SimilarTexts below);
-    // fall back to English when missing
-    const t = Object.assign(
-      {
-        title: 'Unconfirmed changes',
-        text: 'You moved pairs but have not confirmed the ranking yet. Training uses the last confirmed order. Confirm now and train?',
-        confirm: 'Confirm & Train',
-        deny: 'Train old order',
-        cancel: 'Cancel',
-      },
-      window.similarTexts || {},
-    )
-    // heightAuto: false — required on ionic pages (see deleteImage)
-    Swal.fire({
-      title: t.title,
-      text: t.text,
-      icon: 'question',
-      showCancelButton: true,
-      showDenyButton: true,
-      confirmButtonText: t.confirm,
-      denyButtonText: t.deny,
-      cancelButtonText: t.cancel,
-      heightAuto: false,
-    }).then(result => {
-      if (result.isConfirmed) {
-        confirmRanking();
-        doTrain();
-      } else if (result.isDenied) {
-        doTrain();
-      }
-    });
-    return;
+  if (typeof showToast === 'function') {
+    showToast('Training AI from your ranking...', 'info', 'top-end', 0);
   }
-  doTrain();
+  emit('/similar-images/train-weight', {
+    project_id: getProjectId(),
+    k: getTopK(),
+  });
 }
 
 // Deletes one image (from a similar pair) after user confirmation.
@@ -395,7 +328,14 @@ function initSimilarImages() {
     return;
   }
   bindTopKSelect();
-  if (getProjectId()) {
+  if (!getProjectId()) return;
+  // if some images have no embedding yet, compute them first — the
+  // server endpoint broadcasts progress and findSimilarPairs() runs
+  // automatically when done (see computeEmbeddings)
+  const hint = document.getElementById('embedHint');
+  if (hint) {
+    computeEmbeddings();
+  } else {
     findSimilarPairs();
   }
 }
@@ -445,60 +385,9 @@ let page = (
       <Main />
     </ion-content>
     {sweetAlertPlugin.node}
-    <SimilarTexts />
     {script}
   </>
 )
-
-// Injects localized texts for the train-confirm dialog (used by the client
-// script above, which is a static string and cannot use Locale directly)
-function SimilarTexts(attrs: {}, context: DynamicContext) {
-  let texts = {
-    title: Locale(
-      {
-        en: 'Unconfirmed changes',
-        zh_hk: '有未確認的變更',
-        zh_cn: '有未确认的变更',
-      },
-      context,
-    ),
-    text: Locale(
-      {
-        en: 'You moved pairs but have not confirmed the ranking yet. Training uses the last confirmed order. Confirm now and train?',
-        zh_hk:
-          '你移動了配對但尚未確認排序。訓練會使用上次確認的順序。要現在確認並訓練嗎？',
-        zh_cn:
-          '你移动了配对但尚未确认排序。训练会使用上次确认的顺序。要现在确认并训练吗？',
-      },
-      context,
-    ),
-    confirm: Locale(
-      {
-        en: 'Confirm & Train',
-        zh_hk: '確認並訓練',
-        zh_cn: '确认并训练',
-      },
-      context,
-    ),
-    deny: Locale(
-      {
-        en: 'Train old order',
-        zh_hk: '用舊順序訓練',
-        zh_cn: '用旧顺序训练',
-      },
-      context,
-    ),
-    cancel: Locale(
-      {
-        en: 'Cancel',
-        zh_hk: '取消',
-        zh_cn: '取消',
-      },
-      context,
-    ),
-  }
-  return <script>similarTexts = {JSON.stringify(texts)}</script>
-}
 
 // counts images of a project that have no embedding row for the current
 // model version — used to warn the user to run Compute Embeddings first
@@ -523,7 +412,8 @@ function Main(attrs: {}, context: DynamicContext) {
   if (!project) return <NoProjectMessage />
 
   // fresh projects (esp. bulk imports) have images without embeddings;
-  // Find Similar skips them, so warn the user to backfill first
+  // the client auto-computes them on mount (see initSimilarImages) and
+  // then loads the pairs — the banner tells the user what is happening
   let missingEmbeddings =
     count_missing_embeddings.get({
       project_id: project.id!,
@@ -534,29 +424,17 @@ function Main(attrs: {}, context: DynamicContext) {
     <>
       {missingEmbeddings > 0 && (
         <div class="embed-hint" id="embedHint">
-          <ion-icon name="information-circle"></ion-icon>
+          <ion-icon name="hourglass"></ion-icon>
           <span>
             <Locale
-              en={`${missingEmbeddings} image(s) have no embedding yet — click "Compute Embeddings" first, otherwise Find Similar will show nothing.`}
-              zh_hk={`還有 ${missingEmbeddings} 張圖片尚未計算向量 — 請先按「計算向量」，否則「找相似」不會有任何結果。`}
-              zh_cn={`还有 ${missingEmbeddings} 张图片尚未计算向量 — 请先按「计算向量」，否则「找相似」不会有任何结果。`}
+              en={`Computing embeddings for ${missingEmbeddings} image(s)... the pairs will load automatically when done.`}
+              zh_hk={`正在為 ${missingEmbeddings} 張圖片計算向量，完成後會自動載入配對。`}
+              zh_cn={`正在为 ${missingEmbeddings} 张图片计算向量，完成后会自动载入配对。`}
             />
           </span>
         </div>
       )}
       <div class="similar-toolbar">
-        <ion-button color="primary" onclick="findSimilarPairs()">
-          <ion-icon name="search" slot="start"></ion-icon>
-          <span>
-            <Locale en="Find Similar" zh_hk="找相似" zh_cn="找相似" />
-          </span>
-        </ion-button>
-        <ion-button color="medium" onclick="computeEmbeddings()">
-          <ion-icon name="sparkles" slot="start"></ion-icon>
-          <span>
-            <Locale en="Compute Embeddings" zh_hk="計算向量" zh_cn="计算向量" />
-          </span>
-        </ion-button>
         <ion-button color="tertiary" onclick="trainWeight()">
           <ion-icon name="fitness" slot="start"></ion-icon>
           <span>
@@ -600,14 +478,6 @@ function Main(attrs: {}, context: DynamicContext) {
           />
         </div>
       </div>
-      <div class="similar-confirm">
-        <ion-button color="success" onclick="confirmRanking()">
-          <ion-icon name="checkmark-circle" slot="start"></ion-icon>
-          <span>
-            <Locale en="Confirm Ranking" zh_hk="確認排序" zh_cn="确认排序" />
-          </span>
-        </ion-button>
-      </div>
     </>
   )
 }
@@ -616,43 +486,6 @@ let findPairsParser = object({
   project_id: id(),
   k: optional(id()),
 })
-
-// Loads the user's existing votes for the given pairs (normalized a<b),
-// keyed by "a:b" for quick lookup when rendering.
-let select_pair_feedback = db.prepare<
-  { user_id: number; project_id: number; pairs: string },
-  { image_a_id: number; image_b_id: number; is_similar: number }
->(/* sql */ `
-  select image_a_id, image_b_id, is_similar
-  from similar_pair_feedback
-  where user_id = :user_id
-    and project_id = :project_id
-    and (image_a_id || ':' || image_b_id) in (select value from json_each(:pairs))
-`)
-
-function getExistingVotes(options: {
-  user_id: number
-  project_id: number
-  pairs: { image_a_id: number; image_b_id: number }[]
-}): Map<string, number> {
-  let { user_id, project_id, pairs } = options
-  let normalized = pairs.map(p => ({
-    a: Math.min(p.image_a_id, p.image_b_id),
-    b: Math.max(p.image_a_id, p.image_b_id),
-  }))
-  let keys = normalized.map(p => p.a + ':' + p.b)
-  let votes = new Map<string, number>()
-  if (keys.length === 0) return votes
-  let rows = select_pair_feedback.all({
-    user_id,
-    project_id,
-    pairs: JSON.stringify(keys),
-  })
-  for (let row of rows) {
-    votes.set(row.image_a_id + ':' + row.image_b_id, row.is_similar)
-  }
-  return votes
-}
 
 // ---------------------------------------------------------------------------
 // pair ranking (user orders pairs: most similar first)
@@ -704,14 +537,13 @@ function PairRank(attrs: {}, context: WsContext) {
       )
     }
 
-    // update the rank badges + mark every pair as confirmed
+    // update the rank badges + acknowledge the save
     let code = `
      document.querySelectorAll('#similarPairs .similar-pair').forEach((row, index) => {
        let badge = row.querySelector('.rank-badge')
        if (badge) badge.textContent = String(index + 1)
-       row.classList.add('voted-yes')
      })
-     if (typeof showToast === 'function') showToast('Ranking confirmed', 'success')`
+     if (typeof showToast === 'function') showToast('Ranking saved', 'success')`
     context.ws.send(['eval', code])
     throw EarlyTerminate
   } catch (error) {
@@ -728,12 +560,15 @@ function PairRank(attrs: {}, context: WsContext) {
 // ---------------------------------------------------------------------------
 let trainWeightParser = object({
   project_id: id(),
+  k: optional(id()),
 })
 
 // Trains the per-project embedding weight from the user's pair ranking
 // feedback and saves it to embedding_weight (source='similar-feedback').
 // The training itself is a fast contrastive approximation (no tfjs), so it
-// runs synchronously here; the result applies to the next Find Similar.
+// runs synchronously here. After training, the pairs list is automatically
+// re-searched with the new weight and re-rendered — the user no longer
+// clicks "Find Similar" manually.
 function TrainSimilarWeight(attrs: {}, context: WsContext) {
   try {
     let user = getAuthUser(context)
@@ -751,7 +586,7 @@ function TrainSimilarWeight(attrs: {}, context: WsContext) {
       context.ws.send([
         'eval',
         `if (typeof showToast === 'function')
-           showToast('Need at least 2 confirmed pairs to train. Confirm a ranking first.', 'warning')`,
+           showToast('Need at least 2 ranked pairs to train. Move some pairs first.', 'warning')`,
       ])
       throw EarlyTerminate
     }
@@ -764,10 +599,16 @@ function TrainSimilarWeight(attrs: {}, context: WsContext) {
     })
 
     let elapsedMs = Date.now() - startedAt
+    // automatically refresh the pairs list with the newly trained weight
+    let results = findTopSimilarPairs({
+      project_id,
+      k: input.k ?? 5,
+    })
+    sendSimilarPairs(results, context)
     context.ws.send([
       'eval',
       `if (typeof showToast === 'function')
-         showToast('AI trained from your ranking (GA, ${elapsedMs}ms)! Click Find Similar to see the improved order.', 'success')`,
+         showToast('AI trained from your ranking (GA, ${elapsedMs}ms) — list refreshed', 'success')`,
     ])
     throw EarlyTerminate
   } catch (error) {
@@ -794,15 +635,7 @@ function FindSimilarPairs(attrs: {}, context: WsContext) {
     let project_id = project.id!
 
     let results = findTopSimilarPairs({ project_id, k: input.k ?? 5 })
-    let votes = getExistingVotes({
-      user_id,
-      project_id,
-      pairs: results.map(item => ({
-        image_a_id: item.image_id_a,
-        image_b_id: item.image_id_b,
-      })),
-    })
-    sendSimilarPairs(results, votes, context)
+    sendSimilarPairs(results, context)
     throw EarlyTerminate
   } catch (error) {
     if (error !== EarlyTerminate) {
@@ -815,7 +648,6 @@ function FindSimilarPairs(attrs: {}, context: WsContext) {
 
 function sendSimilarPairs(
   results: ReturnType<typeof findTopSimilarPairs>,
-  votes: Map<string, number>,
   context: WsContext,
 ) {
   if (!results || results.length === 0) {
@@ -842,21 +674,11 @@ function sendSimilarPairs(
       nodeToVNode(
         <div>
           {mapArray(results, (item, index) => {
-            // normalize pair order (same as the feedback handler) so the
-            // data attributes match the vote lookup & the ws eval selector
+            // normalize pair order so the data attributes are consistent
             let a = Math.min(item.image_id_a, item.image_id_b)
             let b = Math.max(item.image_id_a, item.image_id_b)
-            let vote = votes.get(a + ':' + b)
-            let voted = vote === 0 || vote === 1
             return (
-              <div
-                class={
-                  'similar-pair' +
-                  (voted ? (vote === 1 ? ' voted-yes' : ' voted-no') : '')
-                }
-                data-image-a-id={a}
-                data-image-b-id={b}
-              >
+              <div class="similar-pair" data-image-a-id={a} data-image-b-id={b}>
                 <div class="img-wrapper">
                   <img
                     src={`/uploads/${item.filename_a}`}
@@ -986,15 +808,7 @@ function DeleteImage(attrs: {}, context: WsContext) {
       project_id: input.project_id,
       k: input.k ?? 5,
     })
-    let votes = getExistingVotes({
-      user_id: user.id!,
-      project_id: input.project_id,
-      pairs: results.map(item => ({
-        image_a_id: item.image_id_a,
-        image_b_id: item.image_id_b,
-      })),
-    })
-    sendSimilarPairs(results, votes, context)
+    sendSimilarPairs(results, context)
     context.ws.send([
       'eval',
       `if (typeof showToast === 'function') showToast('Image deleted', 'success')`,
