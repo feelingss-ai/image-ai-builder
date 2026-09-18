@@ -6,6 +6,7 @@ import { env } from '../env.js'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { GaIsland, best } from 'ga-island'
+import { DAGSort, NativeSort, TreeSort } from 'graph-sort'
 
 /**
  * Embedding service for "find similar images".
@@ -280,9 +281,18 @@ export type SimilarPair = {
 
 /**
  * Find the top-K most similar image pairs across a whole project
- * (pairwise, not anchored to a single query image). Plain cosine
- * similarity; images without an embedding are skipped. Uses the same
+ * (pairwise, not anchored to a single query image). Weighted cosine
+ * similarity (bounded to [-1, 1], so the displayed percentage stays
+ * within 100%); images without an embedding are skipped. Uses the same
  * project vector cache as findSimilarImages.
+ *
+ * Two-stage retrieval:
+ * 1. coarse pass: plain (unweighted) cosine over all C(n,2) pairs, a
+ *    min-heap keeps the top-(k*6) pairs as the candidate pool (~0.1s)
+ * 2. refine: graph-sort (TreeSort/DAGSort by candidate count) ranks the
+ *    small candidate pool by the weighted cosine — graph-sort shines
+ *    here because the pool is small, so it needs only a few thousand
+ *    cheap comparisons instead of hundreds of thousands over all pairs
  */
 export function findTopSimilarPairs(options: {
   project_id: number
@@ -312,50 +322,215 @@ export function findTopSimilarPairs(options: {
   let n = cache.image_ids.length
   if (n < 2) return []
 
-  // pre-normalize all vectors so each pair score is a plain dot product.
-  // with a trained weight, each dimension is scaled by weight[d] BEFORE
-  // normalizing — and the norm is the WEIGHTED norm, so the dot product
-  // is a true weighted cosine in [-1, 1] (the displayed percentage
-  // therefore never exceeds 100%)
-  let normalized = cache.vectors.map(vector => {
-    let weightedLength = 0
-    for (let i = 0; i < vector.length; i++) {
-      let value = vector[i]! * (weight ? weight[i]! : 1)
-      weightedLength += value * value
-    }
-    weightedLength = Math.sqrt(weightedLength)
-    if (weightedLength === 0) return null
-    let scaled = new Float32Array(vector.length)
-    for (let i = 0; i < vector.length; i++) {
-      scaled[i] = (vector[i]! * (weight ? weight[i]! : 1)) / weightedLength
-    }
-    return scaled
-  })
+  // capture the non-optional cache for use in nested functions
+  let vectorCache = cache
 
-  // upper triangle only: each unordered pair (i, j) once, i < j
-  let pairs: SimilarPair[] = []
+  // pre-normalize all vectors twice:
+  // - plainNormalized: for the coarse pass (unweighted cosine)
+  // - weightedNormalized: for the refine pass (weighted cosine, what the
+  //   page displays) — each dimension scaled by weight[d] before
+  //   normalizing by the WEIGHTED norm, so the dot product is a true
+  //   weighted cosine in [-1, 1]
+  let plainNorms = new Float32Array(n)
+  let weightedNorms = new Float32Array(n)
+  let plainVectors: (Float32Array | null)[] = new Array(n)
+  let weightedVectors: (Float32Array | null)[] = new Array(n)
   for (let i = 0; i < n; i++) {
-    let vectorA = normalized[i]
-    if (!vectorA) continue
-    for (let j = i + 1; j < n; j++) {
-      let vectorB = normalized[j]
-      if (!vectorB) continue
-      let dot = 0
-      for (let d = 0; d < vectorA.length; d++) {
-        dot += vectorA[d] * vectorB[d]
-      }
-      pairs.push({
-        image_id_a: cache.image_ids[i],
-        filename_a: proxy.image[cache.image_ids[i]]?.filename ?? '',
-        image_id_b: cache.image_ids[j],
-        filename_b: proxy.image[cache.image_ids[j]]?.filename ?? '',
-        score: dot,
-      })
+    let vector = cache.vectors[i]!
+    let dims = vector.length
+    let plainLength = 0
+    let weightedLength = 0
+    for (let d = 0; d < dims; d++) {
+      let value = vector[d]!
+      plainLength += value * value
+      // the weighted vector's dimension is value * weight[d], so its
+      // squared norm contribution is (value * weight[d])^2
+      let weightedValue = value * (weight ? weight[d]! : 1)
+      weightedLength += weightedValue * weightedValue
+    }
+    plainLength = Math.sqrt(plainLength)
+    weightedLength = Math.sqrt(weightedLength)
+    if (plainLength === 0 || weightedLength === 0) {
+      plainVectors[i] = null
+      weightedVectors[i] = null
+      continue
+    }
+    plainNorms[i] = plainLength
+    weightedNorms[i] = weightedLength
+    let plain = new Float32Array(dims)
+    let weighted = new Float32Array(dims)
+    for (let d = 0; d < dims; d++) {
+      let value = vector[d]!
+      plain[d] = value / plainLength
+      weighted[d] = (value * (weight ? weight[d]! : 1)) / weightedLength
+    }
+    plainVectors[i] = plain
+    weightedVectors[i] = weighted
+  }
+
+  // dot product of two pre-normalized vectors
+  function dot(a: Float32Array, b: Float32Array): number {
+    let sum = 0
+    for (let d = 0; d < a.length; d++) {
+      sum += a[d]! * b[d]!
+    }
+    return sum
+  }
+
+  // weighted cosine of one pair (i < j) — what the page displays
+  function pairScore(i: number, j: number): number {
+    let vectorA = weightedVectors[i]
+    let vectorB = weightedVectors[j]
+    if (!vectorA || !vectorB) return 0
+    return dot(vectorA, vectorB)
+  }
+
+  // plain (unweighted) cosine of one pair — for the coarse pass
+  function plainScore(i: number, j: number): number {
+    let vectorA = plainVectors[i]
+    let vectorB = plainVectors[j]
+    if (!vectorA || !vectorB) return 0
+    return dot(vectorA, vectorB)
+  }
+
+  function toSimilarPair(a: number, b: number, score: number): SimilarPair {
+    return {
+      image_id_a: vectorCache.image_ids[a],
+      filename_a: proxy.image[vectorCache.image_ids[a]]?.filename ?? '',
+      image_id_b: vectorCache.image_ids[b],
+      filename_b: proxy.image[vectorCache.image_ids[b]]?.filename ?? '',
+      score,
     }
   }
 
-  pairs.sort((a, b) => b.score - a.score)
-  return pairs.slice(0, k)
+  // ------------------------------------------------------------------
+  // stage 1: coarse pass — plain cosine over all pairs, a min-heap keeps
+  // the top-(k * 6) pairs as the candidate pool
+  // ------------------------------------------------------------------
+  let candidateSize = Math.min(k * 6, 2000)
+  // min-heap of { score, a, b }: the root is the WORST of the kept pairs
+  let heap: { score: number; a: number; b: number }[] = []
+  function heapSwap(x: number, y: number): void {
+    let temp = heap[x]!
+    heap[x] = heap[y]!
+    heap[y] = temp
+  }
+  function heapPush(item: { score: number; a: number; b: number }): void {
+    heap.push(item)
+    let child = heap.length - 1
+    while (child > 0) {
+      let parent = (child - 1) >> 1
+      if (heap[parent]!.score <= heap[child]!.score) break
+      heapSwap(parent, child)
+      child = parent
+    }
+  }
+  function heapSiftDown(start: number): void {
+    let parent = start
+    for (;;) {
+      let left = parent * 2 + 1
+      let right = left + 1
+      let smallest = parent
+      if (
+        left < heap.length &&
+        heap[left]!.score < heap[smallest]!.score
+      ) {
+        smallest = left
+      }
+      if (
+        right < heap.length &&
+        heap[right]!.score < heap[smallest]!.score
+      ) {
+        smallest = right
+      }
+      if (smallest === parent) break
+      heapSwap(parent, smallest)
+      parent = smallest
+    }
+  }
+  function heapReplaceTop(item: { score: number; a: number; b: number }): void {
+    heap[0] = item
+    heapSiftDown(0)
+  }
+
+  for (let i = 0; i < n; i++) {
+    if (!plainVectors[i]) continue
+    for (let j = i + 1; j < n; j++) {
+      if (!plainVectors[j]) continue
+      let score = plainScore(i, j)
+      if (heap.length < candidateSize) {
+        heapPush({ score, a: i, b: j })
+      } else if (score > heap[0]!.score) {
+        heapReplaceTop({ score, a: i, b: j })
+      }
+    }
+  }
+  if (heap.length === 0) return []
+
+  // the heap holds the candidate pairs in no particular order
+  let candidates = heap
+  let candidateCount = candidates.length
+
+  // ------------------------------------------------------------------
+  // stage 2: refine — graph-sort ranks the small candidate pool by the
+  // weighted cosine (the metric the page displays)
+  // ------------------------------------------------------------------
+  // when the candidate pool is small enough that k covers most of it,
+  // scoring everything directly is simpler and just as fast
+  if (k >= candidateCount) {
+    let all: SimilarPair[] = candidates.map(candidate => ({
+      ...toSimilarPair(
+        candidate.a,
+        candidate.b,
+        pairScore(candidate.a, candidate.b),
+      ),
+    }))
+    all.sort((a, b) => b.score - a.score)
+    return all
+  }
+
+  let scoreCache = new Map<number, number>()
+  function cachedScore(candidateIndex: number): number {
+    let score = scoreCache.get(candidateIndex)
+    if (score === undefined) {
+      let candidate = candidates[candidateIndex]!
+      score = pairScore(candidate.a, candidate.b)
+      scoreCache.set(candidateIndex, score)
+    }
+    return score
+  }
+  function compareCandidates(
+    ca: { index: number; a: number; b: number },
+    cb: { index: number; a: number; b: number },
+  ): {
+    small: { index: number; a: number; b: number }
+    large: { index: number; a: number; b: number }
+  } {
+    let scoreA = cachedScore(ca.index)
+    let scoreB = cachedScore(cb.index)
+    return scoreA <= scoreB
+      ? { small: ca, large: cb }
+      : { small: cb, large: ca }
+  }
+
+  // pick the sorter by the candidate count (thresholds from graph-sort's
+  // benchmark table) — avoids the per-call benchmark that sortTopN()
+  // would run
+  let SorterClass =
+    k <= 5 ? TreeSort : k <= 35 ? DAGSort : NativeSort
+  let sorter = new SorterClass<{
+    index: number
+    a: number
+    b: number
+  }>(compareCandidates)
+  sorter.addValues(
+    candidates.map((candidate, index) => ({ ...candidate, index })),
+  )
+  let topCandidates = sorter.popTopN(k)
+
+  return topCandidates.map(candidate =>
+    toSimilarPair(candidate.a, candidate.b, cachedScore(candidate.index)),
+  )
 }
 
 /**
