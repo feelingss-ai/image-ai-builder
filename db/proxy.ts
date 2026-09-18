@@ -263,6 +263,24 @@ export type SimilarPairFeedback = {
   created_at: number
 }
 
+export type SimilarPairComparison = {
+  id?: null | number
+  project_id: number
+  project?: Project
+  user_id: number
+  user?: User
+  pair_hi_a_id: number
+  pair_hi_a?: Image
+  pair_hi_b_id: number
+  pair_hi_b?: Image
+  pair_lo_a_id: number
+  pair_lo_a?: Image
+  pair_lo_b_id: number
+  pair_lo_b?: Image
+  hi_more_similar: number
+  created_at: number
+}
+
 export type DBProxy = {
   request_log: RequestLog[]
   method: Method[]
@@ -290,6 +308,7 @@ export type DBProxy = {
   image_embedding: ImageEmbedding[]
   embedding_weight: EmbeddingWeight[]
   similar_pair_feedback: SimilarPairFeedback[]
+  similar_pair_comparison: SimilarPairComparison[]
 }
 
 export let proxy = proxySchema<DBProxy>({
@@ -393,6 +412,15 @@ export let proxy = proxySchema<DBProxy>({
       ['image_a', { field: 'image_a_id', table: 'image' }],
       ['image_b', { field: 'image_b_id', table: 'image' }],
       ['user', { field: 'user_id', table: 'user' }],
+    ],
+    similar_pair_comparison: [
+      /* foreign references */
+      ['project', { field: 'project_id', table: 'project' }],
+      ['user', { field: 'user_id', table: 'user' }],
+      ['pair_hi_a', { field: 'pair_hi_a_id', table: 'image' }],
+      ['pair_hi_b', { field: 'pair_hi_b_id', table: 'image' }],
+      ['pair_lo_a', { field: 'pair_lo_a_id', table: 'image' }],
+      ['pair_lo_b', { field: 'pair_lo_b_id', table: 'image' }],
     ],
   },
 })

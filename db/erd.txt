@@ -256,6 +256,19 @@ rank integer NULL
 created_at integer
 
 
+similar_pair_comparison
+-----------------------
+id integer PK
+project_id integer FK >0- project.id
+user_id integer FK >0- user.id
+pair_hi_a_id integer FK >0- image.id
+pair_hi_b_id integer FK >0- image.id
+pair_lo_a_id integer FK >0- image.id
+pair_lo_b_id integer FK >0- image.id
+hi_more_similar integer
+created_at integer
+
+
 # zoom: 1.000
 # view: (0, 0)
 # text-bg: #6495ed

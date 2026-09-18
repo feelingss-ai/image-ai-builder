@@ -456,37 +456,44 @@ export function saveEmbeddingWeight(options: {
 // train weight from pair ranking feedback
 // ---------------------------------------------------------------------------
 
-// all ranked pair feedback of a project (latest vote per pair per user,
-// ordered by rank ascending = most similar first)
-let select_ranked_feedback = db.prepare<
+// all pairwise comparisons of a project (each row says "pair_hi is more
+// similar than pair_lo" when hi_more_similar = 1, the reverse otherwise).
+// Comparisons accumulate across sessions — every row is one training
+// constraint.
+let select_pair_comparisons = db.prepare<
   { project_id: number },
-  { image_a_id: number; image_b_id: number; rank: number }
+  {
+    pair_hi_a_id: number
+    pair_hi_b_id: number
+    pair_lo_a_id: number
+    pair_lo_b_id: number
+    hi_more_similar: number
+  }
 >(/* sql */ `
-  select image_a_id, image_b_id, rank
-  from similar_pair_feedback
+  select pair_hi_a_id, pair_hi_b_id, pair_lo_a_id, pair_lo_b_id, hi_more_similar
+  from similar_pair_comparison
   where project_id = :project_id
-    and rank is not null
-  order by rank asc
 `)
 
 /**
- * Train a per-project embedding weight vector from the user's pair
- * ranking feedback (similar_pair_feedback.rank).
+ * Train a per-project embedding weight vector from the user's pairwise
+ * comparisons (similar_pair_comparison).
  *
- * Idea: the ranking says "pair ranked higher should be MORE similar than
- * a pair ranked lower". For every violated constraint (scoreHigh <=
- * scoreLow) we nudge the weight along the contrast direction: dimensions
- * that make the higher-ranked pair's two images differ get boosted, and
- * the same for the lower-ranked pair gets damped — so after re-scoring,
- * the higher pair's weighted cosine rises relative to the lower one.
+ * Each comparison row is one constraint: "the winner pair should have a
+ * HIGHER weighted-cosine score than the loser pair". For every violated
+ * constraint (scoreWinner <= scoreLoser) we nudge the weight along the
+ * contrast direction: dimensions that make the winner pair's two images
+ * differ get boosted, and the same for the loser pair gets damped — so
+ * after re-scoring, the winner pair's weighted cosine rises relative to
+ * the loser one.
  *
  * This is a simple contrastive gradient approximation (no tfjs backprop):
  * fast (milliseconds), dependency-free, and interpretable. The result is
  * mean-normalized to 1 (same convention as deriveWeightFromClassifier)
  * and clamped to [0.1, 10] to avoid runaway weights.
  *
- * Returns null when there is not enough feedback (fewer than 2 ranked
- * pairs) to learn from.
+ * Returns null when there is not enough feedback (fewer than 2
+ * comparisons) to learn from.
  */
 export function deriveWeightFromFeedback(options: {
   project_id: number
@@ -510,16 +517,30 @@ export function deriveWeightFromFeedback(options: {
   let idToIndex = new Map<number, number>()
   cache.image_ids.forEach((image_id, index) => idToIndex.set(image_id, index))
 
-  // ranked pairs (most similar first), only pairs whose images have embeddings
-  let ranked: { i: number; j: number }[] = []
-  for (let row of select_ranked_feedback.all({ project_id })) {
-    let i = idToIndex.get(row.image_a_id)
-    let j = idToIndex.get(row.image_b_id)
-    if (i == null || j == null || i === j) continue
-    ranked.push({ i, j })
+  // comparisons as (winner, loser) index pairs, only when both images of
+  // both pairs have embeddings
+  let comparisons: {
+    winner: { i: number; j: number }
+    loser: { i: number; j: number }
+  }[] = []
+  for (let row of select_pair_comparisons.all({ project_id })) {
+    let hiI = idToIndex.get(row.pair_hi_a_id)
+    let hiJ = idToIndex.get(row.pair_hi_b_id)
+    let loI = idToIndex.get(row.pair_lo_a_id)
+    let loJ = idToIndex.get(row.pair_lo_b_id)
+    if (hiI == null || hiJ == null || loI == null || loJ == null) continue
+    if (hiI === hiJ || loI === loJ) continue
+    comparisons.push({
+      winner: row.hi_more_similar
+        ? { i: hiI, j: hiJ }
+        : { i: loI, j: loJ },
+      loser: row.hi_more_similar
+        ? { i: loI, j: loJ }
+        : { i: hiI, j: hiJ },
+    })
   }
-  // need at least 2 ranked pairs to form a meaningful ordering constraint
-  if (ranked.length < 2) return null
+  // need at least 2 comparisons to form a meaningful ordering constraint
+  if (comparisons.length < 2) return null
 
   let dims = EMBEDDING_DIMS
   let weight = new Float32Array(dims)
@@ -554,30 +575,28 @@ export function deriveWeightFromFeedback(options: {
 
   for (let iter = 0; iter < ITERATIONS; iter++) {
     let changed = false
-    for (let r = 0; r < ranked.length; r++) {
-      for (let s = r + 1; s < ranked.length; s++) {
-        let high = ranked[r]!
-        let low = ranked[s]!
-        let scoreHigh = pairScore(high.i, high.j)
-        let scoreLow = pairScore(low.i, low.j)
-        // only nudge when the ranking is violated (or nearly tied)
-        if (scoreHigh >= scoreLow - 1e-6) continue
-        changed = true
-        let margin = scoreLow - scoreHigh
-        // contrast direction per dimension: the higher-ranked pair's
-        // |a-b| profile minus the lower-ranked pair's — boosting these
-        // dimensions raises scoreHigh relative to scoreLow
-        for (let d = 0; d < dims; d++) {
-          let aHigh = normalized[high.i]![d]
-          let bHigh = normalized[high.j]![d]
-          let aLow = normalized[low.i]![d]
-          let bLow = normalized[low.j]![d]
-          let contrast =
-            Math.abs(aHigh - bHigh) - Math.abs(aLow - bLow)
-          weight[d] += LEARNING_RATE * margin * contrast
-          if (weight[d] < WEIGHT_MIN) weight[d] = WEIGHT_MIN
-          if (weight[d] > WEIGHT_MAX) weight[d] = WEIGHT_MAX
-        }
+    for (let comparison of comparisons) {
+      let winner = comparison.winner
+      let loser = comparison.loser
+      let scoreWinner = pairScore(winner.i, winner.j)
+      let scoreLoser = pairScore(loser.i, loser.j)
+      // only nudge when the constraint is violated (or nearly tied)
+      if (scoreWinner >= scoreLoser - 1e-6) continue
+      changed = true
+      let margin = scoreLoser - scoreWinner
+      // contrast direction per dimension: the winner pair's |a-b| profile
+      // minus the loser pair's — boosting these dimensions raises the
+      // winner's weighted cosine relative to the loser's
+      for (let d = 0; d < dims; d++) {
+        let aHigh = normalized[winner.i]![d]
+        let bHigh = normalized[winner.j]![d]
+        let aLow = normalized[loser.i]![d]
+        let bLow = normalized[loser.j]![d]
+        let contrast =
+          Math.abs(aHigh - bHigh) - Math.abs(aLow - bLow)
+        weight[d] += LEARNING_RATE * margin * contrast
+        if (weight[d] < WEIGHT_MIN) weight[d] = WEIGHT_MIN
+        if (weight[d] > WEIGHT_MAX) weight[d] = WEIGHT_MAX
       }
     }
     if (!changed) break
@@ -641,16 +660,30 @@ export function deriveWeightFromFeedbackGA(options: {
   let idToIndex = new Map<number, number>()
   cache.image_ids.forEach((image_id, index) => idToIndex.set(image_id, index))
 
-  // ranked pairs (most similar first), only pairs whose images have embeddings
-  let ranked: { i: number; j: number }[] = []
-  for (let row of select_ranked_feedback.all({ project_id })) {
-    let i = idToIndex.get(row.image_a_id)
-    let j = idToIndex.get(row.image_b_id)
-    if (i == null || j == null || i === j) continue
-    ranked.push({ i, j })
+  // comparisons as (winner, loser) index pairs, only when both images of
+  // both pairs have embeddings
+  let comparisons: {
+    winner: { i: number; j: number }
+    loser: { i: number; j: number }
+  }[] = []
+  for (let row of select_pair_comparisons.all({ project_id })) {
+    let hiI = idToIndex.get(row.pair_hi_a_id)
+    let hiJ = idToIndex.get(row.pair_hi_b_id)
+    let loI = idToIndex.get(row.pair_lo_a_id)
+    let loJ = idToIndex.get(row.pair_lo_b_id)
+    if (hiI == null || hiJ == null || loI == null || loJ == null) continue
+    if (hiI === hiJ || loI === loJ) continue
+    comparisons.push({
+      winner: row.hi_more_similar
+        ? { i: hiI, j: hiJ }
+        : { i: loI, j: loJ },
+      loser: row.hi_more_similar
+        ? { i: loI, j: loJ }
+        : { i: hiI, j: hiJ },
+    })
   }
-  // need at least 2 ranked pairs to form a meaningful ordering constraint
-  if (ranked.length < 2) return null
+  // need at least 2 comparisons to form a meaningful ordering constraint
+  if (comparisons.length < 2) return null
 
   let dims = EMBEDDING_DIMS
 
@@ -690,21 +723,27 @@ export function deriveWeightFromFeedbackGA(options: {
     return dot / (Math.sqrt(normA) * Math.sqrt(normB))
   }
 
-  // fitness: how well the ranking constraints are satisfied.
-  // sum of hinge losses over all rank pairs; 0 = perfect ordering.
+  // fitness: how well the comparison constraints are satisfied.
+  // sum of hinge losses over all comparisons; 0 = perfect ordering.
   // higher is better, so negate the loss and add a constant ceiling.
-  let ceiling = (ranked.length * (ranked.length - 1)) / 2
+  let ceiling = comparisons.length
   function fitness(gene: WeightGene): number {
     let w = gene.w
     let loss = 0
-    for (let r = 0; r < ranked.length; r++) {
-      for (let s = r + 1; s < ranked.length; s++) {
-        let scoreHigh = pairScoreWith(w, ranked[r]!.i, ranked[r]!.j)
-        let scoreLow = pairScoreWith(w, ranked[s]!.i, ranked[s]!.j)
-        // violated (or too close): penalize by the margin shortfall
-        if (scoreHigh < scoreLow + GA_MARGIN) {
-          loss += scoreLow + GA_MARGIN - scoreHigh
-        }
+    for (let comparison of comparisons) {
+      let scoreWinner = pairScoreWith(
+        w,
+        comparison.winner.i,
+        comparison.winner.j,
+      )
+      let scoreLoser = pairScoreWith(
+        w,
+        comparison.loser.i,
+        comparison.loser.j,
+      )
+      // violated (or too close): penalize by the margin shortfall
+      if (scoreWinner < scoreLoser + GA_MARGIN) {
+        loss += scoreLoser + GA_MARGIN - scoreWinner
       }
     }
     return ceiling - loss

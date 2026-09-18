@@ -500,9 +500,12 @@ let rankParser = object({
   ),
 })
 
-// Saves the user's ordering of the displayed pairs. The client sends the
-// full list in display order (most similar first); each pair's rank is
-// its index. Pairs not in the list keep their previous rank.
+// Saves the user's ordering of the displayed pairs as pairwise
+// comparisons. The client sends the full list in display order (most
+// similar first); the server expands it into every two-pair comparison
+// (ordered[i] is more similar than ordered[j] for all i < j) and upserts
+// each one — comparisons accumulate across sessions and are what
+// "Train from Ranking" learns from.
 function PairRank(attrs: {}, context: WsContext) {
   try {
     let user = getAuthUser(context)
@@ -513,28 +516,60 @@ function PairRank(attrs: {}, context: WsContext) {
     let project = proxy.project[input.project_id]
     if (!project) throw 'Project not found'
 
-    for (let index = 0; index < input.ordered_pairs.length; index++) {
-      let pair = input.ordered_pairs[index]!
+    // resolve and normalize the displayed pairs first (a < b per pair)
+    let pairs: { a: number; b: number }[] = []
+    for (let pair of input.ordered_pairs) {
       let image_a = proxy.image[pair.image_a_id]
       let image_b = proxy.image[pair.image_b_id]
       if (!image_a || !image_b) continue
-      // normalize pair order so (A,B) and (B,A) are the same vote
-      let a = Math.min(pair.image_a_id, pair.image_b_id)
-      let b = Math.max(pair.image_a_id, pair.image_b_id)
-      seedRow(
-        proxy.similar_pair_feedback,
-        {
-          project_id: input.project_id,
-          image_a_id: a,
-          image_b_id: b,
-          user_id: user.id!,
-        },
-        {
-          is_similar: 1,
-          rank: index,
-          created_at: Math.floor(Date.now() / 1000),
-        },
-      )
+      pairs.push({
+        a: Math.min(pair.image_a_id, pair.image_b_id),
+        b: Math.max(pair.image_a_id, pair.image_b_id),
+      })
+    }
+
+    let now = Math.floor(Date.now() / 1000)
+    // every ordered pair of list positions i < j: the pair at i is more
+    // similar than the pair at j
+    for (let i = 0; i < pairs.length; i++) {
+      for (let j = i + 1; j < pairs.length; j++) {
+        let hi = pairs[i]!
+        let lo = pairs[j]!
+        // order the two pairs by (a, b) lexicographically so the stored
+        // direction is canonical — flipping the user's mind later just
+        // flips hi_more_similar on the same row (upsert)
+        let hiFirst = hi.a < lo.a || (hi.a === lo.a && hi.b < lo.b)
+        let row = hiFirst
+          ? {
+              pair_hi_a_id: hi.a,
+              pair_hi_b_id: hi.b,
+              pair_lo_a_id: lo.a,
+              pair_lo_b_id: lo.b,
+              hi_more_similar: 1,
+            }
+          : {
+              pair_hi_a_id: lo.a,
+              pair_hi_b_id: lo.b,
+              pair_lo_a_id: hi.a,
+              pair_lo_b_id: hi.b,
+              hi_more_similar: 0,
+            }
+        seedRow(
+          proxy.similar_pair_comparison,
+          {
+            project_id: input.project_id,
+            user_id: user.id!,
+            pair_hi_a_id: row.pair_hi_a_id,
+            pair_hi_b_id: row.pair_hi_b_id,
+            pair_lo_a_id: row.pair_lo_a_id,
+            pair_lo_b_id: row.pair_lo_b_id,
+          },
+          {
+            hi_more_similar: row.hi_more_similar,
+            created_at: now,
+          },
+        )
+      }
     }
 
     // update the rank badges + acknowledge the save
