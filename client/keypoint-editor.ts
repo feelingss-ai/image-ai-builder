@@ -360,20 +360,58 @@ function setupKeypointEditor(options: {
   }
 
   // Convert a canvas display coordinate into normalized image coordinate
-  // (accounting for camera transform + rotation). Returns null when the
-  // point is outside the image.
+  // (accounting for object-fit:contain letterboxing + camera transform +
+  // rotation). Returns null when the point is outside the image.
+  //
+  // The canvas element is stretched by CSS (width/height 100%) while its
+  // pixel buffer keeps the camera view's aspect ratio, and object-fit:contain
+  // letterboxes the buffer inside the element. Click coordinates are in
+  // element space, so they must first be mapped into the letterboxed buffer
+  // area (same approach as drag-ui's minimap click handler) before the
+  // camera transform can be reversed.
   function canvasToImage(clientX: number, clientY: number) {
     let rect = canvas.getBoundingClientRect()
-    // The canvas is displayed with object-fit:contain inside its container;
-    // the canvas element itself already has the right aspect ratio, so the
-    // displayed rect maps 1:1 onto the canvas pixels.
     let displayX = clientX - rect.left
     let displayY = clientY - rect.top
-    // scale from display size to canvas pixel size
-    let scaleX = canvas.width / rect.width
-    let scaleY = canvas.height / rect.height
-    let canvasX = displayX * scaleX
-    let canvasY = displayY * scaleY
+
+    // Map element space -> canvas buffer space, accounting for the
+    // object-fit:contain letterbox (buffer is centered inside the element).
+    let bufferAspect = canvas.width / canvas.height
+    let elementAspect = rect.width / rect.height
+    let bufferDisplayWidth: number
+    let bufferDisplayHeight: number
+    let bufferOffsetX: number
+    let bufferOffsetY: number
+    if (bufferAspect > elementAspect) {
+      // buffer is wider: fills element width, letterboxed vertically
+      bufferDisplayWidth = rect.width
+      bufferDisplayHeight = rect.width / bufferAspect
+      bufferOffsetX = 0
+      bufferOffsetY = (rect.height - bufferDisplayHeight) / 2
+    } else {
+      // buffer is taller: fills element height, letterboxed horizontally
+      bufferDisplayHeight = rect.height
+      bufferDisplayWidth = rect.height * bufferAspect
+      bufferOffsetX = (rect.width - bufferDisplayWidth) / 2
+      bufferOffsetY = 0
+    }
+
+    // clicks in the letterbox area are outside the buffer: ignore them
+    const boundaryTolerance = 2
+    if (
+      displayX < bufferOffsetX - boundaryTolerance ||
+      displayX > bufferOffsetX + bufferDisplayWidth + boundaryTolerance ||
+      displayY < bufferOffsetY - boundaryTolerance ||
+      displayY > bufferOffsetY + bufferDisplayHeight + boundaryTolerance
+    ) {
+      return null
+    }
+
+    // element space -> buffer pixel space
+    let canvasX =
+      ((displayX - bufferOffsetX) / bufferDisplayWidth) * canvas.width
+    let canvasY =
+      ((displayY - bufferOffsetY) / bufferDisplayHeight) * canvas.height
 
     // Reverse the render transform:
     // 1. undo center translate
@@ -438,6 +476,11 @@ function setupKeypointEditor(options: {
     lastPointerY = event.clientY
 
     let pt = canvasToImage(event.clientX, event.clientY)
+    if (!pt) {
+      // pointer is in the letterbox area (outside the image): pan instead
+      isPanning = true
+      return
+    }
     let hit = findKeypointAt(pt.x, pt.y)
     if (hit) {
       // start dragging this keypoint
@@ -455,6 +498,8 @@ function setupKeypointEditor(options: {
   function onPointerMove(event: PointerEvent) {
     if (isDraggingKeypoint) {
       let pt = canvasToImage(event.clientX, event.clientY)
+      // pointer left the image area: keep the last valid position
+      if (!pt) return
       let idx = window.selectedKeypointIdx
       let keypoints = window.keypointData || []
       let kp = keypoints.find(k => k.idx === idx)
@@ -515,6 +560,7 @@ function setupKeypointEditor(options: {
     // keypoint at the click position
     if (!wasDrag) {
       let pt = canvasToImage(event.clientX, event.clientY)
+      if (!pt) return
       if (pt.x >= 0 && pt.x <= 1 && pt.y >= 0 && pt.y <= 1) {
         if (typeof (window as any).onCanvasClick === 'function') {
           ;(window as any).onCanvasClick(pt.x, pt.y)
