@@ -172,6 +172,17 @@ title text
 dependency_id integer NULL FK >0- label.id
 project_id integer NULL FK >0- project.id
 display_order integer NULL
+keypoint_template_id integer NULL FK >0- keypoint_template.id
+
+
+keypoint_template
+-----------------
+id integer PK
+project_id integer FK >0- project.id
+title text
+names text
+edges text
+flip_idx text NULL
 
 
 image_label
@@ -218,6 +229,25 @@ rotate real
 
 image_bounding_box_confirmation
 -------------------------------
+id integer PK
+image_id integer FK >0- image.id
+user_id integer FK >0- user.id
+label_id integer FK >0- label.id
+
+
+image_keypoint
+--------------
+id integer PK
+box_id integer FK >0- image_bounding_box.id
+user_id integer FK >0- user.id
+idx integer
+x real
+y real
+visibility integer
+
+
+image_keypoint_confirmation
+---------------------------
 id integer PK
 image_id integer FK >0- image.id
 user_id integer FK >0- user.id
@@ -300,5 +330,8 @@ created_at integer
 # training_stats (73, 1019)
 # image_bounding_box (1126, 979)
 # image_bounding_box_confirmation (1022, 1297)
+# image_keypoint (1126, 1450)
+# image_keypoint_confirmation (1022, 1600)
+# keypoint_template (1400, 979)
 # image_embedding (921, 1420)
 # embedding_weight (1223, 1420)

@@ -124,6 +124,10 @@ connectWS({
     win.emitForm = emitForm
     win.submitForm = submitForm
     win.remount = () => mount('remount')
+    // expose the socket so page scripts can wait for OPEN before emitting
+    // (emit exists as soon as the bundle loads, but ws.send() throws
+    // InvalidStateError while the socket is still CONNECTING)
+    win.__ws = ws.ws
 
     ws.ws.addEventListener('open', () => mount('mount'))
 

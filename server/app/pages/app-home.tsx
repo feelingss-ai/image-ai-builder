@@ -292,6 +292,17 @@ function Main(attrs: {}, context: DynamicContext) {
             </IonButton>
             <IonButton
               fill="solid"
+              color="primary"
+              url={'/annotate-keypoint?project=' + project_id}
+            >
+              <Locale
+                en="Mark Keypoint"
+                zh_hk="標記關鍵點"
+                zh_cn="标记关键点"
+              />
+            </IonButton>
+            <IonButton
+              fill="solid"
               color="medium"
               disabled={true}
               url={'/train-ai?project=' + project_id}

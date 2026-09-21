@@ -166,6 +166,18 @@ export type Label = {
   project_id: null | number
   project?: Project
   display_order: null | number
+  keypoint_template_id: null | number
+  keypoint_template?: KeypointTemplate
+}
+
+export type KeypointTemplate = {
+  id?: null | number
+  project_id: number
+  project?: Project
+  title: string
+  names: string
+  edges: string
+  flip_idx: null | string
 }
 
 export type ImageLabel = {
@@ -217,6 +229,28 @@ export type ImageBoundingBox = {
 }
 
 export type ImageBoundingBoxConfirmation = {
+  id?: null | number
+  image_id: number
+  image?: Image
+  user_id: number
+  user?: User
+  label_id: number
+  label?: Label
+}
+
+export type ImageKeypoint = {
+  id?: null | number
+  box_id: number
+  box?: ImageBoundingBox
+  user_id: number
+  user?: User
+  idx: number
+  x: number
+  y: number
+  visibility: number
+}
+
+export type ImageKeypointConfirmation = {
   id?: null | number
   image_id: number
   image?: Image
@@ -300,11 +334,14 @@ export type DBProxy = {
   project: Project[]
   image: Image[]
   label: Label[]
+  keypoint_template: KeypointTemplate[]
   image_label: ImageLabel[]
   project_member: ProjectMember[]
   training_stats: TrainingStats[]
   image_bounding_box: ImageBoundingBox[]
   image_bounding_box_confirmation: ImageBoundingBoxConfirmation[]
+  image_keypoint: ImageKeypoint[]
+  image_keypoint_confirmation: ImageKeypointConfirmation[]
   image_embedding: ImageEmbedding[]
   embedding_weight: EmbeddingWeight[]
   similar_pair_feedback: SimilarPairFeedback[]
@@ -367,6 +404,11 @@ export let proxy = proxySchema<DBProxy>({
       /* foreign references */
       ['dependency', { field: 'dependency_id', table: 'label' }],
       ['project', { field: 'project_id', table: 'project' }],
+      ['keypoint_template', { field: 'keypoint_template_id', table: 'keypoint_template' }],
+    ],
+    keypoint_template: [
+      /* foreign references */
+      ['project', { field: 'project_id', table: 'project' }],
     ],
     image_label: [
       /* foreign references */
@@ -391,6 +433,17 @@ export let proxy = proxySchema<DBProxy>({
       ['label', { field: 'label_id', table: 'label' }],
     ],
     image_bounding_box_confirmation: [
+      /* foreign references */
+      ['image', { field: 'image_id', table: 'image' }],
+      ['user', { field: 'user_id', table: 'user' }],
+      ['label', { field: 'label_id', table: 'label' }],
+    ],
+    image_keypoint: [
+      /* foreign references */
+      ['box', { field: 'box_id', table: 'image_bounding_box' }],
+      ['user', { field: 'user_id', table: 'user' }],
+    ],
+    image_keypoint_confirmation: [
       /* foreign references */
       ['image', { field: 'image_id', table: 'image' }],
       ['user', { field: 'user_id', table: 'user' }],

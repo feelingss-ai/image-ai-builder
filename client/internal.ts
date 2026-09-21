@@ -17,6 +17,8 @@ export type WindowStub = {
     init: RequestInit & { title: string },
   ): Promise<any>
   showError(error: unknown): void
+  /** the underlying WebSocket, exposed for readiness checks */
+  __ws?: WebSocket
   _navigation_type_: 'static' | 'express' | 'ws'
   _navigation_method_: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   ws_status?: HTMLElement

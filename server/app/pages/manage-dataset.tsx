@@ -3447,6 +3447,7 @@ function ensureLabelsByTitle(options: {
       dependency_id: null,
       project_id,
       display_order: metaLabel.display_order ?? null,
+      keypoint_template_id: null,
     })
     labelTitleToId.set(metaLabel.title, newId)
     created_labels++

@@ -6,6 +6,7 @@ import PreviewAI from './pages/preview-ai.js'
 import TrainAI from './pages/train-ai.js'
 import AnnotateImage from './pages/annotate-image.js'
 import AnnotateBoundingBox from './pages/annotate-bounding-box.js'
+import AnnotateKeypoint from './pages/annotate-keypoint.js'
 import UploadImage from './pages/upload-image.js'
 import ReviewBoundingBox from './pages/review-bounding-box.js'
 import ReportContent from './pages/report-content.js'
@@ -101,6 +102,7 @@ let routeDict = {
   ...TrainAI.routes,
   ...AnnotateImage.routes,
   ...AnnotateBoundingBox.routes,
+  ...AnnotateKeypoint.routes,
   ...UploadImage.routes,
   ...ReviewBoundingBox.routes,
   ...ReportContent.routes,

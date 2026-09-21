@@ -465,6 +465,7 @@ function Submit(attrs: {}, context: WsContext) {
       dependency_id: dependency_id,
       project_id: project_id,
       display_order: maxOrder + 1,
+      keypoint_template_id: null,
     })
 
     // Stay on page: show hint and clear form so user can add another or go back
