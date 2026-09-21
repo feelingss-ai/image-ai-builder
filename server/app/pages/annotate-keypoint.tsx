@@ -356,11 +356,18 @@ function renderKeypointList() {
     chip.onclick = function() { selectKeypoint(kp.idx) }
     container.appendChild(chip)
   })
-  // update progress text
+  // update progress text (preserve the opacity suffix added by
+  // updateOpacityButton when the overlay is dimmed/hidden)
   let done = keypoints.filter(function(kp) { return kp.x != null }).length
   let info = document.getElementById('keypoint-info')
   if (info) {
-    info.textContent = 'Keypoints: ' + done + '/' + keypoints.length
+    let text = 'Keypoints: ' + done + '/' + keypoints.length
+    info.dataset.baseText = text
+    let current = window.keypointOverlayOpacity == null ? 1 : window.keypointOverlayOpacity
+    if (current !== 1) {
+      text += ' (' + Math.round(current * 100) + '%)'
+    }
+    info.textContent = text
   }
 }
 
@@ -412,6 +419,36 @@ function toggleVisibility() {
   renderKeypointList()
   if (kp.x != null) saveKeypoint(kp)
 }
+
+// Cycle the global keypoint overlay opacity: 100% -> 50% -> 0% -> 100%.
+// Affects keypoints + skeleton edges + labels on the canvas (the bounding
+// box outline stays visible so the anchor is never lost). The selected
+// keypoint stays fully visible at 50% so it can still be adjusted.
+function cycleKeypointOpacity() {
+  let current = window.keypointOverlayOpacity == null ? 1 : window.keypointOverlayOpacity
+  let next = current === 1 ? 0.5 : current === 0.5 ? 0 : 1
+  window.keypointOverlayOpacity = next
+  updateOpacityButton()
+  if (typeof window.render === 'function') window.render()
+}
+
+  // Sync the opacity button icon with the current opacity level
+  function updateOpacityButton() {
+    let btn = document.getElementById('opacity-toggle-btn')
+    if (!btn) return
+    let icon = btn.querySelector('ion-icon')
+    if (!icon) return
+    let current = window.keypointOverlayOpacity == null ? 1 : window.keypointOverlayOpacity
+    if (current === 0) {
+      icon.setAttribute('name', 'eye-off')
+    } else if (current === 0.5) {
+      icon.setAttribute('name', 'eye-outline')
+    } else {
+      icon.setAttribute('name', 'eye')
+    }
+    // refresh the info text via renderKeypointList (it preserves the suffix)
+    if (typeof renderKeypointList === 'function') renderKeypointList()
+  }
 
 // Clear the selected keypoint
 async function clearKeypoint() {
@@ -502,6 +539,16 @@ function zoomOut() {
   }
 }
 function resetZoom() {
+  // Reset back to the zoomed-in view of the selected bounding box (not the
+  // full image) — this page is always annotating keypoints on a box, so the
+  // natural "reset" target is the box framing that selectBox() applied.
+  let boxId = window._keypointActiveBoxId
+  let box = (window.keypointBoxesData || []).find(function(b) { return b.id === boxId })
+  if (box && typeof window.setKeypointCameraToBox === 'function') {
+    window.setKeypointCameraToBox(box)
+    return
+  }
+  // no box selected: fall back to the full image view
   if (!window.camera) return
   let camera = window.camera
   camera.width = 1
@@ -531,6 +578,8 @@ if (!window.__keypointKeysBound) {
     if (document.querySelector('ion-alert, ion-popover, ion-modal, ion-select-popover')) return
     if (event.key === 'v' || event.key === 'V') {
       toggleVisibility()
+    } else if (event.key === 'o' || event.key === 'O') {
+      cycleKeypointOpacity()
     } else if (event.key === 'Enter') {
       submitKeypoints()
     }
@@ -1034,12 +1083,13 @@ function Main(
             <ion-button
               color="medium"
               style="flex: 1;"
-              onclick="toggleVisibility()"
+              id="opacity-toggle-btn"
+              onclick="cycleKeypointOpacity()"
               title={
                 <Locale
-                  en="Toggle Visibility (V)"
-                  zh_hk="切換可見度 (V)"
-                  zh_cn="切换可见度 (V)"
+                  en="Cycle Keypoint Opacity (O): 100% -> 50% -> 0%"
+                  zh_hk="循環關鍵點透明度 (O)：100% → 50% → 0%"
+                  zh_cn="循环关键点透明度 (O)：100% → 50% → 0%"
                 />
               }
             >

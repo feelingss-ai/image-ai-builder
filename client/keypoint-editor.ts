@@ -52,6 +52,8 @@ declare global {
     keypointTemplate?: { names: string[]; edges: number[][] }
     /** id of the bounding box currently being annotated */
     _keypointActiveBoxId?: number | null
+    /** global overlay opacity for keypoints/edges/labels: 1 = full, 0.5 = half, 0 = hidden */
+    keypointOverlayOpacity?: number
   }
 }
 
@@ -64,6 +66,10 @@ window.camera = {
   rotate: 0,
   rotate_angle: 0,
 }
+
+// Global overlay opacity for keypoints/edges/labels (1 = full, 0.5 = half,
+// 0 = hidden). Cycled by the opacity button on the annotate-keypoint page.
+window.keypointOverlayOpacity = 1
 
 function setupKeypointEditor(options: {
   image: HTMLImageElement
@@ -244,6 +250,11 @@ function setupKeypointEditor(options: {
     let keypoints = window.keypointData || []
     let template = window.keypointTemplate
     let selectedIdx = window.selectedKeypointIdx
+    // global overlay opacity: 1 = full, 0.5 = half, 0 = hidden. The bounding
+    // box outline stays visible so the user never loses the anchor; only the
+    // keypoints/edges/labels fade.
+    let overlayAlpha =
+      window.keypointOverlayOpacity == null ? 1 : window.keypointOverlayOpacity
 
     // Draw all boxes: the active one highlighted, others dimmed
     let activeId = activeBoxId()
@@ -252,10 +263,13 @@ function setupKeypointEditor(options: {
       drawBox(box, isActive)
     }
 
+    if (overlayAlpha <= 0) return
+
     // Draw skeleton edges of the active box
     let activeBox = boxes.find(box => box.id === activeId)
     if (activeBox && template && template.edges) {
       context.save()
+      context.globalAlpha = overlayAlpha
       context.strokeStyle = 'rgba(0, 200, 255, 0.9)'
       context.lineWidth = Math.max(1, canvas.width * 0.004)
       for (let edge of template.edges) {
@@ -273,6 +287,8 @@ function setupKeypointEditor(options: {
 
     // Draw keypoints
     let radius = Math.max(4, canvas.width * 0.012)
+    context.save()
+    context.globalAlpha = overlayAlpha
     for (let kp of keypoints) {
       let px = kp.x * image.naturalWidth
       let py = kp.y * image.naturalHeight
@@ -315,6 +331,7 @@ function setupKeypointEditor(options: {
       }
       context.restore()
     }
+    context.restore()
   }
 
   function activeBoxId(): number | undefined {
