@@ -961,9 +961,14 @@ function Main(
                 user_id: user.id!,
                 project_id: project_id,
               })
+              // labels without a keypoint template cannot be annotated here
+              let has_template = label.keypoint_template_id
+                ? !!proxy.keypoint_template[label.keypoint_template_id]
+                : false
               return (
                 <ion-select-option value={label.id}>
                   {label.title} ({confirmed_images}/{eligible_images})
+                  {has_template ? '' : ' — no keypoints'}
                 </ion-select-option>
               )
             })}

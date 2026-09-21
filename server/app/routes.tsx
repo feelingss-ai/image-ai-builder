@@ -1,4 +1,5 @@
 import ManageLabels from './pages/manage-labels.js'
+import ManageKeypoints from './pages/manage-keypoints.js'
 import ManageDataset from './pages/manage-dataset.js'
 import SimilarImages from './pages/similar-images.js'
 import Stats from './pages/stats.js'
@@ -95,6 +96,7 @@ export type Routes = Record<string, PageRoute>
 // TODO direct support alternative urls instead of having to repeat the entry
 let routeDict = {
   ...ManageLabels.routes,
+  ...ManageKeypoints.routes,
   ...ManageDataset.routes,
   ...SimilarImages.routes,
   ...Stats.routes,

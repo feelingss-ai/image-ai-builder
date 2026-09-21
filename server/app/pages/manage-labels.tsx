@@ -155,6 +155,10 @@ function LabelItem(attrs: {
   if (!label) return null
   let dependency = label.dependency
   let dependencyText = dependency ? ` (depends on: ${dependency.title})` : ''
+  let template = label.keypoint_template_id
+    ? proxy.keypoint_template[label.keypoint_template_id]
+    : null
+  let templateText = template ? ` (keypoints: ${template.title})` : ''
 
   let image_count = count(proxy.image_label, { label_id: label.id })
 
@@ -165,7 +169,10 @@ function LabelItem(attrs: {
           {label.title}{' '}
           <span class="label-image-count">({image_count || 'no'} images)</span>
         </h2>
-        <p>{dependencyText}</p>
+        <p>
+          {dependencyText}
+          {templateText}
+        </p>
       </ion-label>
       <div style="display: flex; gap: 4px; align-items: center;">
         <ion-button
@@ -224,6 +231,9 @@ function AddPage(attrs: {}, context: DynamicContext) {
     (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
 
+  // keypoint templates of this project for the template dropdown
+  let templates = filter(proxy.keypoint_template, { project_id })
+
   return (
     <>
       <ion-header>
@@ -275,6 +285,28 @@ function AddPage(attrs: {}, context: DynamicContext) {
             </ion-item>
             <p style="font-size: 0.8rem; color: var(--ion-color-medium); margin: 0.25rem 1rem;">
               Select a parent label to create a hierarchy
+            </p>
+            <ion-item>
+              <ion-select
+                name="keypoint_template_id"
+                label="Keypoint Template (optional):"
+                label-placement="floating"
+                interface="popover"
+              >
+                <ion-select-option value="">None</ion-select-option>
+                {mapArray(templates, template => (
+                  <ion-select-option value={template.id}>
+                    {template.title}
+                  </ion-select-option>
+                ))}
+              </ion-select>
+            </ion-item>
+            <p style="font-size: 0.8rem; color: var(--ion-color-medium); margin: 0.25rem 1rem;">
+              <Locale
+                en="Assign a keypoint template to mark keypoints on this label (manage templates in Manage Keypoints)."
+                zh_hk="指派關鍵點範本以在此標籤上標記關鍵點（在「管理關鍵點」管理範本）。"
+                zh_cn="指派关键点模板以在此标签上标记关键点（在「管理关键点」管理模板）。"
+              />
             </p>
           </ion-list>
           <div style="margin: 2rem 0">
@@ -343,6 +375,9 @@ function EditPage(attrs: {}, context: DynamicContext) {
     (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
 
+  // keypoint templates of this project for the template dropdown
+  let templates = filter(proxy.keypoint_template, { project_id })
+
   return (
     <>
       <ion-header>
@@ -391,6 +426,22 @@ function EditPage(attrs: {}, context: DynamicContext) {
                 ))}
               </ion-select>
             </ion-item>
+            <ion-item>
+              <ion-select
+                name="keypoint_template_id"
+                label="Keypoint Template (optional):"
+                label-placement="floating"
+                interface="popover"
+                value={label.keypoint_template_id ?? ''}
+              >
+                <ion-select-option value="">None</ion-select-option>
+                {mapArray(templates, template => (
+                  <ion-select-option value={template.id}>
+                    {template.title}
+                  </ion-select-option>
+                ))}
+              </ion-select>
+            </ion-item>
           </ion-list>
           <div style="margin: 2rem 0">
             <ion-button type="submit" expand="block">
@@ -411,6 +462,7 @@ function EditPage(attrs: {}, context: DynamicContext) {
 let submitParser = object({
   title: string({ minLength: 1, maxLength: 100 }),
   dependency_id: string(),
+  keypoint_template_id: string(),
 })
 
 function Submit(attrs: {}, context: WsContext) {
@@ -460,12 +512,17 @@ function Submit(attrs: {}, context: WsContext) {
       if (o != null && o > maxOrder) maxOrder = o
     }
 
+    let keypoint_template_id = resolveTemplateId(
+      input.keypoint_template_id,
+      project_id,
+    )
+
     let label_id = proxy.label.push({
       title: input.title,
       dependency_id: dependency_id,
       project_id: project_id,
       display_order: maxOrder + 1,
-      keypoint_template_id: null,
+      keypoint_template_id,
     })
 
     // Stay on page: show hint and clear form so user can add another or go back
@@ -494,7 +551,20 @@ function Submit(attrs: {}, context: WsContext) {
 let modifyParser = object({
   title: string({ minLength: 1, maxLength: 100 }),
   dependency_id: string(),
+  keypoint_template_id: string(),
 })
+
+// resolve the keypoint_template_id from a form string ('' or '0' -> null)
+function resolveTemplateId(value: string, project_id: number): null | number {
+  if (!value || !value.trim() || value === '0') return null
+  let template_id = +value
+  if (!template_id) throw 'Invalid keypoint template'
+  let template = proxy.keypoint_template[template_id]
+  if (!template || template.project_id !== project_id) {
+    throw 'Invalid keypoint template'
+  }
+  return template_id
+}
 
 function ModifyLabel(attrs: {}, context: WsContext) {
   try {
@@ -539,6 +609,10 @@ function ModifyLabel(attrs: {}, context: WsContext) {
 
     label.title = input.title
     label.dependency_id = dependency_id
+    label.keypoint_template_id = resolveTemplateId(
+      input.keypoint_template_id,
+      project_id,
+    )
 
     context.ws.send(['update-text', `#label-title-${label_id}`, input.title])
     context.ws.send(['redirect', `/manage-labels?project=${project_id}`])

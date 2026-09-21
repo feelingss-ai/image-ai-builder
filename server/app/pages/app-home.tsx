@@ -292,17 +292,6 @@ function Main(attrs: {}, context: DynamicContext) {
             </IonButton>
             <IonButton
               fill="solid"
-              color="primary"
-              url={'/annotate-keypoint?project=' + project_id}
-            >
-              <Locale
-                en="Mark Keypoint"
-                zh_hk="標記關鍵點"
-                zh_cn="标记关键点"
-              />
-            </IonButton>
-            <IonButton
-              fill="solid"
               color="medium"
               disabled={true}
               url={'/train-ai?project=' + project_id}
@@ -319,14 +308,48 @@ function Main(attrs: {}, context: DynamicContext) {
             </IonButton>
           </ion-buttons>
         </ion-item>
+        <ion-item>
+          5.{' '}
+          <Locale
+            en="Keypoint Annotation"
+            zh_hk="關鍵點標註"
+            zh_cn="关键点标注"
+          />
+        </ion-item>
+        <ion-item>
+          <ion-buttons slot="start">
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/manage-keypoints?project=' + project_id}
+            >
+              <Locale
+                en="Manage Keypoints"
+                zh_hk="管理關鍵點"
+                zh_cn="管理关键点"
+              />
+            </IonButton>
+            <IonButton
+              fill="solid"
+              color="primary"
+              url={'/annotate-keypoint?project=' + project_id}
+            >
+              <Locale
+                en="Mark Keypoint"
+                zh_hk="標記關鍵點"
+                zh_cn="标记关键点"
+              />
+            </IonButton>
+          </ion-buttons>
+        </ion-item>
         <Link tagName="ion-item" href={'/stats?project=' + project_id}>
-          5. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
+          6. <Locale en="Stats" zh_hk="統計" zh_cn="统计" />
         </Link>
         <Link
           tagName="ion-item"
           href={'/import-export-model?project=' + project_id}
         >
-          6.{' '}
+          7.{' '}
           <Locale
             en="Import/Export Model"
             zh_hk="匯入/匯出模型"
