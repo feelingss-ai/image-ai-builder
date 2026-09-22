@@ -352,6 +352,23 @@ let getBoxImageCounts = db.prepare<
     select count as box_count, count(*) as image_count 
     from list 
     group by count
+    union all
+    select 0 as box_count, count(distinct ibc.image_id) as image_count
+    from image_bounding_box_confirmation ibc
+    join image on image.id = ibc.image_id
+    join image_label on image_label.image_id = ibc.image_id
+      and image_label.label_id = ibc.label_id
+      and image_label.answer = 1
+    where ibc.label_id = :label_id
+    and image.project_id = :project_id
+    and ibc.image_id not in (
+      select ibb.image_id
+      from image_bounding_box ibb
+      join image ibi on ibi.id = ibb.image_id
+      where ibb.label_id = :label_id
+      and ibi.project_id = :project_id
+    )
+    order by box_count
     `)
 
 // get image_ids by label_id and box_count like [ { image_id: 1, user_ids: '1,2' } ]
@@ -373,6 +390,32 @@ let getImageIdsUserIdsByLabelAndBoxCount = db.prepare<
   and image.project_id = :project_id
   group by image_bounding_box.image_id
   having count(distinct image_bounding_box.id) = :box_count
+`)
+
+// get confirmed images that have no bounding box at all for a label
+// (box_count = 0): the image was confirmed before any box was drawn
+// (e.g. confirmed by mistake), so it must stay visible on the review
+// page for the user to re-open it and add the missing boxes
+let get_confirmed_no_box_images = db.prepare<
+  { label_id: number; project_id: number },
+  { image_id: number; user_ids: string }
+>(/* sql */ `
+  select ibc.image_id, group_concat(distinct ibc.user_id) as user_ids
+  from image_bounding_box_confirmation ibc
+  join image on image.id = ibc.image_id
+  join image_label on image_label.image_id = ibc.image_id
+    and image_label.label_id = ibc.label_id
+    and image_label.answer = 1
+  where ibc.label_id = :label_id
+  and image.project_id = :project_id
+  and ibc.image_id not in (
+    select ibb.image_id
+    from image_bounding_box ibb
+    join image ibi on ibi.id = ibb.image_id
+    where ibb.label_id = :label_id
+    and ibi.project_id = :project_id
+  )
+  group by ibc.image_id
 `)
 
 // get image bounding boxes by image_id and label_id
@@ -402,11 +445,20 @@ let getImageBoundingBoxes = db.prepare<
 
 // return a list of ImageItem by label_id and box_count
 function getImageItem(label_id: number, box_count: number, project_id: number) {
-  let image_ids = getImageIdsUserIdsByLabelAndBoxCount.all({
-    label_id: label_id,
-    box_count: box_count,
-    project_id: project_id,
-  })
+  // box_count = 0 lists confirmed images that have no bounding box at all
+  // (e.g. confirmed by mistake before annotation); they must stay visible
+  // on the review page so the user can re-open them and add missing boxes
+  let image_ids =
+    box_count === 0
+      ? get_confirmed_no_box_images.all({
+          label_id: label_id,
+          project_id: project_id,
+        })
+      : getImageIdsUserIdsByLabelAndBoxCount.all({
+          label_id: label_id,
+          box_count: box_count,
+          project_id: project_id,
+        })
 
   // format image_ids to [ { image_id: 1, user_ids: [1,2] } ]
   let formatted_image_ids = image_ids.map(row => ({
@@ -510,10 +562,24 @@ function ImageItem(attrs: {
         <div class="image-item--filename" style="text-align: center;">
           {attrs.original_filename}
           <br />
+          {attrs.boxes.length === 0 && (
+            <span style="color: #eb445a; font-size: 0.85rem;">
+              <Locale
+                en="No bounding box yet — needs annotation"
+                zh_hk="尚無邊界框，需要補標註"
+                zh_cn="尚无边界框，需要补标注"
+              />
+              <br />
+            </span>
+          )}
           {attrs.user_names.length > 0 && (
             <span style="font-size: 0.8rem;">
-              <Locale en="Annotated by" zh_hk="標註者" zh_cn="标注者" />:{' '}
-              {attrs.user_names.join(', ')}
+              {attrs.boxes.length === 0 ? (
+                <Locale en="Confirmed by" zh_hk="確認者" zh_cn="确认者" />
+              ) : (
+                <Locale en="Annotated by" zh_hk="標註者" zh_cn="标注者" />
+              )}
+              : {attrs.user_names.join(', ')}
             </span>
           )}
         </div>
@@ -560,7 +626,13 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let labels = select_project_label.all({ project_id })
   let label_id = +params.get('label')! || labels[0]?.id || 1
-  let box_count = +params.get('box_count')! || 1
+  // box_count = 0 is meaningful (confirmed images without any bounding box),
+  // so only fall back to 1 when the param is missing or invalid
+  let box_count_raw = params.get('box_count')
+  let box_count_num =
+    box_count_raw === null || box_count_raw === '' ? NaN : Number(box_count_raw)
+  let box_count =
+    Number.isNaN(box_count_num) || box_count_num < 0 ? 1 : box_count_num
 
   let images_items = getImageItem(label_id, box_count, project_id)
 
@@ -606,11 +678,22 @@ function Main(attrs: {}, context: DynamicContext) {
           id="box_count_select"
         >
           {mapArray(
-            getBoxImageCounts.all({ label_id: label_id, project_id }),
+            getBoxImageCounts
+              .all({ label_id: label_id, project_id })
+              .filter(item => item.image_count > 0),
             item => {
               return (
                 <ion-select-option value={item.box_count}>
-                  {item.box_count} ({item.image_count})
+                  {item.box_count === 0
+                    ? Locale(
+                        {
+                          en: '0 (no box)',
+                          zh_hk: '0 (無框)',
+                          zh_cn: '0 (无框)',
+                        },
+                        context,
+                      ) + ` (${item.image_count})`
+                    : `${item.box_count} (${item.image_count})`}
                 </ion-select-option>
               )
             },
@@ -681,11 +764,22 @@ function LabelChanged(attrs: {}, context: WsContext) {
         id="box_count_select"
       >
         {mapArray(
-          getBoxImageCounts.all({ label_id: label_id, project_id }),
+          getBoxImageCounts
+            .all({ label_id: label_id, project_id })
+            .filter(item => item.image_count > 0),
           item => {
             return (
               <ion-select-option value={item.box_count}>
-                {item.box_count} ({item.image_count})
+                {item.box_count === 0
+                  ? Locale(
+                      {
+                        en: '0 (no box)',
+                        zh_hk: '0 (無框)',
+                        zh_cn: '0 (无框)',
+                      },
+                      context,
+                    ) + ` (${item.image_count})`
+                  : `${item.box_count} (${item.image_count})`}
               </ion-select-option>
             )
           },
