@@ -280,15 +280,25 @@ function createBoundingBoxThumbnail(box, scale) {
   }
 }
 
-// Helper function to wait for WebSocket to be ready
+// Helper function to wait for WebSocket to be ready.
+// NOTE: checking typeof emit === 'function' is not enough — emit is defined
+// as soon as the client bundle loads, but the socket may still be CONNECTING,
+// and ws.send() throws InvalidStateError in that state. Also wait for the
+// socket to be OPEN.
 async function waitForWebSocket(maxAttempts = 50) {
   let attempts = 0
-  while (typeof emit !== 'function' && attempts < maxAttempts) {
+  function isReady() {
+    if (typeof emit !== 'function') return false
+    let ws = window.__ws
+    // when the socket handle is not exposed, fall back to emit-only check
+    if (!ws) return true
+    return ws.readyState === 1 // WebSocket.OPEN
+  }
+  while (!isReady() && attempts < maxAttempts) {
     await new Promise(resolve => setTimeout(resolve, 100))
     attempts++
   }
-  
-  if (typeof emit !== 'function') {
+  if (!isReady()) {
     console.error('WebSocket not ready after timeout')
     return false
   }
@@ -1472,21 +1482,29 @@ function zoomHorizontalOut() {
   }
 }
 
-// Interval id for press-and-hold repeating zoom
-let zoomIntervalId = null
+// Interval id for press-and-hold repeating zoom.
+// NOTE: this must NOT be a top-level let/const. The page script is re-executed
+// on every ws update (SPA navigation) in the same global scope, and
+// re-declaring a let/const throws "Identifier has already been declared",
+// which aborts the whole script (window.* assignments and initPage() never
+// run -> blank page). Keep the id on window so a re-run does not lose track
+// of an interval started by the previous run.
+if (typeof window._zoomIntervalId === 'undefined') {
+  window._zoomIntervalId = null
+}
 
 // Start a repeating zoom action (fires once immediately, then on an interval while held)
 function startZoom(zoomFn) {
   stopZoom()
   zoomFn()
-  zoomIntervalId = setInterval(zoomFn, 150)
+  window._zoomIntervalId = setInterval(zoomFn, 150)
 }
 
 // Stop the repeating zoom action
 function stopZoom() {
-  if (zoomIntervalId !== null) {
-    clearInterval(zoomIntervalId)
-    zoomIntervalId = null
+  if (window._zoomIntervalId !== null) {
+    clearInterval(window._zoomIntervalId)
+    window._zoomIntervalId = null
   }
 }
 
