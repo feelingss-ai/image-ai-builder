@@ -245,6 +245,31 @@ function setupKeypointEditor(options: {
 
   window.render = render
 
+  // Rainbow linear gradient (top-left -> bottom-right) spanning a single
+  // circle of the given radius, centred at (cx, cy). Each keypoint gets its
+  // own gradient so every dot is individually rainbow-coloured (not one
+  // gradient spread across the whole image).
+  function createRainbowGradient(
+    cx: number,
+    cy: number,
+    radius: number,
+  ): CanvasGradient {
+    let gradient = context.createLinearGradient(
+      cx - radius,
+      cy - radius,
+      cx + radius,
+      cy + radius,
+    )
+    gradient.addColorStop(0, '#ff0000') // Red
+    gradient.addColorStop(0.17, '#ff8000') // Orange
+    gradient.addColorStop(0.33, '#ffff00') // Yellow
+    gradient.addColorStop(0.5, '#00ff00') // Green
+    gradient.addColorStop(0.67, '#0080ff') // Blue
+    gradient.addColorStop(0.83, '#8000ff') // Indigo
+    gradient.addColorStop(1, '#ff0080') // Violet
+    return gradient
+  }
+
   function drawBoxAndKeypoints() {
     let boxes = window.keypointBoxesData || []
     let keypoints = window.keypointData || []
@@ -270,7 +295,9 @@ function setupKeypointEditor(options: {
     if (activeBox && template && template.edges) {
       context.save()
       context.globalAlpha = overlayAlpha
-      context.strokeStyle = 'rgba(0, 200, 255, 0.9)'
+      // single bright colour for the skeleton: a per-edge gradient would be
+      // noisy, and the white/dark halo below keeps it readable anywhere
+      context.strokeStyle = '#00e5ff'
       context.lineWidth = Math.max(1, canvas.width * 0.004)
       for (let edge of template.edges) {
         let a = keypoints[edge[0]]
@@ -296,28 +323,44 @@ function setupKeypointEditor(options: {
 
       context.save()
       if (kp.visibility === 0) {
-        // invisible: hollow gray circle
+        // invisible: hollow circle with a dark outline so it stays visible
+        // on light backgrounds too
         context.strokeStyle = '#999'
         context.lineWidth = Math.max(1, radius * 0.3)
         context.beginPath()
         context.arc(px, py, radius, 0, 2 * Math.PI)
         context.stroke()
       } else {
-        // visible: filled green (selected = orange)
-        context.fillStyle = isSelected ? '#ff9800' : '#4caf50'
+        // visible: per-dot rainbow fill (each circle has its own top-left ->
+        // bottom-right gradient) + white ring + dark outer ring, so the dot
+        // is readable on any background colour
+        context.fillStyle = createRainbowGradient(px, py, radius)
         context.beginPath()
         context.arc(px, py, radius, 0, 2 * Math.PI)
         context.fill()
+        context.strokeStyle = '#ffffff'
+        context.lineWidth = Math.max(1, radius * 0.35)
+        context.stroke()
+        context.strokeStyle = 'rgba(0,0,0,0.75)'
+        context.lineWidth = Math.max(1, radius * 0.15)
+        context.beginPath()
+        context.arc(px, py, radius * 1.25, 0, 2 * Math.PI)
+        context.stroke()
       }
       if (isSelected) {
-        // selection ring
-        context.strokeStyle = '#ff9800'
-        context.lineWidth = Math.max(1, radius * 0.4)
+        // selection ring: white + dark double ring for contrast
+        context.strokeStyle = '#ffffff'
+        context.lineWidth = Math.max(1, radius * 0.5)
         context.beginPath()
         context.arc(px, py, radius * 1.8, 0, 2 * Math.PI)
         context.stroke()
+        context.strokeStyle = 'rgba(0,0,0,0.75)'
+        context.lineWidth = Math.max(1, radius * 0.2)
+        context.beginPath()
+        context.arc(px, py, radius * 2.1, 0, 2 * Math.PI)
+        context.stroke()
       }
-      // label
+      // label: white text with a dark outline (readable on any background)
       if (template && template.names[kp.idx]) {
         context.fillStyle = '#fff'
         context.strokeStyle = '#000'

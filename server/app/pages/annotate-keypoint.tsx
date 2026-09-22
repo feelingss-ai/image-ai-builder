@@ -92,15 +92,27 @@ let style = Style(/* css */ `
   background: #fff;
   user-select: none;
 }
+/* done: rainbow gradient (top-left -> bottom-right), same palette as the
+   canvas keypoints, so the chip colour matches the dot on the image */
 #AnnotateKeypoint #keypoint-list .kp-chip.done {
-  background: #4caf50;
+  background: linear-gradient(
+    135deg,
+    #ff0000 0%,
+    #ff8000 17%,
+    #ffff00 33%,
+    #00ff00 50%,
+    #0080ff 67%,
+    #8000ff 83%,
+    #ff0080 100%
+  );
   color: #fff;
-  border-color: #4caf50;
+  border-color: #333;
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
 }
 #AnnotateKeypoint #keypoint-list .kp-chip.active {
-  background: #ff9800;
-  color: #fff;
-  border-color: #ff9800;
+  outline: 2px solid #fff;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.75);
+  font-weight: 700;
 }
 #AnnotateKeypoint #keypoint-list .kp-chip.invisible {
   opacity: 0.4;
