@@ -244,6 +244,8 @@ idx integer
 x real
 y real
 visibility integer
+last_x real NULL
+last_y real NULL
 
 
 image_keypoint_confirmation

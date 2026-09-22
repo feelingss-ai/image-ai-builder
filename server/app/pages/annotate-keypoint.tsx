@@ -92,22 +92,11 @@ let style = Style(/* css */ `
   background: #fff;
   user-select: none;
 }
-/* done: rainbow gradient (top-left -> bottom-right), same palette as the
-   canvas keypoints, so the chip colour matches the dot on the image */
+/* done: plain green fill (the rainbow gradient stays on the canvas dots) */
 #AnnotateKeypoint #keypoint-list .kp-chip.done {
-  background: linear-gradient(
-    135deg,
-    #ff0000 0%,
-    #ff8000 17%,
-    #ffff00 33%,
-    #00ff00 50%,
-    #0080ff 67%,
-    #8000ff 83%,
-    #ff0080 100%
-  );
+  background: #4caf50;
   color: #fff;
-  border-color: #333;
-  text-shadow: 0 0 2px #000, 0 0 2px #000;
+  border-color: #4caf50;
 }
 #AnnotateKeypoint #keypoint-list .kp-chip.active {
   outline: 2px solid #fff;
@@ -117,6 +106,12 @@ let style = Style(/* css */ `
 #AnnotateKeypoint #keypoint-list .kp-chip.invisible {
   opacity: 0.4;
   text-decoration: line-through;
+}
+/* deleted but restorable: dashed border hints that tapping restores it */
+#AnnotateKeypoint #keypoint-list .kp-chip.restorable {
+  border-style: dashed;
+  border-color: var(--ion-color-primary, #3880ff);
+  color: var(--ion-color-primary, #3880ff);
 }
 #AnnotateKeypoint #keypoint-list .kp-hint {
   font-size: 0.8rem;
@@ -319,7 +314,17 @@ function loadKeypointsForBox(boxId) {
   for (let i = 0; i < keypointNames.length; i++) {
     let kp = boxKeypoints.find(function(k) { return k.idx === i })
     if (kp) {
-      list.push({ idx: i, x: kp.x, y: kp.y, visibility: kp.visibility, box_id: boxId, id: kp.id })
+      list.push({
+        idx: i,
+        x: kp.x,
+        y: kp.y,
+        visibility: kp.visibility,
+        box_id: boxId,
+        id: kp.id,
+        // carry the remembered position so a deleted point stays restorable
+        last_x: kp.last_x,
+        last_y: kp.last_y,
+      })
     } else {
       list.push({ idx: i, x: null, y: null, visibility: 1, box_id: boxId, id: null })
     }
@@ -364,6 +369,8 @@ function renderKeypointList() {
     if (kp.idx === selectedIdx) chip.classList.add('active')
     if (kp.x != null) chip.classList.add('done')
     if (kp.visibility === 0) chip.classList.add('invisible')
+    // deleted but restorable: dashed outline hints that tapping restores it
+    if (kp.x == null && kp.last_x != null) chip.classList.add('restorable')
     chip.textContent = (kp.idx + 1) + '. ' + (keypointNames[kp.idx] || kp.idx)
     chip.onclick = function() { selectKeypoint(kp.idx) }
     container.appendChild(chip)
@@ -383,9 +390,21 @@ function renderKeypointList() {
   }
 }
 
-// Select a keypoint by index (from chip click)
+// Select a keypoint by index (from chip click).
+// A deleted keypoint (x == null) is only SELECTED here — it stays deleted
+// until the user clicks the canvas, which restores it at the click position.
+// This keeps a deleted point from re-appearing as a side effect of placing
+// another keypoint.
 function selectKeypoint(idx) {
   window.selectedKeypointIdx = idx
+  let keypoints = window.keypointData || []
+  let kp = keypoints.find(function(k) { return k.idx === idx })
+  if (kp && kp.x == null && kp.last_x != null) {
+    // hint: this point was deleted; clicking the image restores it
+    if (typeof showToast === 'function') {
+      showToast('Deleted — click on the image to restore', 'info')
+    }
+  }
   if (typeof window.render === 'function') window.render()
   renderKeypointList()
 }
@@ -405,8 +424,10 @@ window.onCanvasClick = function(nx, ny) {
   if (typeof window.render === 'function') window.render()
   renderKeypointList()
   saveKeypoint(kp)
-  // auto-advance to the next unmarked keypoint
-  let next = keypoints.find(function(k) { return k.x == null })
+  // auto-advance to the next keypoint that was never marked. A deleted
+  // point (x == null but last_x != null) is skipped: it must be restored
+  // explicitly by selecting its chip and clicking the image.
+  let next = keypoints.find(function(k) { return k.x == null && k.last_x == null })
   if (next) {
     window.selectedKeypointIdx = next.idx
     if (typeof window.render === 'function') window.render()
@@ -462,13 +483,20 @@ function cycleKeypointOpacity() {
     if (typeof renderKeypointList === 'function') renderKeypointList()
   }
 
-// Clear the selected keypoint
+// Clear the selected keypoint.
+// The position is remembered in last_x/last_y so tapping the chip again
+// restores the point (see selectKeypoint).
 async function clearKeypoint() {
   let idx = window.selectedKeypointIdx
   if (idx == null) return
   let keypoints = window.keypointData || []
   let kp = keypoints.find(function(k) { return k.idx === idx })
   if (!kp) return
+  // remember where it was so the chip click can restore it
+  if (kp.x != null && kp.y != null) {
+    kp.last_x = kp.x
+    kp.last_y = kp.y
+  }
   kp.x = null
   kp.y = null
   kp.visibility = 1
@@ -500,6 +528,9 @@ async function saveKeypoint(kp) {
     x: kp.x,
     y: kp.y,
     visibility: kp.visibility,
+    // remembered position for undo-after-delete (null when never deleted)
+    last_x: kp.last_x == null ? null : kp.last_x,
+    last_y: kp.last_y == null ? null : kp.last_y,
     project_id: getProjectId(),
   })
 }
@@ -773,9 +804,11 @@ let get_box_keypoints = db.prepare<
     x: number
     y: number
     visibility: number
+    last_x: number | null
+    last_y: number | null
   }
 >(/* sql */ `
-  SELECT id, box_id, idx, x, y, visibility
+  SELECT id, box_id, idx, x, y, visibility, last_x, last_y
   FROM image_keypoint
   WHERE box_id = :box_id AND user_id = :user_id
   ORDER BY idx
@@ -789,13 +822,16 @@ let upsert_keypoint = db.prepare<
     x: number
     y: number
     visibility: number
+    last_x: number | null
+    last_y: number | null
   },
   { id: number }
 >(/* sql */ `
-  INSERT INTO image_keypoint (box_id, user_id, idx, x, y, visibility)
-  VALUES (:box_id, :user_id, :idx, :x, :y, :visibility)
+  INSERT INTO image_keypoint (box_id, user_id, idx, x, y, visibility, last_x, last_y)
+  VALUES (:box_id, :user_id, :idx, :x, :y, :visibility, :last_x, :last_y)
   ON CONFLICT(box_id, user_id, idx) DO UPDATE SET
-    x = excluded.x, y = excluded.y, visibility = excluded.visibility
+    x = excluded.x, y = excluded.y, visibility = excluded.visibility,
+    last_x = excluded.last_x, last_y = excluded.last_y
   RETURNING id
 `)
 
@@ -804,6 +840,16 @@ let delete_keypoint = db.prepare<
   { changes: number }
 >(/* sql */ `
   DELETE FROM image_keypoint
+  WHERE id = :keypoint_id AND user_id = :user_id
+`)
+
+// Read the position of a keypoint before it is deleted, so the client can
+// restore it later (delete is undoable via the keypoint chip).
+let get_keypoint_position = db.prepare<
+  { keypoint_id: number; user_id: number },
+  { x: number; y: number } | null
+>(/* sql */ `
+  SELECT x, y FROM image_keypoint
   WHERE id = :keypoint_id AND user_id = :user_id
 `)
 
@@ -1169,6 +1215,9 @@ let saveKeypointParser = object({
   x: number(),
   y: number(),
   visibility: number(),
+  // remembered position for undo-after-delete (optional)
+  last_x: optional(number()),
+  last_y: optional(number()),
   project_id: id(),
 })
 
@@ -1312,6 +1361,8 @@ function GetKeypoints(attrs: {}, context: WsContext) {
       x: number
       y: number
       visibility: number
+      last_x: number | null
+      last_y: number | null
     }> = []
     for (let box of boxes) {
       let kps = get_box_keypoints.all({ box_id: box.id, user_id })
@@ -1323,6 +1374,8 @@ function GetKeypoints(attrs: {}, context: WsContext) {
           x: kp.x,
           y: kp.y,
           visibility: kp.visibility,
+          last_x: kp.last_x,
+          last_y: kp.last_y,
         })
       }
     }
@@ -1396,6 +1449,11 @@ function SaveKeypoint(attrs: {}, context: WsContext) {
     let x = Math.max(0, Math.min(1, input.x))
     let y = Math.max(0, Math.min(1, input.y))
     let visibility = input.visibility === 0 ? 0 : 1
+    // remembered position for undo-after-delete (null when never deleted)
+    let last_x =
+      input.last_x == null ? null : Math.max(0, Math.min(1, input.last_x))
+    let last_y =
+      input.last_y == null ? null : Math.max(0, Math.min(1, input.last_y))
 
     let result = upsert_keypoint.get({
       box_id: input.box_id,
@@ -1404,6 +1462,8 @@ function SaveKeypoint(attrs: {}, context: WsContext) {
       x,
       y,
       visibility,
+      last_x,
+      last_y,
     })
 
     // revoke confirmation since keypoints changed
@@ -1449,10 +1509,22 @@ function DeleteKeypoint(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = deleteKeypointParser.parse(body)
 
+    // read the position first so the client can restore the point later
+    let position = get_keypoint_position.get({
+      keypoint_id: input.keypoint_id,
+      user_id: user_id,
+    })
+
     delete_keypoint.run({
       keypoint_id: input.keypoint_id,
       user_id: user_id,
     })
+
+    // send the remembered position back to the client
+    context.ws.send([
+      'eval',
+      `window.deletedKeypointPosition = ${JSON.stringify(position)};`,
+    ])
 
     throw EarlyTerminate
   } catch (error) {

@@ -317,6 +317,8 @@ function setupKeypointEditor(options: {
     context.save()
     context.globalAlpha = overlayAlpha
     for (let kp of keypoints) {
+      // skip deleted points: null * width would place them at (0,0)
+      if (kp.x == null || kp.y == null) continue
       let px = kp.x * image.naturalWidth
       let py = kp.y * image.naturalHeight
       let isSelected = kp.idx === selectedIdx

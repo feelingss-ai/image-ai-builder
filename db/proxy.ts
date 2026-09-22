@@ -248,6 +248,8 @@ export type ImageKeypoint = {
   x: number
   y: number
   visibility: number
+  last_x: null | number
+  last_y: null | number
 }
 
 export type ImageKeypointConfirmation = {
