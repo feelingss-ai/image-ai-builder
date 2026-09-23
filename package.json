@@ -76,6 +76,7 @@
     "heic2any": "^0.0.4",
     "http-status": "^1.8.1",
     "image-dataset": "^1.14.0",
+    "img-read": "^1.1.4",
     "jquery": "^3.7.1",
     "listening-on": "^2.1.0",
     "marked": "^12.0.2",

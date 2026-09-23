@@ -21,6 +21,8 @@ import { proxy, Label } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { getContextProject } from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import Script from '../components/script.js'
+import { loadClientPlugin } from '../../client-plugin.js'
 
 let pageTitle = <Locale en="Stats Data" zh_hk="統計數據" zh_cn="统计数据" />
 
@@ -36,6 +38,18 @@ let style = Style(/* css */ `
 .stats-label {
   font-size: 1.5rem;
   margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.stats-ai-button {
+  --padding-start: 0.5rem;
+  --padding-end: 0.5rem;
+  --padding-top: 0;
+  --padding-bottom: 0;
+  margin: 0;
+  font-size: 0.9rem;
 }
 .stats-chart {
   display: flex;
@@ -93,6 +107,51 @@ let style = Style(/* css */ `
 }
 `)
 
+let sweetAlertPlugin = loadClientPlugin({
+  entryFile: 'dist/client/sweetalert.js',
+})
+
+let script = Script(/* js */ `
+function getProjectId() {
+  const params = new URLSearchParams(window.location.search);
+  return parseInt(params.get('project') || '0');
+}
+
+// One-click AI auto label for a label (from the stats page).
+// unknown_count is rendered server-side into the onclick attribute.
+function startAutoLabel(label_id, unknown_count) {
+  var texts = window.autoLabelTexts || {};
+  if (!unknown_count) {
+    // heightAuto: false — required on ionic pages: ionic sets
+    // body { position: fixed }, and swal2's default height-auto
+    // class collapses the body to 0px (white screen)
+    Swal.fire({ title: texts.all_annotated, icon: 'info', heightAuto: false });
+    return;
+  }
+  var body = (texts.confirm_body || '{unknown} images').replace('{unknown}', unknown_count);
+  Swal.fire({
+    title: texts.confirm_title || 'Start AI auto label?',
+    html: body,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: texts.confirm_ok || 'Start',
+    cancelButtonText: texts.cancel || 'Cancel',
+    heightAuto: false,
+  }).then(function (result) {
+    if (!result.isConfirmed) return;
+    // the socket may still be CONNECTING when the user clicks fast
+    if (!window.__ws || window.__ws.readyState !== 1) {
+      Swal.fire({ title: 'Not connected', icon: 'error', heightAuto: false });
+      return;
+    }
+    emit('/auto-label/start', {
+      label_id: label_id,
+      project_id: getProjectId(),
+    });
+  });
+}
+`)
+
 let page = (
   <>
     {style}
@@ -107,8 +166,53 @@ let page = (
     <ion-content id="Stats" class="ion-no-padding">
       <Main />
     </ion-content>
+    {sweetAlertPlugin.node}
+    <AutoLabelTexts />
+    {script}
   </>
 )
+
+// Injects localized texts for the AI auto label button (used by the client
+// script below, which is a static string and cannot use Locale directly)
+function AutoLabelTexts(attrs: {}, context: DynamicContext) {
+  let texts = {
+    button_title: Locale(
+      {
+        en: 'AI auto label',
+        zh_hk: 'AI 自動標記',
+        zh_cn: 'AI 自动标记',
+      },
+      context,
+    ),
+    confirm_title: Locale(
+      {
+        en: 'Start AI auto label?',
+        zh_hk: '開始 AI 自動標記？',
+        zh_cn: '开始 AI 自动标记？',
+      },
+      context,
+    ),
+    confirm_body: Locale(
+      {
+        en: '{unknown} un-annotated image(s) will be labeled by AI. About 15 seconds per image on CPU.',
+        zh_hk: 'AI 將標記 {unknown} 張未標記圖片。CPU 每張約 15 秒。',
+        zh_cn: 'AI 将标记 {unknown} 张未标记图片。CPU 每张约 15 秒。',
+      },
+      context,
+    ),
+    confirm_ok: Locale({ en: 'Start', zh_hk: '開始', zh_cn: '开始' }, context),
+    cancel: Locale({ en: 'Cancel', zh_hk: '取消', zh_cn: '取消' }, context),
+    all_annotated: Locale(
+      {
+        en: 'All images are already annotated for this label.',
+        zh_hk: '此標籤的所有圖片均已標記。',
+        zh_cn: '此标签的所有图片均已标记。',
+      },
+      context,
+    ),
+  }
+  return <script>autoLabelTexts = {JSON.stringify(texts)}</script>
+}
 
 let select_label_count = db.prepare<
   { project_id: number },
@@ -247,7 +351,23 @@ function Main(attrs: {}, context: DynamicContext) {
         return (
           <ion-card class="stats-item">
             <ion-card-content>
-              <div class="stats-label">{label.title}</div>
+              <div class="stats-label">
+                <span>{label.title}</span>
+                <ion-button
+                  id={`stats-ai-button-${label_id}`}
+                  class="stats-ai-button"
+                  size="small"
+                  fill="clear"
+                  onclick={`startAutoLabel(${label_id}, ${unknown})`}
+                >
+                  <ion-icon name="sparkles-outline" slot="start"></ion-icon>
+                  <Locale
+                    en="AI auto label"
+                    zh_hk="AI 自動標記"
+                    zh_cn="AI 自动标记"
+                  />
+                </ion-button>
+              </div>
               <StatsChart yes={yes} unknown={unknown} no={no} />
             </ion-card-content>
           </ion-card>

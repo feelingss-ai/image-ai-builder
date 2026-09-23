@@ -1,6 +1,7 @@
 import ManageLabels from './pages/manage-labels.js'
 import ManageKeypoints from './pages/manage-keypoints.js'
 import ManageDataset from './pages/manage-dataset.js'
+import AutoLabel from './auto-label.js'
 import SimilarImages from './pages/similar-images.js'
 import Stats from './pages/stats.js'
 import PreviewAI from './pages/preview-ai.js'
@@ -98,6 +99,7 @@ let routeDict = {
   ...ManageLabels.routes,
   ...ManageKeypoints.routes,
   ...ManageDataset.routes,
+  ...AutoLabel.routes,
   ...SimilarImages.routes,
   ...Stats.routes,
   ...PreviewAI.routes,

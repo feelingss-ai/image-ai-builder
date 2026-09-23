@@ -46,6 +46,7 @@ import {
 } from '../yolo-format.js'
 import { getImageEmbedding } from '../embedding.js'
 import { invalidateProjectVectorCache } from '../embedding.js'
+import AutoLabel from '../auto-label.js'
 
 // same rule as dataset-helpers toLabelFilename (fs.ts) — reimplemented here
 // because fs.ts pulls in the native `canvas` module via its imports
@@ -4201,6 +4202,7 @@ let routes = {
     description: 'Reload review content for a label',
     node: <ReloadReview />,
   },
+  ...AutoLabel.routes,
 } satisfies Routes
 
 export default { routes }
