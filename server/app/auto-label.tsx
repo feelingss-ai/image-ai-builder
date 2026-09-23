@@ -265,14 +265,19 @@ function broadcastAutoLabelProgress(progress: AutoLabelProgress) {
     `if (typeof document !== 'undefined' && typeof Swal !== 'undefined' && Swal.isVisible()) {
       Swal.update({
         title: 'AI auto label... ${progress.done}/${progress.total}',
-        html: 'yes: ${progress.yes} · no: ${progress.no} · failed: ${progress.failed}',
+        html: '<progress value="${progress.done}" max="${progress.total}" style="width: 100%"></progress>' +
+          '<div>yes: ${progress.yes} · no: ${progress.no} · failed: ${progress.failed}</div>',
       })
     }`,
   ]
   sessions.forEach(session => {
     if (
       session.url?.startsWith('/manage-dataset') ||
-      session.url?.startsWith('/stats')
+      session.url?.startsWith('/stats') ||
+      // the initiator's session.url is overwritten by the emit itself
+      // (app.tsx sets session.url = url on every ws message), so the
+      // endpoint prefix must match too or the progress never arrives
+      session.url?.startsWith('/auto-label/')
     ) {
       session.ws.send(message)
     }
@@ -307,7 +312,10 @@ function broadcastAutoLabelFinished(job: AutoLabelJob) {
   sessions.forEach(session => {
     if (
       session.url?.startsWith('/manage-dataset') ||
-      session.url?.startsWith('/stats')
+      session.url?.startsWith('/stats') ||
+      // same as above: the initiator's session.url was overwritten by the
+      // start emit, so it still points at /auto-label/start
+      session.url?.startsWith('/auto-label/')
     ) {
       session.ws.send(message)
     }
@@ -353,19 +361,22 @@ function AutoLabelStart(attrs: {}, context: WsContext) {
       'eval',
       `Swal.fire({
         title: 'AI auto label... 0/${result.total}',
-        html: 'yes: 0 · no: 0 · failed: 0',
+        html: '<progress value="0" max="${result.total}" style="width: 100%"></progress>' +
+          '<div>yes: 0 · no: 0 · failed: 0</div>',
         allowOutsideClick: false,
         allowEscapeKey: false,
-        showCancelButton: true,
-        confirmButtonText: 'Cancel',
+        showCancelButton: false,
         showConfirmButton: true,
+        confirmButtonText: 'Cancel',
         // heightAuto: false — required on ionic pages: ionic sets
         // body { position: fixed }, and swal2's default height-auto
         // class collapses the body to 0px (white screen)
         heightAuto: false,
         didOpen: () => {},
-      }).then(r => {
-        if (r.dismiss) emit('/auto-label/cancel', {
+      }).then(() => {
+        // closing the dialog = request stop; the server no-ops when the
+        // job already finished, so emitting unconditionally is safe
+        emit('/auto-label/cancel', {
           project_id: getProjectId(),
         })
       })`,
