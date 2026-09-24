@@ -569,6 +569,30 @@ and image.project_id = :project_id
   )
   .pluck()
 
+// Total images eligible for a label: for a child label (dependency_id set),
+// only images whose parent label is annotated positive (answer = 1) count —
+// images marked negative or not yet annotated for the parent are excluded,
+// so the child's denominator matches its actual annotation queue.
+let count_eligible_images = db
+  .prepare<
+    { label_id: number; dependency_id: null | number; project_id: number },
+    number
+  >(
+    /* sql */ `
+select count(*)
+from image
+where image.project_id = :project_id
+and (
+  :dependency_id is null
+  or id in (
+    select image_id from image_label
+    where label_id = :dependency_id and answer = 1
+  )
+)
+`,
+  )
+  .pluck()
+
 // Renders the main UI for image annotation, including label selection and image display
 function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
@@ -628,9 +652,15 @@ function Main(attrs: {}, context: DynamicContext) {
                 label_id: label.id!,
                 project_id: project_id,
               })
+              // child labels only count images whose parent is annotated yes
+              let eligible_images = count_eligible_images.get({
+                label_id: label.id!,
+                dependency_id: proxy.label[label.id!]?.dependency_id ?? null,
+                project_id: project_id,
+              })
               return (
                 <ion-select-option value={label.id}>
-                  {label.title} ({annotated_images}/{total_images})
+                  {label.title} ({annotated_images}/{eligible_images})
                 </ion-select-option>
               )
             })}
@@ -762,7 +792,9 @@ function Main(attrs: {}, context: DynamicContext) {
   )
 }
 
-// Next image for a label. If dependency_id is set, skip images already marked negative for the dependency (precondition not met).
+// Next image for a label. If dependency_id is set, only show images where the
+// dependency (parent label) is already annotated as positive (answer = 1) —
+// images marked negative or not yet annotated for the parent are skipped.
 let select_next_image = db.prepare<
   { label_id: number; dependency_id: null | number; project_id: number },
   { id: number; filename: string; rotation: number | null }
@@ -776,9 +808,9 @@ and id not in (
 )
 and (
   :dependency_id is null
-  or id not in (
+  or id in (
     select image_id from image_label
-    where label_id = :dependency_id and answer = 0
+    where label_id = :dependency_id and answer = 1
   )
 )
 `)
@@ -1027,22 +1059,50 @@ function UndoAnnotation(attrs: {}, context: WsContext) {
 
     // Calculate the updated count of annotated images
     let new_count = count_annotated_images.get({ label_id, project_id })
-    // Log the new annotation count for debugging
+    // Log the new count for debugging
     console.log(`UndoAnnotation: new_count=${new_count}, label_id=${label_id}`)
-    // Get total number of images for this project
-    let total_images = filter(proxy.image, { project_id }).length
     // Retrieve label details
     let label = proxy.label[label_id]
     // Throw error if label is not found
     if (!label) throw 'Label not found'
+    // Eligible total for this label (child labels only count images whose
+    // parent is annotated yes)
+    let eligible_images = count_eligible_images.get({
+      label_id,
+      dependency_id: label.dependency_id ?? null,
+      project_id,
+    })
     // Construct new text for the label select option
-    let newText = `${label.title} (${new_count}/${total_images})`
+    let newText = `${label.title} (${new_count}/${eligible_images})`
     // Update the select option text via WebSocket
     context.ws.send([
       'update-text',
       `#label_select ion-select-option[value="${label_id}"]`,
       newText,
     ])
+    // Refresh every other label's count: undoing a parent's yes shrinks its
+    // children's eligible totals, and undoing a conflict's answer changes the
+    // other side's annotated count — a full refresh keeps all options correct.
+    let allLabels = select_project_label.all({ project_id })
+    for (let other of allLabels) {
+      if (other.id === label_id) continue
+      let otherLabel = proxy.label[other.id!]
+      if (!otherLabel) continue
+      let otherCount = count_annotated_images.get({
+        label_id: other.id!,
+        project_id,
+      })
+      let otherEligible = count_eligible_images.get({
+        label_id: other.id!,
+        dependency_id: otherLabel.dependency_id ?? null,
+        project_id,
+      })
+      context.ws.send([
+        'update-text',
+        `#label_select ion-select-option[value="${other.id}"]`,
+        `${otherLabel.title} (${otherCount}/${otherEligible})`,
+      ])
+    }
     // Trigger UI refresh for the ion-select component
     context.ws.send([
       'eval',
@@ -1196,42 +1256,53 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
     }
 
     // Calculate the updated count of annotated images
-    let project_id = image.project_id
+    let project_id = image.project_id!
     let new_count = count_annotated_images.get({
       label_id: input.label,
       project_id: project_id!,
     })
-    // Log the new annotation count for debugging
+    // Log the new count for debugging
     console.log(
       `SubmitAnnotation: new_count=${new_count}, label_id=${input.label}`,
     )
-    // Get total number of images for this project
-    let total_images = filter(proxy.image, { project_id }).length
+    // Eligible total for this label (child labels only count images whose
+    // parent is annotated yes)
+    let eligible_images = count_eligible_images.get({
+      label_id: input.label,
+      dependency_id: label.dependency_id ?? null,
+      project_id: project_id!,
+    })
     // Construct new text for the label select option
-    let newText = `${label.title} (${new_count}/${total_images})`
+    let newText = `${label.title} (${new_count}/${eligible_images})`
     // Update the select option text via WebSocket
     context.ws.send([
       'update-text',
       `#label_select ion-select-option[value="${input.label}"]`,
       newText,
     ])
-    // Conflicting labels were just annotated with the opposite answer, so
-    // refresh their counts too
-    {
-      let conflictMap = getProjectConflictMap(project_id!)
-      for (let conflictId of conflictMap[label.id!] || []) {
-        let conflictLabel = proxy.label[conflictId]
-        if (!conflictLabel) continue
-        let conflictCount = count_annotated_images.get({
-          label_id: conflictId,
-          project_id: project_id!,
-        })
-        context.ws.send([
-          'update-text',
-          `#label_select ion-select-option[value="${conflictId}"]`,
-          `${conflictLabel.title} (${conflictCount}/${total_images})`,
-        ])
-      }
+    // Refresh every other label's count: the conflict cascade and the
+    // parent-yes cascade both change OTHER labels' annotated counts and
+    // eligible totals (e.g. marking a parent yes grows its children's
+    // denominators), so a full refresh keeps all options consistent.
+    let allLabels = select_project_label.all({ project_id })
+    for (let other of allLabels) {
+      if (other.id === input.label) continue
+      let otherLabel = proxy.label[other.id!]
+      if (!otherLabel) continue
+      let otherCount = count_annotated_images.get({
+        label_id: other.id!,
+        project_id: project_id!,
+      })
+      let otherEligible = count_eligible_images.get({
+        label_id: other.id!,
+        dependency_id: otherLabel.dependency_id ?? null,
+        project_id: project_id!,
+      })
+      context.ws.send([
+        'update-text',
+        `#label_select ion-select-option[value="${other.id}"]`,
+        `${otherLabel.title} (${otherCount}/${otherEligible})`,
+      ])
     }
     // Trigger UI refresh for the ion-select component
     context.ws.send([
