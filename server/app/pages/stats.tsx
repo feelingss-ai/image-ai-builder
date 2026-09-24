@@ -194,9 +194,9 @@ function AutoLabelTexts(attrs: {}, context: DynamicContext) {
     ),
     confirm_body: Locale(
       {
-        en: '{unknown} un-annotated image(s) will be labeled by AI. About 15 seconds per image on CPU.',
-        zh_hk: 'AI 將標記 {unknown} 張未標記圖片。CPU 每張約 15 秒。',
-        zh_cn: 'AI 将标记 {unknown} 张未标记图片。CPU 每张约 15 秒。',
+        en: '{unknown} un-annotated image(s) will be labeled by AI.',
+        zh_hk: 'AI 將標記 {unknown} 張未標記圖片。',
+        zh_cn: 'AI 将标记 {unknown} 张未标记图片。',
       },
       context,
     ),

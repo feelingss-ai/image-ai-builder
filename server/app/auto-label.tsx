@@ -45,6 +45,8 @@ export type AutoLabelJob = {
   no: number
   failed: number
   started_at: number
+  /** ms timestamp for elapsed-time display */
+  started_ms: number
   shouldCancel: boolean
 }
 
@@ -79,6 +81,8 @@ export type AutoLabelProgress = {
   yes: number
   no: number
   failed: number
+  /** seconds elapsed since the job started */
+  elapsed_seconds: number
 }
 
 function snapshot(job: AutoLabelJob): AutoLabelProgress {
@@ -89,6 +93,7 @@ function snapshot(job: AutoLabelJob): AutoLabelProgress {
     yes: job.yes,
     no: job.no,
     failed: job.failed,
+    elapsed_seconds: Math.round((Date.now() - job.started_ms) / 1000),
   }
 }
 
@@ -149,6 +154,7 @@ export function startAutoLabelJob(options: {
     no: 0,
     failed: 0,
     started_at: Math.floor(Date.now() / 1000),
+    started_ms: Date.now(),
     shouldCancel: false,
   }
   currentJob = job
@@ -264,7 +270,7 @@ function broadcastAutoLabelProgress(progress: AutoLabelProgress) {
     'eval',
     `if (typeof document !== 'undefined' && typeof Swal !== 'undefined' && Swal.isVisible()) {
       Swal.update({
-        title: 'AI auto label... ${progress.done}/${progress.total}',
+        title: 'AI auto label... ${progress.done}/${progress.total} (${progress.elapsed_seconds}s)',
         html: '<progress value="${progress.done}" max="${progress.total}" style="width: 100%"></progress>' +
           '<div>yes: ${progress.yes} · no: ${progress.no} · failed: ${progress.failed}</div>',
       })
@@ -294,7 +300,7 @@ function broadcastAutoLabelFinished(job: AutoLabelJob) {
         : 'AI auto label failed'
   let summary =
     `yes: ${job.yes} · no: ${job.no} · failed: ${job.failed} ` +
-    `(${job.done}/${job.total})`
+    `(${job.done}/${job.total}, ${Math.round((Date.now() - job.started_ms) / 1000)}s)`
   let message: ServerMessage = [
     'eval',
     `if (typeof document !== 'undefined' && typeof Swal !== 'undefined' && Swal.isVisible()) {
