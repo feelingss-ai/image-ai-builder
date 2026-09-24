@@ -301,6 +301,14 @@ hi_more_similar integer
 created_at integer
 
 
+label_conflict
+--------------
+id integer PK
+project_id integer FK >0- project.id
+label_a_id integer FK >0- label.id
+label_b_id integer FK >0- label.id
+
+
 # zoom: 1.000
 # view: (0, 0)
 # text-bg: #6495ed

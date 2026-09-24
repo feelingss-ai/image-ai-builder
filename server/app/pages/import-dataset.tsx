@@ -17,7 +17,10 @@ import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy } from '../../../db/proxy.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  getContextProject,
+  getProjectConflictMap,
+} from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
 import { array, id, object, string, values } from 'cast.ts'
@@ -107,6 +110,15 @@ function setupBatchLabelDepsCascade() {
         if (row2) {
           var seg2 = row2.querySelector('ion-segment');
           if (seg2) seg2.value = 'yes';
+        }
+      }
+      // conflicting labels cannot also be yes — force them to no
+      var conflicts = (window.labelConflicts || {})[labelIdStr] || [];
+      for (var k = 0; k < conflicts.length; k++) {
+        var rowC = document.querySelector('.batch-label-row[data-label-id="' + conflicts[k] + '"]');
+        if (rowC) {
+          var segC = rowC.querySelector('ion-segment');
+          if (segC) segC.value = 'no';
         }
       }
     } else if (value === 'no') {
@@ -287,6 +299,12 @@ function Main(attrs: {}, context: DynamicContext) {
       {sortedLabels.length > 0 && (
         <script>
           {'window.batchLabelDeps = ' + JSON.stringify(labelDeps)}
+        </script>
+      )}
+      {sortedLabels.length > 0 && (
+        <script>
+          {'window.labelConflicts = ' +
+            JSON.stringify(getProjectConflictMap(project_id))}
         </script>
       )}
       <p class="ion-text-secondary">

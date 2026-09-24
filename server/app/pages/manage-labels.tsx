@@ -31,6 +31,59 @@ import { loadClientPlugin } from '../../client-plugin.js'
 let pageTitle = <Locale en="Manage Labels" zh_hk="管理標籤" zh_cn="管理标签" />
 let addPageTitle = <Locale en="Add Label" zh_hk="添加標籤" zh_cn="添加标签" />
 
+// ---------------------------------------------------------------------------
+// label conflict helpers
+//
+// Conflict rules (enforced on both read and write):
+//   - a parent label (no dependency_id) may only conflict with other parents
+//   - a child label may only conflict with children of the SAME parent
+//   - a label can never conflict with itself
+// Conflicts are stored as an unordered pair (label_id_a < label_id_b).
+// ---------------------------------------------------------------------------
+
+// labels that may be set as conflicting with `label` (excludes itself)
+function getConflictCandidates(
+  label: { id?: null | number; dependency_id: null | number },
+  project_id: number,
+) {
+  let allLabels = filter(proxy.label, { project_id })
+  let isParent = !label.dependency_id
+  return allLabels.filter(other => {
+    if (other.id === label.id) return false
+    if (isParent) return !other.dependency_id
+    return other.dependency_id === label.dependency_id
+  })
+}
+
+// ids of labels currently conflicting with `label_id` (both directions)
+function getConflictIds(label_id: number): number[] {
+  let asA = filter(proxy.label_conflict, { label_a_id: label_id })
+  let asB = filter(proxy.label_conflict, { label_b_id: label_id })
+  return [...asA.map(row => row.label_b_id), ...asB.map(row => row.label_a_id)]
+}
+
+// validate that two labels may conflict, throws a message when not
+function assertConflictAllowed(
+  label: { id?: null | number; dependency_id: null | number },
+  other: {
+    id?: null | number
+    dependency_id: null | number
+    project_id?: null | number
+  },
+  project_id: number,
+) {
+  if (label.id === other.id) throw 'A label cannot conflict with itself'
+  if (other.project_id !== project_id) throw 'Invalid conflicting label'
+  let labelIsParent = !label.dependency_id
+  let otherIsParent = !other.dependency_id
+  if (labelIsParent !== otherIsParent) {
+    throw 'A parent label can only conflict with another parent label'
+  }
+  if (!labelIsParent && label.dependency_id !== other.dependency_id) {
+    throw 'A child label can only conflict with children of the same parent'
+  }
+}
+
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
 })
@@ -42,6 +95,13 @@ let style = Style(/* css */ `
 .label-image-count {
   font-size: 0.8rem;
   color: var(--ion-color-medium);
+}
+.label-conflict-text {
+  font-size: 0.8rem;
+  color: var(--ion-color-warning-shade);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 `)
 
@@ -162,6 +222,11 @@ function LabelItem(attrs: {
 
   let image_count = count(proxy.image_label, { label_id: label.id })
 
+  // conflicting labels (both directions), shown as a hint under the title
+  let conflictTitles = getConflictIds(label.id!)
+    .map(id => proxy.label[id]?.title)
+    .filter((title): title is string => !!title)
+
   return (
     <ion-item id={`label-item-${label.id}`}>
       <ion-label>
@@ -173,6 +238,12 @@ function LabelItem(attrs: {
           {dependencyText}
           {templateText}
         </p>
+        {conflictTitles.length > 0 && (
+          <p class="label-conflict-text">
+            <ion-icon name="git-compare-outline"></ion-icon>{' '}
+            {`conflicts with: ${conflictTitles.join(', ')}`}
+          </p>
+        )}
       </ion-label>
       <div style="display: flex; gap: 4px; align-items: center;">
         <ion-button
@@ -378,6 +449,12 @@ function EditPage(attrs: {}, context: DynamicContext) {
   // keypoint templates of this project for the template dropdown
   let templates = filter(proxy.keypoint_template, { project_id })
 
+  // conflicting labels: candidates depend on whether this label is a parent or
+  // a child (see getConflictCandidates), current selection from label_conflict
+  let conflictCandidates = getConflictCandidates(label, project_id)
+  let conflictIds = getConflictIds(label_id)
+  let isParentLabel = !label.dependency_id
+
   return (
     <>
       <ion-header>
@@ -454,6 +531,71 @@ function EditPage(attrs: {}, context: DynamicContext) {
             style="color: var(--ion-color-primary); text-align: center;"
           ></p>
         </form>
+
+        {/* Conflict settings: separate form so saving conflicts does not
+            submit the label fields above */}
+        <h3 style="margin-top: 2rem">
+          <Locale en="Conflicting Labels" zh_hk="衝突標籤" zh_cn="冲突标签" />
+        </h3>
+        <p style="font-size: 0.8rem; color: var(--ion-color-medium); margin: 0.25rem 0 1rem;">
+          {isParentLabel ? (
+            <Locale
+              en="This is a parent label, so it can only conflict with other parent labels."
+              zh_hk="這是父標籤，因此只能與其他父標籤衝突。"
+              zh_cn="这是父标签，因此只能与其他父标签冲突。"
+            />
+          ) : (
+            <Locale
+              en="This is a child label, so it can only conflict with children of the same parent."
+              zh_hk="這是子標籤，因此只能與同一父標籤下的其他子標籤衝突。"
+              zh_cn="这是子标签，因此只能与同一父标签下的其他子标签冲突。"
+            />
+          )}
+        </p>
+        {conflictCandidates.length === 0 ? (
+          <p style="color: var(--ion-color-medium)">
+            <Locale
+              en="No labels available to set as conflicting."
+              zh_hk="沒有可設定衝突的標籤。"
+              zh_cn="没有可设置冲突的标签。"
+            />
+          </p>
+        ) : (
+          <form
+            id="conflict-form"
+            method="POST"
+            onsubmit="emitForm(event)"
+            action={`/manage-labels/set-conflicts?project=${project_id}&label_id=${label_id}`}
+          >
+            <ion-list>
+              {mapArray(conflictCandidates, other => (
+                <ion-item>
+                  <ion-checkbox
+                    name="conflict_ids"
+                    value={other.id}
+                    checked={conflictIds.includes(other.id!)}
+                  >
+                    <ion-label>{other.title}</ion-label>
+                  </ion-checkbox>
+                </ion-item>
+              ))}
+            </ion-list>
+            <div style="margin: 1.5rem 0">
+              <ion-button type="submit" expand="block" color="warning">
+                <ion-icon name="git-compare-outline" slot="start"></ion-icon>
+                <Locale
+                  en="Save Conflicts"
+                  zh_hk="儲存衝突設定"
+                  zh_cn="保存冲突设置"
+                />
+              </ion-button>
+            </div>
+            <p
+              id="conflict-message"
+              style="color: var(--ion-color-success); text-align: center; min-height: 2.5rem;"
+            ></p>
+          </form>
+        )}
       </ion-content>
     </>
   )
@@ -682,6 +824,16 @@ function Delete(attrs: {}, context: WsContext) {
     let label = proxy.label[input.label_id]
     if (!label || label.project_id !== project_id) throw 'Label not found'
 
+    // Remove conflict rows referencing this label (both directions) so no
+    // dangling pairs are left behind
+    let conflicts = [
+      ...filter(proxy.label_conflict, { label_a_id: input.label_id }),
+      ...filter(proxy.label_conflict, { label_b_id: input.label_id }),
+    ]
+    for (let row of conflicts) {
+      delete proxy.label_conflict[row.id!]
+    }
+
     // Delete the label
     delete proxy.label[input.label_id]
 
@@ -765,6 +917,83 @@ function ReorderLabel(attrs: {}, context: WsContext) {
   }
 }
 
+// Replaces the full conflict set of one label. The client sends every checked
+// candidate id, so unchecked ones are removed and checked ones added.
+function SetConflicts(attrs: {}, context: WsContext) {
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'You must be logged in'
+
+    let project = getContextProject(context)
+    if (!project) throw 'Project not found'
+    let project_id = project.id!
+
+    let params = new URLSearchParams(context.routerMatch?.search ?? '')
+    let label_id = +params.get('label_id')!
+    if (!label_id) throw 'Invalid label'
+
+    let label = proxy.label[label_id]
+    if (!label || label.project_id !== project_id) throw 'Label not found'
+    if (project.creator_id !== user.id) {
+      throw 'You do not have permission to edit labels in this project'
+    }
+
+    // ion-checkbox with the same name submits repeated keys; read them all
+    let body = getContextFormBody(context)
+    let raw = (body as Record<string, unknown>).conflict_ids
+    let values = raw == null ? [] : Array.isArray(raw) ? raw : [raw]
+    let wanted = new Set<number>()
+    for (let value of values) {
+      let id = +String(value)
+      if (!id) continue
+      let other = proxy.label[id]
+      if (!other) throw 'Selected conflicting label does not exist'
+      assertConflictAllowed(label, other, project_id)
+      wanted.add(id)
+    }
+
+    // remove conflicts that are no longer selected (both directions)
+    let existing = [
+      ...filter(proxy.label_conflict, { label_a_id: label_id }),
+      ...filter(proxy.label_conflict, { label_b_id: label_id }),
+    ]
+    for (let row of existing) {
+      let otherId =
+        row.label_a_id === label_id ? row.label_b_id : row.label_a_id
+      if (!wanted.has(otherId)) delete proxy.label_conflict[row.id!]
+    }
+
+    // add newly selected conflicts, normalised so label_a_id < label_b_id
+    let current = new Set(getConflictIds(label_id))
+    for (let otherId of wanted) {
+      if (current.has(otherId)) continue
+      let a = Math.min(label_id, otherId)
+      let b = Math.max(label_id, otherId)
+      proxy.label_conflict.push({
+        project_id,
+        label_a_id: a,
+        label_b_id: b,
+      })
+    }
+
+    context.ws.send([
+      'eval',
+      `var msg = document.querySelector("#conflict-message");
+       if (msg) msg.textContent = "Conflicts saved.";`,
+    ])
+    throw EarlyTerminate
+  } catch (error) {
+    if (error === EarlyTerminate) throw EarlyTerminate
+    console.error(error)
+    context.ws.send([
+      'eval',
+      `var msg = document.querySelector("#conflict-message");
+       if (msg) { msg.style.color = "var(--ion-color-danger)"; msg.textContent = "${String(error).replace(/"/g, '\\"')}"; }`,
+    ])
+    throw EarlyTerminate
+  }
+}
+
 let routes = {
   '/manage-labels': {
     title: <ProjectPageTitle t={pageTitle} />,
@@ -805,6 +1034,12 @@ let routes = {
     title: apiEndpointTitle,
     description: 'Change label order',
     node: <ReorderLabel />,
+    streaming: false,
+  },
+  '/manage-labels/set-conflicts': {
+    title: apiEndpointTitle,
+    description: 'Set conflicting labels',
+    node: <SetConflicts />,
     streaming: false,
   },
 } satisfies Routes

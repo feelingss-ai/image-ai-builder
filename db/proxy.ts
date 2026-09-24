@@ -317,6 +317,16 @@ export type SimilarPairComparison = {
   created_at: number
 }
 
+export type LabelConflict = {
+  id?: null | number
+  project_id: number
+  project?: Project
+  label_a_id: number
+  label_a?: Label
+  label_b_id: number
+  label_b?: Label
+}
+
 export type DBProxy = {
   request_log: RequestLog[]
   method: Method[]
@@ -348,6 +358,7 @@ export type DBProxy = {
   embedding_weight: EmbeddingWeight[]
   similar_pair_feedback: SimilarPairFeedback[]
   similar_pair_comparison: SimilarPairComparison[]
+  label_conflict: LabelConflict[]
 }
 
 export let proxy = proxySchema<DBProxy>({
@@ -476,6 +487,12 @@ export let proxy = proxySchema<DBProxy>({
       ['pair_hi_b', { field: 'pair_hi_b_id', table: 'image' }],
       ['pair_lo_a', { field: 'pair_lo_a_id', table: 'image' }],
       ['pair_lo_b', { field: 'pair_lo_b_id', table: 'image' }],
+    ],
+    label_conflict: [
+      /* foreign references */
+      ['project', { field: 'project_id', table: 'project' }],
+      ['label_a', { field: 'label_a_id', table: 'label' }],
+      ['label_b', { field: 'label_b_id', table: 'label' }],
     ],
   },
 })

@@ -1,4 +1,4 @@
-import { count } from 'better-sqlite3-proxy'
+import { count, filter } from 'better-sqlite3-proxy'
 import { db } from '../../../db/db.js'
 import { Label, Project, proxy } from '../../../db/proxy.js'
 import { getAuthUser } from '../auth/user.js'
@@ -56,4 +56,22 @@ export function getContextLabel(context: DynamicContext): Label | null {
 
   let label = proxy.label[label_id]
   return label || null
+}
+
+// Build a symmetric conflict map for a project: { label_id: [conflicting ids] }.
+// Conflicts are stored as an unordered pair, so both directions are expanded.
+// Injected into annotation pages so the client can disable conflicting options.
+export function getProjectConflictMap(
+  project_id: number,
+): Record<number, number[]> {
+  let map: Record<number, number[]> = {}
+  let add = (a: number, b: number) => {
+    if (!map[a]) map[a] = []
+    if (!map[a].includes(b)) map[a].push(b)
+  }
+  for (let row of filter(proxy.label_conflict, { project_id })) {
+    add(row.label_a_id, row.label_b_id)
+    add(row.label_b_id, row.label_a_id)
+  }
+  return map
 }

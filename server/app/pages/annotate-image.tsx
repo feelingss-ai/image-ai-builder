@@ -27,6 +27,7 @@ import { ProjectPageBackButton } from '../components/project-page-back-button.js
 import {
   getContextLabel,
   getContextProject,
+  getProjectConflictMap,
   select_project_label,
 } from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
@@ -50,6 +51,11 @@ let style = Style(/* css */ `
   flex-grow: 1;
   margin: 0;
   height: 4rem;
+}
+/* conflicting labels are disabled and struck through in the label select */
+ion-select-option.conflicting-label {
+  opacity: 0.5;
+  text-decoration: line-through;
 }
 /* AI suggestion: inline badge over the image + colored border */
 #image_wrapper {
@@ -317,6 +323,7 @@ window.onServerMessage = window.onServerMessage || function(message) {
 // (same pattern as annotate-bounding-box.tsx initPage).
 function initPage() {
   initAIAssistToggle()
+  initLabelConflicts()
 }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initPage)
@@ -351,6 +358,35 @@ if (!window.__annotateImageBound) {
 function getProjectId() {
   const params = new URLSearchParams(window.location.search)
   return parseInt(params.get('project') || '1')
+}
+
+// Marks conflicting label options as disabled so the user can see which labels
+// cannot be combined with the current one. window.labelConflicts is injected by
+// the server as { label_id: [conflicting ids] }.
+function applyLabelConflicts() {
+  var conflicts = window.labelConflicts || {}
+  var select = document.getElementById('label_select')
+  if (!select) return
+  var current = select.value
+  var conflicting = conflicts[current] || []
+  var options = select.querySelectorAll('ion-select-option')
+  for (var i = 0; i < options.length; i++) {
+    var option = options[i]
+    var id = option.value
+    var isConflicting = conflicting.indexOf(id) !== -1
+    option.disabled = isConflicting
+    option.classList.toggle('conflicting-label', isConflicting)
+  }
+}
+
+// Re-applies conflict marks whenever the label select is (re)rendered
+function initLabelConflicts() {
+  applyLabelConflicts()
+  var select = document.getElementById('label_select')
+  if (select && !select.__conflictBound) {
+    select.__conflictBound = true
+    select.addEventListener('ionChange', applyLabelConflicts)
+  }
 }
 
 // Keyboard shortcuts for annotating images:
@@ -570,9 +606,13 @@ function Main(attrs: {}, context: DynamicContext) {
       project_id: project_id,
     })
   let labels = select_project_label.all({ project_id })
+  let conflictMap = getProjectConflictMap(project_id)
 
   return (
     <>
+      <script>
+        {'window.labelConflicts = ' + JSON.stringify(conflictMap)}
+      </script>
       <div style="height: 100%; display: flex; flex-direction: column; text-align: center">
         <ion-item>
           <ion-select
@@ -1135,6 +1175,26 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
       )
     }
 
+    // Conflicting labels always get the OPPOSITE answer of this label:
+    //   answer=1 -> conflicts get 0 (they cannot also be positive)
+    //   answer=0 -> conflicts get 1 (rejected here, so it is the other one)
+    // This keeps every submit path (buttons, arrow keys, AI suggestion badge)
+    // consistent — the conflict is enforced no matter which answer is marked.
+    let answer = +input.answer
+    let opposite = answer === 1 ? 0 : 1
+    let conflictMap = getProjectConflictMap(image.project_id!)
+    for (let conflictId of conflictMap[label.id!] || []) {
+      seedRow(
+        proxy.image_label,
+        {
+          label_id: conflictId,
+          image_id: image.id!,
+          user_id: user.id!,
+        },
+        { answer: opposite },
+      )
+    }
+
     // Calculate the updated count of annotated images
     let project_id = image.project_id
     let new_count = count_annotated_images.get({
@@ -1155,6 +1215,24 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
       `#label_select ion-select-option[value="${input.label}"]`,
       newText,
     ])
+    // Conflicting labels were just annotated with the opposite answer, so
+    // refresh their counts too
+    {
+      let conflictMap = getProjectConflictMap(project_id!)
+      for (let conflictId of conflictMap[label.id!] || []) {
+        let conflictLabel = proxy.label[conflictId]
+        if (!conflictLabel) continue
+        let conflictCount = count_annotated_images.get({
+          label_id: conflictId,
+          project_id: project_id!,
+        })
+        context.ws.send([
+          'update-text',
+          `#label_select ion-select-option[value="${conflictId}"]`,
+          `${conflictLabel.title} (${conflictCount}/${total_images})`,
+        ])
+      }
+    }
     // Trigger UI refresh for the ion-select component
     context.ws.send([
       'eval',

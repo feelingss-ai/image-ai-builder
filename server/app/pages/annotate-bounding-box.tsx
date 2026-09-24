@@ -24,7 +24,10 @@ import { showError } from '../components/error.js'
 import { id, number, object, optional, string, values } from 'cast.ts'
 import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  getContextProject,
+  getProjectConflictMap,
+} from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
 import { filter } from 'better-sqlite3-proxy'
@@ -43,6 +46,12 @@ let pageTitle = (
 
 let style = Style(/* css */ `
 #AnnotateBoundingBox .bounding-box-area {
+}
+
+/* conflicting labels are disabled and struck through in the label select */
+ion-select-option.conflicting-label {
+  opacity: 0.5;
+  text-decoration: line-through;
 }
 
 #bounding_box_canvas {
@@ -837,6 +846,34 @@ if (!window._ionChangeListenerAdded) {
     emit('/annotate-bounding-box/showImage', { label_id, project_id: getProjectId() });
   });
   window._ionChangeListenerAdded = true;
+}
+
+// Marks conflicting label options as disabled so the user can see which labels
+// cannot be combined with the current one. window.labelConflicts is injected by
+// the server as { label_id: [conflicting ids] }.
+function applyLabelConflicts() {
+  var conflicts = window.labelConflicts || {}
+  var select = document.getElementById('label_select')
+  if (!select) return
+  var current = select.value
+  var conflicting = conflicts[current] || []
+  var options = select.querySelectorAll('ion-select-option')
+  for (var i = 0; i < options.length; i++) {
+    var option = options[i]
+    var isConflicting = conflicting.indexOf(option.value) !== -1
+    option.disabled = isConflicting
+    option.classList.toggle('conflicting-label', isConflicting)
+  }
+}
+
+// Re-applies conflict marks whenever the label select is (re)rendered
+function initLabelConflicts() {
+  applyLabelConflicts()
+  var select = document.getElementById('label_select')
+  if (select && !select.__conflictBound) {
+    select.__conflictBound = true
+    select.addEventListener('ionChange', applyLabelConflicts)
+  }
 }
 
 // Add event listener for bounding box select changes
@@ -1683,6 +1720,7 @@ function isFromReview() {
 // DOMContentLoaded has already fired and won't fire again).
 function initPage() {
   console.log('Page loaded, initializing with default label');
+  initLabelConflicts();
   // If navigated from review page, update submit button tooltip
   if (isFromReview()) {
     const submitBtn = document.querySelector('ion-button[onclick="submitBoundingBoxes()"]');
@@ -1994,6 +2032,10 @@ function Main(
 
   return (
     <>
+      <script>
+        {'window.labelConflicts = ' +
+          JSON.stringify(getProjectConflictMap(project_id))}
+      </script>
       <div style="height: 100%; display: flex; flex-direction: column; text-align: center">
         <ion-item>
           <ion-select

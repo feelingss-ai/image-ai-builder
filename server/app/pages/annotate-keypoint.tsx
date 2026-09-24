@@ -18,7 +18,10 @@ import { showError } from '../components/error.js'
 import { id, number, object, optional } from 'cast.ts'
 import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  getContextProject,
+  getProjectConflictMap,
+} from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
 import { filter } from 'better-sqlite3-proxy'
@@ -38,6 +41,11 @@ let pageTitle = (
 let style = Style(/* css */ `
 #AnnotateKeypoint #editorContainer {
   position: relative;
+}
+/* conflicting labels are disabled and struck through in the label select */
+ion-select-option.conflicting-label {
+  opacity: 0.5;
+  text-decoration: line-through;
 }
 #AnnotateKeypoint #preview-container {
   position: relative;
@@ -649,8 +657,37 @@ if (!window.__keypointChangeListenerAdded) {
   window.__keypointChangeListenerAdded = true
 }
 
+// Marks conflicting label options as disabled so the user can see which labels
+// cannot be combined with the current one. window.labelConflicts is injected by
+// the server as { label_id: [conflicting ids] }.
+function applyLabelConflicts() {
+  var conflicts = window.labelConflicts || {}
+  var select = document.getElementById('label_select')
+  if (!select) return
+  var current = select.value
+  var conflicting = conflicts[current] || []
+  var options = select.querySelectorAll('ion-select-option')
+  for (var i = 0; i < options.length; i++) {
+    var option = options[i]
+    var isConflicting = conflicting.indexOf(option.value) !== -1
+    option.disabled = isConflicting
+    option.classList.toggle('conflicting-label', isConflicting)
+  }
+}
+
+// Re-applies conflict marks whenever the label select is (re)rendered
+function initLabelConflicts() {
+  applyLabelConflicts()
+  var select = document.getElementById('label_select')
+  if (select && !select.__conflictBound) {
+    select.__conflictBound = true
+    select.addEventListener('ionChange', applyLabelConflicts)
+  }
+}
+
 // Initialize the page with the default label when DOM is ready.
 function initPage() {
+  initLabelConflicts()
   setTimeout(function() {
     const label_select = document.getElementById('label_select')
     if (label_select && label_select.value) {
@@ -996,6 +1033,10 @@ function Main(
     <>
       <script>
         {'window.keypointTemplateInfo = ' + JSON.stringify(templateInfo)}
+      </script>
+      <script>
+        {'window.labelConflicts = ' +
+          JSON.stringify(getProjectConflictMap(project_id))}
       </script>
       <KeypointTexts />
       <div style="height: 100%; display: flex; flex-direction: column; text-align: center">
