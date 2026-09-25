@@ -14,6 +14,7 @@ import { getAuthUser } from './auth/user.js'
 import { EarlyTerminate } from '../exception.js'
 import { sessions } from './session.js'
 import { ServerMessage } from '../../client/types.js'
+import { getProjectConflictMap } from './context/project-context.js'
 
 /**
  * One-click AI auto label service.
@@ -133,8 +134,13 @@ export function startAutoLabelJob(options: {
   }
 
   // images of the project, excluding inline data uris (same rule as
-  // manage-dataset.tsx getProjectImages)
-  let images = filter_project_images.all({ project_id })
+  // manage-dataset.tsx getProjectImages). For a child label, only images
+  // whose parent label is annotated yes are eligible (same rule as the
+  // annotation queue in annotate-image.tsx).
+  let images = select_eligible_image_ids.all({
+    dependency_id: label.dependency_id ?? null,
+    project_id,
+  })
   let annotated = new Set(
     select_annotated_image_ids.all({ label_id, project_id }),
   )
@@ -142,6 +148,10 @@ export function startAutoLabelJob(options: {
   if (pending.length === 0) {
     return { ok: false, error: 'all images are already annotated' }
   }
+
+  // conflicting labels get the opposite answer automatically (same rule as
+  // the manual annotation in annotate-image.tsx)
+  let conflictIds = getProjectConflictMap(project_id)[label_id] || []
 
   let job: AutoLabelJob = {
     status: 'running',
@@ -199,6 +209,7 @@ export function startAutoLabelJob(options: {
           }
         }
         if (answer) {
+          let answerValue = answer === 'yes' ? 1 : 0
           seedRow(
             proxy.image_label,
             {
@@ -206,8 +217,21 @@ export function startAutoLabelJob(options: {
               image_id: image.id!,
               user_id,
             },
-            { answer: answer === 'yes' ? 1 : 0 },
+            { answer: answerValue },
           )
+          // conflicting labels get the opposite answer (A yes -> B no,
+          // A no -> B yes) — same as manual annotation
+          for (let conflictId of conflictIds) {
+            seedRow(
+              proxy.image_label,
+              {
+                label_id: conflictId,
+                image_id: image.id!,
+                user_id,
+              },
+              { answer: answerValue === 1 ? 0 : 1 },
+            )
+          }
           if (answer === 'yes') job.yes++
           else job.no++
           consecutive_failures = 0
@@ -245,9 +269,12 @@ export function cancelAutoLabelJob(project_id: number): boolean {
   return true
 }
 
-// images of a project that have a real filename (not inline data uris)
-let filter_project_images = db.prepare<
-  { project_id: number },
+// images of a project that have a real filename (not inline data uris).
+// For a child label (dependency_id set), only images whose parent label is
+// annotated positive (answer = 1) are eligible — same rule as the
+// annotation queue in annotate-image.tsx.
+let select_eligible_image_ids = db.prepare<
+  { dependency_id: null | number; project_id: number },
   { id: number; filename: string }
 >(/* sql */ `
 select id, filename
@@ -256,6 +283,13 @@ where project_id = :project_id
   and filename is not null
   and filename != ''
   and filename not like 'data:%'
+  and (
+    :dependency_id is null
+    or id in (
+      select image_id from image_label
+      where label_id = :dependency_id and answer = 1
+    )
+  )
 `)
 
 // ---------------------------------------------------------------------------
