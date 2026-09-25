@@ -1325,6 +1325,26 @@ and image.project_id = :project_id
   )
   .pluck()
 
+// total images eligible for a label: for a child label (dependency_id set),
+// only images whose parent label is annotated positive (answer = 1) count —
+// same rule as the annotation queue in annotate-image.tsx
+let count_eligible_images = db
+  .prepare<{ dependency_id: null | number; project_id: number }, number>(
+    /* sql */ `
+select count(*)
+from image
+where image.project_id = :project_id
+and (
+  :dependency_id is null
+  or id in (
+    select image_id from image_label
+    where label_id = :dependency_id and answer = 1
+  )
+)
+`,
+  )
+  .pluck()
+
 // latest answer for an image+label (1=yes, 0=no, null=none)
 let select_latest_answer = db.prepare<
   { image_id: number; label_id: number },
@@ -2042,9 +2062,22 @@ function Main(attrs: {}, context: DynamicContext) {
                     label_id: label.id!,
                     project_id,
                   })
+                  // child labels: show "parent > child" and the bar total is
+                  // only images whose parent is annotated yes
+                  let parentTitle = label.dependency_id
+                    ? proxy.label[label.dependency_id]?.title
+                    : null
+                  let eligible = count_eligible_images.get({
+                    dependency_id: label.dependency_id ?? null,
+                    project_id,
+                  })
                   return (
                     <div class="label-container">
-                      <div class="class-label">{label.title}</div>
+                      <div class="class-label">
+                        {label.dependency_id
+                          ? `${parentTitle} > ${label.title}`
+                          : label.title}
+                      </div>
                       <ion-button
                         id={`label-state-button-${label.id}`}
                         class="label-state-button empty"
@@ -2058,7 +2091,7 @@ function Main(attrs: {}, context: DynamicContext) {
                       </ion-button>
                       <progress
                         value={annotated_count}
-                        max={totalImages || 1}
+                        max={eligible || 1}
                       ></progress>
                     </div>
                   )
@@ -2219,9 +2252,22 @@ function ToggleLabels(attrs: {}, context: WsContext) {
                   label_id: label.id!,
                   project_id,
                 })
+                // child labels: show "parent > child" and the bar total is
+                // only images whose parent is annotated yes
+                let parentTitle = label.dependency_id
+                  ? proxy.label[label.dependency_id]?.title
+                  : null
+                let eligible = count_eligible_images.get({
+                  dependency_id: label.dependency_id ?? null,
+                  project_id,
+                })
                 return (
                   <div class="label-container">
-                    <div class="class-label">{label.title}</div>
+                    <div class="class-label">
+                      {label.dependency_id
+                        ? `${parentTitle} > ${label.title}`
+                        : label.title}
+                    </div>
                     <ion-button
                       id={`label-state-button-${label.id}`}
                       class="label-state-button empty"
@@ -2235,7 +2281,7 @@ function ToggleLabels(attrs: {}, context: WsContext) {
                     </ion-button>
                     <progress
                       value={annotated_count}
-                      max={totalImages || 1}
+                      max={eligible || 1}
                     ></progress>
                   </div>
                 )
@@ -2741,13 +2787,17 @@ function UpdateAnnotation(attrs: {}, context: WsContext) {
           label_id: label.id!,
           project_id: project.id!,
         })
+        const eligible = count_eligible_images.get({
+          dependency_id: label.dependency_id ?? null,
+          project_id: project.id!,
+        })
         context.ws.send([
           'eval',
           `
           var btn = document.getElementById('label-state-button-${label.id}');
           if(btn) {
             var progress = btn.parentElement.querySelector('progress');
-            if(progress) progress.value = ${annotated_count};
+            if(progress) { progress.value = ${annotated_count}; progress.max = ${eligible || 1}; }
           }
           `,
         ])
@@ -2808,13 +2858,17 @@ function BatchUnlabel(attrs: {}, context: WsContext) {
         label_id: label.id!,
         project_id: input.project_id,
       })
+      const eligible = count_eligible_images.get({
+        dependency_id: label.dependency_id ?? null,
+        project_id: input.project_id,
+      })
       context.ws.send([
         'eval',
         `
         var btn = document.getElementById('label-state-button-${label.id}');
         if(btn) {
           var progress = btn.parentElement.querySelector('progress');
-          if(progress) progress.value = ${annotated_count};
+          if(progress) { progress.value = ${annotated_count}; progress.max = ${eligible || 1}; }
         }
         `,
       ])
@@ -2919,13 +2973,17 @@ function BatchDelete(attrs: {}, context: WsContext) {
         label_id: label.id!,
         project_id: input.project_id,
       })
+      const eligible = count_eligible_images.get({
+        dependency_id: label.dependency_id ?? null,
+        project_id: input.project_id,
+      })
       context.ws.send([
         'eval',
         `
         var btn = document.getElementById('label-state-button-${label.id}');
         if(btn) {
           var progress = btn.parentElement.querySelector('progress');
-          if(progress) progress.value = ${annotated_count};
+          if(progress) { progress.value = ${annotated_count}; progress.max = ${eligible || 1}; }
         }
         `,
       ])

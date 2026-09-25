@@ -232,6 +232,29 @@ where image.project_id = :project_id
 group by label.id, image.id
 `)
 
+// Images eligible for a label: for a child label (dependency_id set), only
+// images whose parent label is annotated positive (answer = 1) count —
+// same rule as the annotation queue in annotate-image.tsx.
+let select_eligible_image_count = db
+  .prepare<
+    { label_id: number; dependency_id: null | number; project_id: number },
+    number
+  >(
+    /* sql */ `
+select count(*)
+from image
+where image.project_id = :project_id
+and (
+  :dependency_id is null
+  or id in (
+    select image_id from image_label
+    where label_id = :dependency_id and answer = 1
+  )
+)
+`,
+  )
+  .pluck()
+
 // get bounding box count distribution by label_id
 /* example:
 [
@@ -296,6 +319,23 @@ function Main(attrs: {}, context: DynamicContext) {
           break
       }
     }
+  }
+
+  // For child labels, the denominator is only images whose parent is
+  // annotated yes — recompute unknown so it matches the annotation queue
+  // (unknown = eligible - yes - no, never negative).
+  for (let label of projectLabels) {
+    let label_id = label.id!
+    let stats = labels[label_id]
+    if (!stats) continue
+    let eligible =
+      select_eligible_image_count.get({
+        label_id,
+        dependency_id: label.dependency_id ?? null,
+        project_id,
+      }) ?? 0
+    let known = stats.yes + stats.no
+    stats.unknown = Math.max(0, eligible - known)
   }
 
   // label -> { box_count -> image_count }

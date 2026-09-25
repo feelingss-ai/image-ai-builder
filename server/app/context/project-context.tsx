@@ -35,10 +35,12 @@ export function getContextProject(context: DynamicContext): Project | null {
 
 export let select_project_label = db.prepare<
   { project_id: number },
-  { id: number; title: string }
+  { id: number; title: string; dependency_id: null | number }
 >(/* sql */ `
 select
-  id, title
+  id
+, title
+, dependency_id
 from label
 where project_id = :project_id
 order by display_order asc
