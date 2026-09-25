@@ -522,8 +522,8 @@ function setupKeypointEditor(options: {
 
     let pt = canvasToImage(event.clientX, event.clientY)
     if (!pt) {
-      // pointer is in the letterbox area (outside the image): pan instead
-      isPanning = true
+      // pointer is in the letterbox area (outside the image): do nothing —
+      // the grey area must not pan the image
       return
     }
     let hit = findKeypointAt(pt.x, pt.y)
