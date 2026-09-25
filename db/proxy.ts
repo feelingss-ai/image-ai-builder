@@ -168,6 +168,7 @@ export type Label = {
   display_order: null | number
   keypoint_template_id: null | number
   keypoint_template?: KeypointTemplate
+  children_collapsed: null | boolean
 }
 
 export type KeypointTemplate = {

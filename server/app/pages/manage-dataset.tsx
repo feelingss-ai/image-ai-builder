@@ -3459,6 +3459,7 @@ function ensureLabelsByTitle(options: {
       project_id,
       display_order: metaLabel.display_order ?? null,
       keypoint_template_id: null,
+      children_collapsed: null,
     })
     labelTitleToId.set(metaLabel.title, newId)
     created_labels++

@@ -14,7 +14,7 @@ import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { getContextProject } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
-import { object, string, int } from 'cast.ts'
+import { object, string, int, boolean } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
@@ -103,6 +103,11 @@ let style = Style(/* css */ `
   align-items: center;
   gap: 0.25rem;
 }
+.label-child-count {
+  font-size: 0.75rem;
+  color: var(--ion-color-medium);
+  margin-left: 0.15rem;
+}
 `)
 
 let script = Script(/* js */ `
@@ -124,6 +129,10 @@ function moveLabel(label_id, project_id, direction) {
     return;
   }
   emit('/manage-labels/reorder', { label_id: label_id, project_id: project_id, direction: direction });
+}
+
+function toggleChildren(label_id, project_id, collapsed) {
+  emit('/manage-labels/toggle-children', { label_id: label_id, project_id: project_id, collapsed: collapsed });
 }
 `)
 
@@ -166,6 +175,18 @@ function Main(attrs: {}, context: DynamicContext) {
     (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
   )
 
+  // Tree view: parents (no dependency_id) in display order, each followed by
+  // its own children (also in display order). Children of a collapsed parent
+  // are hidden until the parent's toggle is opened.
+  let parents = sortedLabels.filter(l => !l.dependency_id)
+  let childrenByParent = new Map<number, typeof sortedLabels>()
+  for (let label of sortedLabels) {
+    if (!label.dependency_id) continue
+    let list = childrenByParent.get(label.dependency_id) || []
+    list.push(label)
+    childrenByParent.set(label.dependency_id, list)
+  }
+
   return (
     <>
       {/* Add new label button - at the top like project list */}
@@ -179,16 +200,22 @@ function Main(attrs: {}, context: DynamicContext) {
         </Link>
       </div>
 
-      {/* Labels list */}
+      {/* Labels list (tree: parents with their children nested underneath) */}
       <h3>Labels ({sortedLabels.length})</h3>
       <ion-list class="hover-list">
-        {mapArray(sortedLabels, (label, index) => (
-          <LabelItem
-            label={label}
-            project_id={project_id}
-            index={index}
-            totalCount={sortedLabels.length}
-          />
+        {mapArray(parents, parent => (
+          <>
+            <LabelItem
+              label={parent}
+              project_id={project_id}
+              childCount={(childrenByParent.get(parent.id!) || []).length}
+            />
+            {parent.children_collapsed
+              ? null
+              : mapArray(childrenByParent.get(parent.id!) || [], child => (
+                  <LabelItem label={child} project_id={project_id} isChild />
+                ))}
+          </>
         ))}
       </ion-list>
       {sortedLabels.length === 0 && (
@@ -207,8 +234,8 @@ function Main(attrs: {}, context: DynamicContext) {
 function LabelItem(attrs: {
   label: any
   project_id: number
-  index: number
-  totalCount: number
+  childCount?: number
+  isChild?: boolean
 }) {
   let label = attrs.label
   let project_id = attrs.project_id
@@ -227,10 +254,25 @@ function LabelItem(attrs: {
     .map(id => proxy.label[id]?.title)
     .filter((title): title is string => !!title)
 
+  // parents with children get a collapse/expand toggle
+  let childCount = attrs.childCount ?? 0
+  let hasChildren = childCount > 0
+  let collapsed = !!label.children_collapsed
+
   return (
-    <ion-item id={`label-item-${label.id}`}>
+    <ion-item
+      id={`label-item-${label.id}`}
+      data-is-child={attrs.isChild ? 'true' : 'false'}
+      style={attrs.isChild ? '--padding-start: 3rem;' : ''}
+    >
       <ion-label>
         <h2 id={`label-title-${label.id}`}>
+          {attrs.isChild ? (
+            <ion-icon
+              name="return-down-forward-outline"
+              style="font-size: 0.9rem; vertical-align: middle; margin-right: 0.25rem;"
+            ></ion-icon>
+          ) : null}
           {label.title}{' '}
           <span class="label-image-count">({image_count || 'no'} images)</span>
         </h2>
@@ -246,6 +288,23 @@ function LabelItem(attrs: {
         )}
       </ion-label>
       <div style="display: flex; gap: 4px; align-items: center;">
+        {hasChildren ? (
+          <ion-button
+            class="label-toggle-children"
+            fill="clear"
+            size="small"
+            slot="end"
+            title={collapsed ? 'Show children' : 'Hide children'}
+            onclick={`toggleChildren(${label.id}, ${project_id}, ${collapsed ? 'false' : 'true'})`}
+          >
+            <ion-icon
+              name={
+                collapsed ? 'chevron-forward-outline' : 'chevron-down-outline'
+              }
+            ></ion-icon>
+            <span class="label-child-count">{childCount}</span>
+          </ion-button>
+        ) : null}
         <ion-button
           class="label-move-up"
           fill="clear"
@@ -665,6 +724,7 @@ function Submit(attrs: {}, context: WsContext) {
       project_id: project_id,
       display_order: maxOrder + 1,
       keypoint_template_id,
+      children_collapsed: null,
     })
 
     // Stay on page: show hint and clear form so user can add another or go back
@@ -878,36 +938,166 @@ function ReorderLabel(attrs: {}, context: WsContext) {
       throw 'You do not have permission to reorder labels in this project'
     }
 
+    // Tree-aware reorder: parents move among parents (their children follow
+    // them), children move among siblings of the same parent.
+    // display_order is swapped within the group, then the whole list is
+    // re-rendered server-side so children always stay attached to their
+    // parent in the correct position (no fragile DOM block swapping).
     let labels = filter(proxy.label, { project_id })
-    let sorted = [...labels].sort(
+    let isChild = !!label.dependency_id
+    let parents = labels.filter(l => !l.dependency_id)
+    parents.sort(
       (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
     )
-    let idx = sorted.findIndex(l => l.id === label_id)
-    if (idx < 0) throw 'Label not in project list'
-    let swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (swapIdx < 0 || swapIdx >= sorted.length) throw 'Cannot move further'
+    let childrenByParent = new Map<number, typeof parents>()
+    for (let l of labels) {
+      if (!l.dependency_id) continue
+      let list = childrenByParent.get(l.dependency_id) || []
+      list.push(l)
+      childrenByParent.set(l.dependency_id, list)
+    }
+    for (let list of childrenByParent.values()) {
+      list.sort(
+        (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
+      )
+    }
 
-    let other = sorted[swapIdx]
-    let other_id = other!.id!
-    let aOrder = label.display_order ?? 999999
-    let bOrder = other!.display_order ?? 999999
-    label.display_order = bOrder
-    other!.display_order = aOrder
+    if (isChild) {
+      // swap within siblings of the same parent
+      let siblings = childrenByParent.get(label.dependency_id!) || []
+      let idx = siblings.findIndex(l => l.id === label_id)
+      if (idx < 0) throw 'Label not in project list'
+      let swapIdx = direction === 'up' ? idx - 1 : idx + 1
+      if (swapIdx < 0 || swapIdx >= siblings.length) throw 'Cannot move further'
+      let other = siblings[swapIdx]!
+      let aOrder = label.display_order ?? 999999
+      let bOrder = other.display_order ?? 999999
+      label.display_order = bOrder
+      other.display_order = aOrder
+    } else {
+      // swap the parent with the adjacent parent; children follow because the
+      // list is re-rendered with children attached to their parent
+      let idx = parents.findIndex(l => l.id === label_id)
+      if (idx < 0) throw 'Label not in project list'
+      let swapIdx = direction === 'up' ? idx - 1 : idx + 1
+      if (swapIdx < 0 || swapIdx >= parents.length) throw 'Cannot move further'
+      let other = parents[swapIdx]!
+      let aOrder = label.display_order ?? 999999
+      let bOrder = other.display_order ?? 999999
+      label.display_order = bOrder
+      other.display_order = aOrder
+    }
 
-    let swapEval = `
-(function(){
-  var cur = document.getElementById('label-item-${label_id}');
-  var other = document.getElementById('label-item-${other_id}');
-  if (!cur || !other) return;
-  var parent = cur.parentNode;
-  if ('${direction}' === 'up') {
-    parent.insertBefore(cur, other);
-  } else {
-    parent.insertBefore(cur, other.nextSibling);
+    // Re-render the whole list from the DB (children follow their parent,
+    // collapsed states respected)
+    let sortedLabels = [...labels].sort(
+      (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
+    )
+    let parentList = sortedLabels.filter(l => !l.dependency_id)
+    let childMap = new Map<number, typeof sortedLabels>()
+    for (let l of sortedLabels) {
+      if (!l.dependency_id) continue
+      let list = childMap.get(l.dependency_id) || []
+      list.push(l)
+      childMap.set(l.dependency_id, list)
+    }
+    context.ws.send([
+      'update-in',
+      'ion-list.hover-list',
+      nodeToVNode(
+        <ion-list class="hover-list">
+          {mapArray(parentList, parent => (
+            <>
+              <LabelItem
+                label={parent}
+                project_id={project_id}
+                childCount={(childMap.get(parent.id!) || []).length}
+              />
+              {parent.children_collapsed
+                ? null
+                : mapArray(childMap.get(parent.id!) || [], child => (
+                    <LabelItem label={child} project_id={project_id} isChild />
+                  ))}
+            </>
+          ))}
+        </ion-list>,
+        context,
+      ),
+    ])
+    throw EarlyTerminate
+  } catch (error) {
+    if (error === EarlyTerminate) throw EarlyTerminate
+    console.error(error)
+    context.ws.send(['eval', `alert("${String(error).replace(/"/g, '\\"')}")`])
+    throw EarlyTerminate
   }
-})();
-`
-    context.ws.send(['eval', swapEval])
+}
+
+let toggleChildrenParser = object({
+  label_id: int(),
+  project_id: int(),
+  collapsed: boolean(),
+})
+
+// Toggles whether a parent's children are shown in the label list
+function ToggleChildren(attrs: {}, context: WsContext) {
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'You must be logged in'
+
+    let body = getContextFormBody(context)
+    let input = toggleChildrenParser.parse(body)
+    let project_id = input.project_id
+
+    let project = proxy.project[project_id]
+    let label = proxy.label[input.label_id]
+    if (!project || !label || label.project_id !== project_id) {
+      throw 'Label not found'
+    }
+    if (project.creator_id !== user.id) {
+      throw 'You do not have permission to edit labels in this project'
+    }
+
+    label.children_collapsed = input.collapsed
+
+    // Re-render the whole list server-side (simplest correct way to show/hide
+    // the children block and update the toggle icon)
+    let labels = filter(proxy.label, { project_id })
+    let sortedLabels = [...labels].sort(
+      (a, b) => (a.display_order ?? 999999) - (b.display_order ?? 999999),
+    )
+    let parents = sortedLabels.filter(l => !l.dependency_id)
+    let childrenByParent = new Map<number, typeof sortedLabels>()
+    for (let l of sortedLabels) {
+      if (!l.dependency_id) continue
+      let list = childrenByParent.get(l.dependency_id) || []
+      list.push(l)
+      childrenByParent.set(l.dependency_id, list)
+    }
+
+    context.ws.send([
+      'update-in',
+      'ion-list.hover-list',
+      nodeToVNode(
+        <ion-list class="hover-list">
+          {mapArray(parents, parent => (
+            <>
+              <LabelItem
+                label={parent}
+                project_id={project_id}
+                childCount={(childrenByParent.get(parent.id!) || []).length}
+              />
+              {parent.children_collapsed
+                ? null
+                : mapArray(childrenByParent.get(parent.id!) || [], child => (
+                    <LabelItem label={child} project_id={project_id} isChild />
+                  ))}
+            </>
+          ))}
+        </ion-list>,
+        context,
+      ),
+    ])
     throw EarlyTerminate
   } catch (error) {
     if (error === EarlyTerminate) throw EarlyTerminate
@@ -1034,6 +1224,12 @@ let routes = {
     title: apiEndpointTitle,
     description: 'Change label order',
     node: <ReorderLabel />,
+    streaming: false,
+  },
+  '/manage-labels/toggle-children': {
+    title: apiEndpointTitle,
+    description: 'Show or hide a parent label children',
+    node: <ToggleChildren />,
     streaming: false,
   },
   '/manage-labels/set-conflicts': {

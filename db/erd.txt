@@ -173,6 +173,7 @@ dependency_id integer NULL FK >0- label.id
 project_id integer NULL FK >0- project.id
 display_order integer NULL
 keypoint_template_id integer NULL FK >0- keypoint_template.id
+children_collapsed boolean NULL
 
 
 keypoint_template
