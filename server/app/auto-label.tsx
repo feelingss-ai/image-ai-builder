@@ -100,14 +100,16 @@ function snapshot(job: AutoLabelJob): AutoLabelProgress {
 
 function parseAnswer(content: string): 'yes' | 'no' | null {
   let trimmed = content.trim()
+  // the {reason, label} format: the answer lives in the `label` field
+  // (bare bool format's `answer` field is kept as a fallback)
   try {
     let parsed = JSON.parse(trimmed)
-    let answer = String(parsed.answer ?? '').toLowerCase()
+    let answer = String(parsed.label ?? parsed.answer ?? '').toLowerCase()
     if (answer === 'yes' || answer === 'no') return answer
   } catch {
     // the model may wrap the JSON in markdown fence or add prose
   }
-  let match = trimmed.match(/\{\s*"answer"\s*:\s*"(yes|no)"\s*\}/i)
+  let match = trimmed.match(/"(?:label|answer)"\s*:\s*"(yes|no)"/i)
   return match ? (match[1]!.toLowerCase() as 'yes' | 'no') : null
 }
 
@@ -171,7 +173,8 @@ export function startAutoLabelJob(options: {
 
   let prompt =
     `Look at this image. Does it show ${label.title.replace(/"/g, "'")}? ` +
-    `Answer with JSON only: {"answer":"yes"} or {"answer":"no"}. ` +
+    `First briefly describe what you see (one sentence), then decide. ` +
+    `Answer with JSON only: {"reason":"...", "label":"yes"} or {"reason":"...", "label":"no"}. ` +
     `No other text.`
 
   // fire-and-forget: the caller (WS handler) must not await this — the job
