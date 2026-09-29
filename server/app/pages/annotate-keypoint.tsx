@@ -139,6 +139,11 @@ var keypointBoxes = []
 var currentBoxId = null
 var currentImageId = null
 var currentLabelId = null
+// FULL keypoint list of ALL boxes of the current image (from the server).
+// window.keypointData only ever holds the ACTIVE box's points (built by
+// loadKeypointsForBox), so switching boxes must filter from this list —
+// otherwise the other box's keypoints would be lost on the first switch.
+var keypointDataAll = []
 
 function getProjectId() {
   const params = new URLSearchParams(window.location.search)
@@ -214,6 +219,8 @@ async function fetchKeypointData(image_id, label_id) {
   } catch (error) {
     console.error('fetchKeypointData error:', error)
   }
+  // keep the full list (all boxes) for box switching
+  keypointDataAll = window.keypointData || []
 }
 
 // Main setup: called from <img onLoad> and after box/keypoint updates
@@ -306,7 +313,8 @@ function updateBoxSelectValue(boxId) {
   setTimeout(function() { window._suppressBoxSelectChange = false }, 0)
 }
 
-// Build the keypoint list from the template + existing data
+// Build the keypoint list for the active box from the FULL list
+// (keypointDataAll holds every box's points; keypointData is per-box only)
 function loadKeypointsForBox(boxId) {
   // no box (e.g. bounding boxes not confirmed yet) -> nothing to mark
   if (boxId == null) {
@@ -316,8 +324,7 @@ function loadKeypointsForBox(boxId) {
     renderKeypointList()
     return
   }
-  let existing = window.keypointData || []
-  let boxKeypoints = existing.filter(function(kp) { return kp.box_id === boxId })
+  let boxKeypoints = keypointDataAll.filter(function(kp) { return kp.box_id === boxId })
   let list = []
   for (let i = 0; i < keypointNames.length; i++) {
     let kp = boxKeypoints.find(function(k) { return k.idx === i })
@@ -518,6 +525,17 @@ async function clearKeypoint() {
     })
     kp.id = null
   }
+  // keep the full list in sync: the point is deleted from the active box
+  let saved = keypointDataAll.find(function(k) {
+    return k.box_id === currentBoxId && k.idx === kp.idx
+  })
+  if (saved) {
+    saved.x = null
+    saved.y = null
+    saved.visibility = 1
+    saved.last_x = kp.last_x
+    saved.last_y = kp.last_y
+  }
 }
 
 // Persist a keypoint (insert or update) via WS
@@ -541,6 +559,27 @@ async function saveKeypoint(kp) {
     last_y: kp.last_y == null ? null : kp.last_y,
     project_id: getProjectId(),
   })
+  // keep the full list in sync so switching boxes shows the saved point
+  let saved = keypointDataAll.find(function(k) {
+    return k.box_id === currentBoxId && k.idx === kp.idx
+  })
+  if (saved) {
+    saved.x = kp.x
+    saved.y = kp.y
+    saved.visibility = kp.visibility
+    saved.last_x = kp.last_x
+    saved.last_y = kp.last_y
+  } else {
+    keypointDataAll.push({
+      box_id: currentBoxId,
+      idx: kp.idx,
+      x: kp.x,
+      y: kp.y,
+      visibility: kp.visibility,
+      last_x: kp.last_x,
+      last_y: kp.last_y,
+    })
+  }
 }
 
 // Submit: confirm all keypoints of the current box and move to next image
@@ -646,6 +685,7 @@ if (!window.__keypointChangeListenerAdded) {
       currentBoxId = null
       window.keypointBoxesData = null
       window.keypointData = null
+      keypointDataAll = []
       if (!(await waitForWebSocket())) return
       emit('/annotate-keypoint/showImage', { label_id, project_id: getProjectId() })
     } else if (event.target.id === 'box_select') {
@@ -1323,6 +1363,7 @@ function ShowImage(attrs: {}, context: WsContext) {
         window._keypointActiveBoxId = null;
         window.keypointBoxesData = null;
         window.keypointData = null;
+        keypointDataAll = [];
         if (typeof updateBoxSelect === 'function') updateBoxSelect([]);
         `,
       ])
@@ -1343,6 +1384,7 @@ function ShowImage(attrs: {}, context: WsContext) {
         document.getElementById('no-image-message').hidden = false;
         window.keypointBoxesData = [];
         window.keypointData = [];
+        keypointDataAll = [];
         currentBoxId = null;
         window._keypointActiveBoxId = null;
         if (typeof updateBoxSelect === 'function') updateBoxSelect([]);
@@ -1434,7 +1476,9 @@ function GetKeypoints(attrs: {}, context: WsContext) {
           rotate: box.rotate,
           label_id: box.label_id,
         })),
-      )};` + `window.keypointData = ${JSON.stringify(keypoints)};`,
+      )};` +
+        `window.keypointData = ${JSON.stringify(keypoints)};` +
+        `keypointDataAll = ${JSON.stringify(keypoints)};`,
     ])
 
     throw EarlyTerminate
@@ -1521,6 +1565,10 @@ function SaveKeypoint(attrs: {}, context: WsContext) {
         let keypoints = window.keypointData || [];
         let kp = keypoints.find(k => k.idx === ${input.idx} && k.box_id === ${input.box_id});
         if (kp) kp.id = ${result.id};
+        if (typeof keypointDataAll !== 'undefined') {
+          let saved = keypointDataAll.find(k => k.box_id === ${input.box_id} && k.idx === ${input.idx});
+          if (saved) saved.id = ${result.id};
+        }
         `,
       ])
     }
@@ -1668,6 +1716,7 @@ function SubmitKeypoints(attrs: {}, context: WsContext) {
         window._keypointActiveBoxId = null;
         window.keypointBoxesData = null;
         window.keypointData = null;
+        keypointDataAll = [];
         if (typeof updateBoxSelect === 'function') updateBoxSelect([]);
         `,
       ])
@@ -1682,6 +1731,7 @@ function SubmitKeypoints(attrs: {}, context: WsContext) {
         document.getElementById('no-image-message').hidden = false;
         window.keypointBoxesData = [];
         window.keypointData = [];
+        keypointDataAll = [];
         currentBoxId = null;
         window._keypointActiveBoxId = null;
         if (typeof updateBoxSelect === 'function') updateBoxSelect([]);
