@@ -31,6 +31,7 @@ proxy.label[1] = {
   project_id: 1,
   keypoint_template_id: null,
   children_collapsed: null,
+  mutually_exclusive: null,
 }
 proxy.label[2] = {
   display_order: 2,
@@ -39,6 +40,7 @@ proxy.label[2] = {
   project_id: 1,
   keypoint_template_id: null,
   children_collapsed: null,
+  mutually_exclusive: null,
 }
 proxy.label[3] = {
   display_order: 3,
@@ -47,6 +49,7 @@ proxy.label[3] = {
   project_id: 1,
   keypoint_template_id: null,
   children_collapsed: null,
+  mutually_exclusive: null,
 }
 proxy.label[4] = {
   display_order: 4,
@@ -55,6 +58,7 @@ proxy.label[4] = {
   project_id: 1,
   keypoint_template_id: null,
   children_collapsed: null,
+  mutually_exclusive: null,
 }
 proxy.label[5] = {
   display_order: 5,
@@ -63,6 +67,7 @@ proxy.label[5] = {
   project_id: 1,
   keypoint_template_id: null,
   children_collapsed: null,
+  mutually_exclusive: null,
 }
 
 // keypoint template: 2-point default (left eye + right eye) — the minimal

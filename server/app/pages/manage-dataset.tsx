@@ -3513,6 +3513,7 @@ function ensureLabelsByTitle(options: {
       display_order: metaLabel.display_order ?? null,
       keypoint_template_id: null,
       children_collapsed: null,
+      mutually_exclusive: null,
     })
     labelTitleToId.set(metaLabel.title, newId)
     created_labels++

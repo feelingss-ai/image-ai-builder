@@ -61,8 +61,12 @@ export function getContextLabel(context: DynamicContext): Label | null {
 }
 
 // Build a symmetric conflict map for a project: { label_id: [conflicting ids] }.
-// Conflicts are stored as an unordered pair, so both directions are expanded.
-// Injected into annotation pages so the client can disable conflicting options.
+// Two sources are merged:
+//   1. explicit pairs from label_conflict (unordered pair, both directions)
+//   2. group semantics: a parent with mutually_exclusive set makes ALL its
+//      children pairwise exclusive (only one child may be yes per image)
+// Injected into annotation pages so the client can disable conflicting
+// options, and used server-side for the yes→no cascade.
 export function getProjectConflictMap(
   project_id: number,
 ): Record<number, number[]> {
@@ -74,6 +78,19 @@ export function getProjectConflictMap(
   for (let row of filter(proxy.label_conflict, { project_id })) {
     add(row.label_a_id, row.label_b_id)
     add(row.label_b_id, row.label_a_id)
+  }
+  // expand mutually-exclusive groups: every pair of children under a flagged
+  // parent conflicts with each other
+  let labels = filter(proxy.label, { project_id })
+  for (let label of labels) {
+    if (!label.dependency_id) continue
+    let parent = labels.find(l => l.id === label.dependency_id)
+    if (!parent?.mutually_exclusive) continue
+    for (let sibling of labels) {
+      if (sibling.id === label.id) continue
+      if (sibling.dependency_id !== parent.id) continue
+      add(label.id!, sibling.id!)
+    }
   }
   return map
 }

@@ -12,9 +12,12 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  getContextProject,
+  getProjectConflictMap,
+} from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
-import { object, string, int, boolean } from 'cast.ts'
+import { object, string, int, boolean, optional } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
@@ -186,6 +189,8 @@ function Main(attrs: {}, context: DynamicContext) {
     list.push(label)
     childrenByParent.set(label.dependency_id, list)
   }
+  // pairwise + mutually-exclusive-group conflicts, for the list hints
+  let conflictMap = getProjectConflictMap(project_id)
 
   return (
     <>
@@ -208,12 +213,18 @@ function Main(attrs: {}, context: DynamicContext) {
             <LabelItem
               label={parent}
               project_id={project_id}
+              conflictMap={conflictMap}
               childCount={(childrenByParent.get(parent.id!) || []).length}
             />
             {parent.children_collapsed
               ? null
               : mapArray(childrenByParent.get(parent.id!) || [], child => (
-                  <LabelItem label={child} project_id={project_id} isChild />
+                  <LabelItem
+                    label={child}
+                    project_id={project_id}
+                    conflictMap={conflictMap}
+                    isChild
+                  />
                 ))}
           </>
         ))}
@@ -234,6 +245,7 @@ function Main(attrs: {}, context: DynamicContext) {
 function LabelItem(attrs: {
   label: any
   project_id: number
+  conflictMap: Record<number, number[]>
   childCount?: number
   isChild?: boolean
 }) {
@@ -249,8 +261,9 @@ function LabelItem(attrs: {
 
   let image_count = count(proxy.image_label, { label_id: label.id })
 
-  // conflicting labels (both directions), shown as a hint under the title
-  let conflictTitles = getConflictIds(label.id!)
+  // conflicting labels (pairwise + mutually-exclusive groups, both
+  // directions), shown as a hint under the title
+  let conflictTitles = (attrs.conflictMap[label.id!] || [])
     .map(id => proxy.label[id]?.title)
     .filter((title): title is string => !!title)
 
@@ -280,6 +293,12 @@ function LabelItem(attrs: {
           {dependencyText}
           {templateText}
         </p>
+        {!label.dependency_id && label.mutually_exclusive && (
+          <p class="label-conflict-text">
+            <ion-icon name="git-compare-outline"></ion-icon> children are
+            mutually exclusive
+          </p>
+        )}
         {conflictTitles.length > 0 && (
           <p class="label-conflict-text">
             <ion-icon name="git-compare-outline"></ion-icon>{' '}
@@ -578,6 +597,25 @@ function EditPage(attrs: {}, context: DynamicContext) {
                 ))}
               </ion-select>
             </ion-item>
+            {isParentLabel && (
+              <>
+                <ion-item>
+                  <ion-toggle
+                    name="mutually_exclusive"
+                    checked={!!label.mutually_exclusive}
+                  >
+                    Children are mutually exclusive
+                  </ion-toggle>
+                </ion-item>
+                <p style="font-size: 0.8rem; color: var(--ion-color-medium); margin: 0.25rem 1rem;">
+                  <Locale
+                    en="When set, only one child label under this parent can be marked yes per image (selecting one clears the others)."
+                    zh_hk="設定後，此父標籤下的子標籤只能有一個為「是」（選擇其中一個會自動清除其他）。"
+                    zh_cn="设置后，此父标签下的子标签只能有一个为「是」（选择其中一个会自动清除其他）。"
+                  />
+                </p>
+              </>
+            )}
           </ion-list>
           <div style="margin: 2rem 0">
             <ion-button type="submit" expand="block">
@@ -725,6 +763,7 @@ function Submit(attrs: {}, context: WsContext) {
       display_order: maxOrder + 1,
       keypoint_template_id,
       children_collapsed: null,
+      mutually_exclusive: null,
     })
 
     // Stay on page: show hint and clear form so user can add another or go back
@@ -754,6 +793,8 @@ let modifyParser = object({
   title: string({ minLength: 1, maxLength: 100 }),
   dependency_id: string(),
   keypoint_template_id: string(),
+  // ion-toggle unchecked submits nothing — default to false when absent
+  mutually_exclusive: optional(boolean()),
 })
 
 // resolve the keypoint_template_id from a form string ('' or '0' -> null)
@@ -815,6 +856,10 @@ function ModifyLabel(attrs: {}, context: WsContext) {
       input.keypoint_template_id,
       project_id,
     )
+    // group flag only meaningful on parents; clear it when the label becomes
+    // a child so a stale flag never leaks into the conflict map
+    label.mutually_exclusive =
+      !dependency_id && input.mutually_exclusive === true ? true : null
 
     context.ws.send(['update-text', `#label-title-${label_id}`, input.title])
     context.ws.send(['redirect', `/manage-labels?project=${project_id}`])
@@ -1001,6 +1046,7 @@ function ReorderLabel(attrs: {}, context: WsContext) {
       list.push(l)
       childMap.set(l.dependency_id, list)
     }
+    let conflictMap = getProjectConflictMap(project_id)
     context.ws.send([
       'update-in',
       'ion-list.hover-list',
@@ -1011,12 +1057,18 @@ function ReorderLabel(attrs: {}, context: WsContext) {
               <LabelItem
                 label={parent}
                 project_id={project_id}
+                conflictMap={conflictMap}
                 childCount={(childMap.get(parent.id!) || []).length}
               />
               {parent.children_collapsed
                 ? null
                 : mapArray(childMap.get(parent.id!) || [], child => (
-                    <LabelItem label={child} project_id={project_id} isChild />
+                    <LabelItem
+                      label={child}
+                      project_id={project_id}
+                      conflictMap={conflictMap}
+                      isChild
+                    />
                   ))}
             </>
           ))}
@@ -1074,6 +1126,7 @@ function ToggleChildren(attrs: {}, context: WsContext) {
       list.push(l)
       childrenByParent.set(l.dependency_id, list)
     }
+    let conflictMap = getProjectConflictMap(project_id)
 
     context.ws.send([
       'update-in',
@@ -1085,12 +1138,18 @@ function ToggleChildren(attrs: {}, context: WsContext) {
               <LabelItem
                 label={parent}
                 project_id={project_id}
+                conflictMap={conflictMap}
                 childCount={(childrenByParent.get(parent.id!) || []).length}
               />
               {parent.children_collapsed
                 ? null
                 : mapArray(childrenByParent.get(parent.id!) || [], child => (
-                    <LabelItem label={child} project_id={project_id} isChild />
+                    <LabelItem
+                      label={child}
+                      project_id={project_id}
+                      conflictMap={conflictMap}
+                      isChild
+                    />
                   ))}
             </>
           ))}

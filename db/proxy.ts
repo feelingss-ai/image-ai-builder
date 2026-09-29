@@ -169,6 +169,7 @@ export type Label = {
   keypoint_template_id: null | number
   keypoint_template?: KeypointTemplate
   children_collapsed: null | boolean
+  mutually_exclusive: null | boolean
 }
 
 export type KeypointTemplate = {
