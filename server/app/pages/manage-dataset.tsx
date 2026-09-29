@@ -24,7 +24,6 @@ import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
 import {
   getContextProject,
-  getProjectConflictMap,
   select_project_label,
 } from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
@@ -2370,14 +2369,10 @@ function ToggleLabelState(attrs: {}, context: WsContext) {
     Object.assign(updatedLabelStates, frontendLabelStates)
     updatedLabelStates[input.label_id] = state
 
-    // A label marked correct/incorrect conflicts with its conflicting labels,
-    // so those are reset to empty (they cannot be filtered on at the same time)
-    if (state === 'correct' || state === 'incorrect') {
-      let conflictMap = getProjectConflictMap(project_id)
-      for (let conflictId of conflictMap[input.label_id] || []) {
-        updatedLabelStates[conflictId] = 'empty'
-      }
-    }
+    // NOTE: no conflict reset here — filtering is pure AND semantics. Since
+    // annotation cascades conflicting labels to answer=0 on yes, an image can
+    // never satisfy two conflicting yes filters, so the intersection is
+    // naturally empty (same behaviour as ExportDataset label_filters).
 
     let boxesMap = getProjectBoundingBoxes(project_id)
     let images = getProjectImages(project_id).map(item => ({
