@@ -614,6 +614,16 @@ function setupKeypointEditor(options: {
     }
   }
 
+  // Register interaction listeners only ONCE per canvas element.
+  // setupKeypointEditor runs again on every image load, but the canvas
+  // element persists across images (only the hidden <img> src changes), so
+  // re-registering would stack duplicate handlers: one click fired
+  // onCanvasClick twice, placing keypoint a AND b at the same position.
+  // The closures capture image/canvas/window.camera, whose identity does
+  // not change across image loads, so the first registration keeps working
+  // for every subsequent image.
+  if ((canvas as any).__keypointListenersBound) return
+  ;(canvas as any).__keypointListenersBound = true
   canvas.addEventListener('pointerdown', event => {
     onPointerDown(event)
   })
