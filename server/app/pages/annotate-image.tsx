@@ -1235,24 +1235,22 @@ function SubmitAnnotation(attrs: {}, context: WsContext) {
       )
     }
 
-    // Conflicting labels always get the OPPOSITE answer of this label:
-    //   answer=1 -> conflicts get 0 (they cannot also be positive)
-    //   answer=0 -> conflicts get 1 (rejected here, so it is the other one)
-    // This keeps every submit path (buttons, arrow keys, AI suggestion badge)
-    // consistent — the conflict is enforced no matter which answer is marked.
-    let answer = +input.answer
-    let opposite = answer === 1 ? 0 : 1
-    let conflictMap = getProjectConflictMap(image.project_id!)
-    for (let conflictId of conflictMap[label.id!] || []) {
-      seedRow(
-        proxy.image_label,
-        {
-          label_id: conflictId,
-          image_id: image.id!,
-          user_id: user.id!,
-        },
-        { answer: opposite },
-      )
+    // Conflict rule: marking YES forces conflicting labels to NO (they cannot
+    // also be positive). Marking NO does NOT touch conflicting labels — the
+    // user may still mark them yes/no freely.
+    if (+input.answer === 1) {
+      let conflictMap = getProjectConflictMap(image.project_id!)
+      for (let conflictId of conflictMap[label.id!] || []) {
+        seedRow(
+          proxy.image_label,
+          {
+            label_id: conflictId,
+            image_id: image.id!,
+            user_id: user.id!,
+          },
+          { answer: 0 },
+        )
+      }
     }
 
     // Calculate the updated count of annotated images

@@ -219,18 +219,20 @@ export function startAutoLabelJob(options: {
             },
             { answer: answerValue },
           )
-          // conflicting labels get the opposite answer (A yes -> B no,
-          // A no -> B yes) — same as manual annotation
-          for (let conflictId of conflictIds) {
-            seedRow(
-              proxy.image_label,
-              {
-                label_id: conflictId,
-                image_id: image.id!,
-                user_id,
-              },
-              { answer: answerValue === 1 ? 0 : 1 },
-            )
+          // conflicting labels are forced to no when this label is yes
+          // (marking no does not touch them) — same as manual annotation
+          if (answerValue === 1) {
+            for (let conflictId of conflictIds) {
+              seedRow(
+                proxy.image_label,
+                {
+                  label_id: conflictId,
+                  image_id: image.id!,
+                  user_id,
+                },
+                { answer: 0 },
+              )
+            }
           }
           if (answer === 'yes') job.yes++
           else job.no++
