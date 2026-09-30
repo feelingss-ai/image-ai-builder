@@ -23,4 +23,5 @@
 - [Similar image finder](./_to_review/similar-image-finder.md)
 - [Keypoint annotation support](./_to_review/keypoint-annotation.md)
 - [Box stats](./_to_review/box-model-training-stats.md)
-- [One-click AI auto label (local VLM, Phase 1+2+3 done)](./auto-label.md)
+- [One-click AI auto label — classification (local VLM, Phase 1+2+3 done)](./auto-label-classification.md)
+- [Auto label — bounding box (detection / grounding)](./auto-label-box.md)

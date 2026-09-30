@@ -107,7 +107,138 @@ unknown_count)` (Swal confirm showing the un-annotated count and the ~15s
 ## Phase 4 — mutually exclusive labels (TODO)
 
 - `label.exclusive_group text NULL` migration (resilient pattern like
-  `20250305120000_label-display-order.ts`).
+  `2025030512000_label-display-order.ts`).
 - Enforce in 3 places: annotate-image submit (yes → siblings in group become
   no), auto-label job (keep one yes per group), manage-labels UI.
 - Round-trip through dataset export/import metadata.
+
+## Benchmark — model & prompt choice (2026-09-29/30)
+
+Independent benchmark (Beeno) to pick the model/prompt for this feature.
+Raw data: `~/agent/sessions/2026-09-29-vlm-autolabel-breed-test/`.
+
+### Model choice
+
+| Model | Task | Accuracy | Notes |
+| --- | --- | --- | --- |
+| **minicpm-v-4.6-thinking** | classification | species 91%, **breed 97%** | **best VLM tested** (fast + small) |
+| qwen3-vl-4b-instruct | classification | breed 97% | fast (~1.8s), robust |
+| qwen3.5-9b | classification | breed 97% | ~18s, not worth 10× |
+| minicpm-v-4.6 (plain) | classification | breed 75% | needs a reasoning prompt |
+| gemma-4-e2b / e4b | classification | 53% / 61% | not competitive |
+| bonsai-27b | classification | ~36s/img | thinking trace dominates; impractical |
+
+For **detection / boxes**, see `tasks/auto-label-box.md` (LocateAnything-3B).
+
+Cantonese note: `minicpm-v-4.6` is marked "Only zh" in the LM Studio sheet —
+meaning it can **read** Cantonese but **replies in written Chinese**. That is
+fine for auto-labeling (we only need it to *understand* the image/prompt), so it
+is not a blocker. Prefer a "Support" model only if the output must be Cantonese.
+
+### Thinking: on vs off (measured 2026-09-30)
+
+- Thinking models spend most of their time on the **hidden reasoning trace**:
+  bonsai-27b same image **13.7s with thinking vs 1.2s with `--no-thinking`**
+  (~11× faster).
+- So the slow models are slow because of **long reasoning**, not output length.
+- `img-read` supports `-r none|minimal|low|medium|high|xhigh` (or `--no-thinking`)
+  to control this.
+
+**Reasoning is NOT reliable without a prompt hint** (gemma-4-e4b, same request):
+
+| prompt | reasoned? |
+| --- | --- |
+| base (no hint) | 2 of 4 runs (~50%) — the model decides |
+| `-r high` (flag only) | 2 of 3 runs — still flaky |
+| **"think step by step" + a `reason` field** | **4 of 4 runs — deterministic** |
+| `-r none` | 0 of 4 — reliably suppresses |
+
+So: **ask for it in the prompt** (a `reason` field before the answer) instead of
+relying on the model to volunteer reasoning, or on a server flag. This is
+deterministic, portable across models, and matches the Phase-1 change to
+"explain before deciding".
+
+### Context size vs memory (minicpm-v-4.6 and minicpm-v-4.6-thinking)
+
+Both minicpm models (~752M, 1.92 GB file) share the same context → RAM curve:
+
+| Context | RAM |
+| --- | --- |
+| 8k | 2.13 GB |
+| **16k** | **2.24 GB** |
+| 131k | 3.66 GB |
+| 262k | 5.28 GB |
+
+Running at **16k** (instead of 131k) uses ~2.24 GB instead of 3.66 GB — about
+40% less memory, with **no meaningful speed change** (single-image calls are only
+a few hundred tokens, far below the window). Shrinking context is a cheap way to
+cut footprint for auto-labeling, where each call is one image.
+
+### Prompt design comparison (breed, 64 images) — RESULT
+
+Prompt shapes tested on `minicpm-v-4.6` (same question, different output shape /
+whether a reason is requested):
+
+- `pick1` — enumerate + pick exactly one (baseline)
+- `pick1_reason` — reason first, then one
+- `bool` — 8 independent booleans
+- `unknown` — pick one, or "unknown"
+- `terse` — bare breed name, no JSON
+
+**Key method note:** `minicpm-v-4.6-thinking` **ignores `--no-thinking`** (it
+always reasons). So the real thinking on/off comparison is the two **models**:
+plain `minicpm-v-4.6` = OFF, `minicpm-v-4.6-thinking` = ON (same base, 1.92 GB).
+
+| Variant | thinking ON | thinking OFF |
+| --- | --- | --- |
+| `unknown` | **62/64 (97%)** | 50/64 (78%) |
+| `pick1` | 61/64 (95%) | 45/64 (70%) |
+| `terse` | 61/64 (95%) | (n/a — flag ignored) |
+| `pick1_reason` | 60/64 (94%) | 50/64 (78%) |
+| `bool` | 57/64 (89%) | **18/64 (28%)** |
+
+Findings:
+
+- **Thinking matters a lot**: every variant drops 17–61 points without it.
+- **A `reason` field only helps without thinking**: `pick1` 70% → `pick1_reason`
+  78% (+8). With thinking it is a wash (95% → 94%) — the model is already at its
+  ceiling. So add a reason hint only for weak models / when thinking is off.
+- **Best variants**: `unknown` (97%) and `pick1` (95%). **`bool` (8 booleans) is
+  the worst** — especially without thinking (28%), so avoid multi-label output.
+- **`terse` (bare text, no JSON) is fine** (61/64 = 95% with thinking). An earlier
+  "47%" was a **parser bug**: the model names several breeds while deliberating,
+  so `head -1` (first match) grabbed a breed from the reasoning. The fix is to
+  take the **last** breed name in the **Content** section (`tail -1`), which is
+  the model's actual answer. The 3 remaining misses are genuine model errors.
+
+Still to run: `yes/no` vs `true/false`, `unknown_reason`, `bool_reason`.
+
+### Prompt-format findings
+
+- **Reasoning-before-label helps, mostly for the weaker model.** On a 100-image
+  species test, adding a one-sentence `reason` before the label cut minicpm
+  false positives from **59 → 6** (exact match 46 → 80); for the strong model the
+  gain was smaller (89 → 93). Reasoning is **nearly free** in time.
+  This matches the Phase-1 change to "explain before deciding".
+- **Probabilities / real numbers do NOT help.** The model emits `0`/`1` anyway;
+  thresholding at 0.5 gave *more* false positives than a plain boolean.
+  Confidence is not calibrated (negatives 0.73–0.85 vs positives 0.80–0.90).
+- **`true/false` vs `"yes"/"no"`**: identical accuracy.
+- **Two-stage** (VLM describe → text model label) rejected — same accuracy,
+  extra latency.
+- Per-label yes/no is what the job already does; **ask one label at a time**
+  (batching several labels in one prompt caused over-triggering).
+
+### Gotcha: local model load failures
+
+LM Studio / Ollama load models just-in-time; the first calls after a model
+switch can return **empty** ("Failed to load model ... Operation canceled").
+If counted as wrong answers, results are skewed against whichever model ran
+first after a switch. **Fix = warm-up call per model + retry on empty**
+(the job already retries once on empty/unparsed — keep that).
+
+### Speed note
+
+Local CPU speed varies hugely: ~14s/img on Ryzen 5 5500U (Elly, Phase 1) vs
+~1–2.5s/img on a discrete NVIDIA GPU (RTX 5050, Beeno). Benchmark on the
+**deployment machine**; the ~15s/image warning in the UI is the CPU case.
