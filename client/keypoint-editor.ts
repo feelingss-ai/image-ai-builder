@@ -644,11 +644,59 @@ function setupKeypointEditor(options: {
     for (let touch of Array.from(event.touches)) {
       lastTouches[touch.identifier] = touch
     }
+    // a single touch starting on a keypoint drags the keypoint, not the
+    // image: the touchmove handler checks this flag and moves the point
+    // instead of panning. Pointer events usually handle this too, but the
+    // hit-test here keeps touch-only browsers consistent.
+    if (event.touches.length === 1) {
+      let touch = event.touches[0]
+      let pt = canvasToImage(touch.clientX, touch.clientY)
+      if (pt) {
+        let hit = findKeypointAt(pt.x, pt.y)
+        if (hit) {
+          isDraggingKeypoint = true
+          window.selectedKeypointIdx = hit.idx
+          if (typeof (window as any).onKeypointSelected === 'function') {
+            ;(window as any).onKeypointSelected(hit.idx)
+          }
+          render()
+        }
+      }
+    }
   })
 
   canvas.addEventListener('touchmove', event => {
     let rect = canvas.getBoundingClientRect()
     let touchCount = event.touches.length
+
+    // dragging a keypoint with a single finger: move the point, never pan
+    if (isDraggingKeypoint && touchCount === 1) {
+      let touch = event.touches[0]
+      let pt = canvasToImage(touch.clientX, touch.clientY)
+      if (pt) {
+        let idx = window.selectedKeypointIdx
+        let keypoints = window.keypointData || []
+        let kp = keypoints.find(k => k.idx === idx)
+        if (kp) {
+          kp.x = Math.max(0, Math.min(1, pt.x))
+          kp.y = Math.max(0, Math.min(1, pt.y))
+          if (kp.visibility === 0) kp.visibility = 1
+          render()
+          if (typeof (window as any).onKeypointMoved === 'function') {
+            ;(window as any).onKeypointMoved(kp)
+          }
+        }
+      }
+      // keep touch tracking fresh so a later pan starts from here
+      for (let touch of Array.from(event.touches)) {
+        lastTouches[touch.identifier] = touch
+      }
+      return
+    }
+    // a second finger cancels the keypoint drag: switch to pinch/pan
+    if (isDraggingKeypoint) {
+      isDraggingKeypoint = false
+    }
 
     // detect pan (translation)
     for (let touch of Array.from(event.touches)) {
@@ -740,6 +788,17 @@ function setupKeypointEditor(options: {
   })
 
   canvas.addEventListener('touchend', event => {
+    // commit a finished keypoint drag (pointer events usually commit first;
+    // this covers browsers where pointer events are not fired)
+    if (isDraggingKeypoint && event.touches.length === 0) {
+      isDraggingKeypoint = false
+      let idx = window.selectedKeypointIdx
+      let keypoints = window.keypointData || []
+      let kp = keypoints.find(k => k.idx === idx)
+      if (kp && typeof (window as any).onKeypointCommitted === 'function') {
+        ;(window as any).onKeypointCommitted(kp)
+      }
+    }
     let existingTouches = Array.from(event.touches, touch => touch.identifier)
     for (let touch of Object.values(lastTouches)) {
       if (!existingTouches.includes(touch.identifier)) {
