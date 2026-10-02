@@ -16,17 +16,22 @@ import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, ProjectPageTitle, makeThrows } from '../components/locale.js'
 import { del, filter, seedRow, count } from 'better-sqlite3-proxy'
-import { proxy } from '../../../db/proxy.js'
+import { Image, Project, proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
 import {
+  canEditProject,
+  canViewProject,
   getContextProject,
+  requireEditProjectById,
+  requireViewProjectById,
   select_project_label,
 } from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { IonButton } from '../components/ion-button.js'
 import { env } from '../../env.js'
 import { basename, extname, join } from 'path'
@@ -1430,7 +1435,8 @@ let get_project_bounding_boxes = db.prepare<
 // ---------------------------------------------------------------------------
 
 // all labels in a project with dependency title + display order
-let select_project_labels_full = db.prepare<
+// (exported for the public dataset download endpoint)
+export let select_project_labels_full = db.prepare<
   { project_id: number },
   {
     id: number
@@ -1447,7 +1453,8 @@ let select_project_labels_full = db.prepare<
 `)
 
 // latest answer per image+label in a project (with label id + title)
-let select_project_image_labels = db.prepare<
+// (exported for the public dataset download endpoint)
+export let select_project_image_labels = db.prepare<
   { project_id: number },
   {
     image_id: number
@@ -1468,7 +1475,8 @@ let select_project_image_labels = db.prepare<
 `)
 
 // all bounding boxes in a project (with label id + title)
-let select_project_bounding_boxes_full = db.prepare<
+// (exported for the public dataset download endpoint)
+export let select_project_bounding_boxes_full = db.prepare<
   { project_id: number },
   {
     image_id: number
@@ -1498,8 +1506,9 @@ function stringToNumber(s: string): number | undefined {
 
 // ---------------------------------------------------------------------------
 // project-scoped images (excluding data: uris)
+// (exported for the public dataset download endpoint)
 // ---------------------------------------------------------------------------
-function getProjectImages(project_id: number) {
+export function getProjectImages(project_id: number) {
   return filter(proxy.image, { project_id }).filter(
     item => item.filename && !item.filename.startsWith('data:image'),
   )
@@ -1676,6 +1685,7 @@ function Main(attrs: {}, context: DynamicContext) {
   }
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   let labels = select_project_label.all({ project_id })
@@ -2639,6 +2649,7 @@ function LoadLabelStatus(attrs: {}, context: WsContext) {
   try {
     let body = getContextFormBody(context)
     let input = loadLabelStatusParser.parse(body)
+    requireViewProjectById(getAuthUser(context), input.project_id)
     let project = proxy.project[input.project_id]
     if (!project) throw 'Project not found'
     let project_id = project.id!
@@ -2745,13 +2756,15 @@ function UpdateAnnotation(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = updateAnnotationParser.parse(body)
 
-    // verify image belongs to a project the user can access
+    // verify image belongs to a project the user can modify
     let image = proxy.image[input.image_id]
     if (!image) throw 'Image not found'
     let project = image.project_id
       ? proxy.project[image.project_id] || null
       : null
     if (!project) throw 'Project not found'
+    if (!canEditProject(getAuthUser(context), project))
+      throw 'You do not have permission to modify this project'
 
     // delete existing answer records for this image+label, then insert new one
     db.prepare(
@@ -2824,8 +2837,7 @@ function BatchUnlabel(attrs: {}, context: WsContext) {
 
     let body = getContextFormBody(context)
     let input = batchUnlabelParser.parse(body)
-    let project = proxy.project[input.project_id]
-    if (!project) throw 'Project not found'
+    requireEditProjectById(getAuthUser(context), input.project_id)
 
     input.image_ids.forEach(image_id => {
       del(proxy.image_label, { image_id })
@@ -2893,8 +2905,7 @@ function BatchDelete(attrs: {}, context: WsContext) {
 
     let body = getContextFormBody(context)
     let input = batchDeleteParser.parse(body)
-    let project = proxy.project[input.project_id]
-    if (!project) throw 'Project not found'
+    requireEditProjectById(getAuthUser(context), input.project_id)
 
     let errors: string[] = []
 
@@ -3024,8 +3035,7 @@ function BatchExport(attrs: {}, context: WsContext) {
 
     let body = getContextFormBody(context)
     let input = batchExportParser.parse(body)
-    let project = proxy.project[input.project_id]
-    if (!project) throw 'Project not found'
+    requireEditProjectById(getAuthUser(context), input.project_id)
 
     const images = db
       .prepare<
@@ -3179,6 +3189,154 @@ let exportDatasetParser = object({
   ),
 })
 
+// build the YOLO detect zip for a project (data.yaml + train/images +
+// train/labels + supplementary metadata.json + metadata.sig). Shared by the
+// member export (ws) and the public download endpoint (http streaming).
+export function buildDatasetZip(options: {
+  project: Project
+  images: Image[]
+  labels: ReturnType<typeof select_project_labels_full.all>
+  imageLabels: ReturnType<typeof select_project_image_labels.all>
+  boxes: ReturnType<typeof select_project_bounding_boxes_full.all>
+}): Buffer {
+  let { project, images, labels, imageLabels, boxes } = options
+  let project_id = project.id!
+
+  // group image_labels by image_id
+  let labelsByImage = new Map<
+    number,
+    { label_title: string; answer: number }[]
+  >()
+  for (let il of imageLabels) {
+    if (!labelsByImage.has(il.image_id)) labelsByImage.set(il.image_id, [])
+    labelsByImage.get(il.image_id)!.push({
+      label_title: il.label_title,
+      answer: il.answer,
+    })
+  }
+
+  // group bounding boxes by image_id
+  let boxesByImage = new Map<
+    number,
+    {
+      label_id: number
+      label_title: string
+      x: number
+      y: number
+      width: number
+      height: number
+      rotate: number
+    }[]
+  >()
+  for (let b of boxes) {
+    if (!boxesByImage.has(b.image_id)) boxesByImage.set(b.image_id, [])
+    boxesByImage.get(b.image_id)!.push({
+      label_id: b.label_id,
+      label_title: b.label_title,
+      x: b.x,
+      y: b.y,
+      width: b.width,
+      height: b.height,
+      rotate: b.rotate,
+    })
+  }
+
+  // ---- YOLO detect format (data.yaml + train/images + train/labels) ----
+  // class_idx = index of the label in display_order (labels is already
+  // sorted by display_order from select_project_labels_full)
+  let labelIdToClassIdx = new Map<number, number>()
+  labels.forEach((label, idx) => {
+    if (label.id != null) labelIdToClassIdx.set(label.id, idx)
+  })
+  let n_class = labels.length
+  let class_names = labels.map(l => l.title)
+  // guard: the simple YAML parser in dataset-helpers splits values on ':',
+  // a class name containing ':' would corrupt data.yaml on import
+  for (let class_name of class_names) {
+    if (class_name.includes(':')) {
+      throw `Label title "${class_name}" contains ":" which is not supported in YOLO data.yaml, please rename the label first`
+    }
+  }
+
+  let dataYaml = toDataYamlString('detect', {
+    train_dir: 'train',
+    val_dir: 'val',
+    test_dir: 'test',
+    n_class,
+    class_names,
+  })
+
+  let metadata = {
+    format:
+      'image-ai-builder-dataset-v2 (YOLO detect + supplementary metadata)',
+    project_title: project.title,
+    labels: labels.map(l => ({
+      title: l.title,
+      dependency_title: l.dependency_title,
+      display_order: l.display_order,
+    })),
+    images: images.map(img => ({
+      filename: img.filename,
+      original_filename: img.original_filename,
+      rotation: img.rotation || 0,
+      // recompute from the actual file bytes: the DB column may be null
+      // for rows created before content hashing was introduced
+      content_hash: img.filename
+        ? computeFileHash(join(env.UPLOAD_DIR, img.filename))
+        : null,
+      labels: labelsByImage.get(img.id!) || [],
+      bounding_boxes: boxesByImage.get(img.id!) || [],
+    })),
+  }
+
+  const zip = new AdmZip()
+  zip.addFile('data.yaml', Buffer.from(dataYaml, 'utf-8'))
+  // supplementary metadata: YOLO has no image-level classification /
+  // rotation / content_hash, these are preserved here for round-trip
+  const metadataBuf = Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8')
+  zip.addFile('metadata.json', metadataBuf)
+  // HMAC signature over the metadata bytes: proves the annotation data
+  // (labels / answers / boxes) came from this system unmodified
+  zip.addFile(
+    'metadata.sig',
+    Buffer.from(signDatasetMetadata(metadataBuf), 'utf-8'),
+  )
+  for (let img of images) {
+    if (!img.filename) continue
+    let filePath = join(env.UPLOAD_DIR, img.filename)
+    try {
+      zip.addLocalFile(filePath, 'train/images', img.filename)
+    } catch (e) {
+      console.error('buildDatasetZip: missing image file', img.filename, e)
+      continue
+    }
+    // one line per box: class_idx x y w h (normalized, center-based)
+    // NOTE: box rotation is not representable in YOLO detect format,
+    // it is preserved in metadata.json only
+    let boxes = boxesByImage.get(img.id!) || []
+    let lines = boxes
+      .map(box => {
+        let class_idx = labelIdToClassIdx.get(box.label_id)
+        if (class_idx == null) return null
+        return toDetectLabelString({
+          class_idx,
+          n_class,
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+        })
+      })
+      .filter((line): line is string => line != null)
+    zip.addFile(
+      'train/labels/' + toLabelFilename(img.filename),
+      Buffer.from(lines.join('\n') + '\n', 'utf-8'),
+    )
+  }
+
+  return zip.toBuffer()
+}
+
 function ExportDataset(attrs: {}, context: WsContext) {
   try {
     let user_id = getAuthUserId(context)!
@@ -3191,8 +3349,8 @@ function ExportDataset(attrs: {}, context: WsContext) {
     let project_id = project.id!
 
     let user = getAuthUser(context)!
-    if (!isProjectMember({ user, project }))
-      throw 'You are not a member of this project'
+    if (!canEditProject(user, project))
+      throw 'You do not have permission to export this dataset'
 
     let images = getProjectImages(project_id)
     let labels = select_project_labels_full.all({ project_id })
@@ -3227,139 +3385,13 @@ function ExportDataset(attrs: {}, context: WsContext) {
       imageLabels = imageLabels.filter(il => selectedLabelIds.has(il.label_id))
     }
 
-    // group image_labels by image_id
-    let labelsByImage = new Map<
-      number,
-      { label_title: string; answer: number }[]
-    >()
-    for (let il of imageLabels) {
-      if (!labelsByImage.has(il.image_id)) labelsByImage.set(il.image_id, [])
-      labelsByImage.get(il.image_id)!.push({
-        label_title: il.label_title,
-        answer: il.answer,
-      })
-    }
-
-    // group bounding boxes by image_id
-    let boxesByImage = new Map<
-      number,
-      {
-        label_id: number
-        label_title: string
-        x: number
-        y: number
-        width: number
-        height: number
-        rotate: number
-      }[]
-    >()
-    for (let b of boxes) {
-      if (!boxesByImage.has(b.image_id)) boxesByImage.set(b.image_id, [])
-      boxesByImage.get(b.image_id)!.push({
-        label_id: b.label_id,
-        label_title: b.label_title,
-        x: b.x,
-        y: b.y,
-        width: b.width,
-        height: b.height,
-        rotate: b.rotate,
-      })
-    }
-
-    // ---- YOLO detect format (data.yaml + train/images + train/labels) ----
-    // class_idx = index of the label in display_order (labels is already
-    // sorted by display_order from select_project_labels_full)
-    let labelIdToClassIdx = new Map<number, number>()
-    labels.forEach((label, idx) => {
-      if (label.id != null) labelIdToClassIdx.set(label.id, idx)
+    const zipBuffer = buildDatasetZip({
+      project,
+      images,
+      labels,
+      imageLabels,
+      boxes,
     })
-    let n_class = labels.length
-    let class_names = labels.map(l => l.title)
-    // guard: the simple YAML parser in dataset-helpers splits values on ':',
-    // a class name containing ':' would corrupt data.yaml on import
-    for (let class_name of class_names) {
-      if (class_name.includes(':')) {
-        throw `Label title "${class_name}" contains ":" which is not supported in YOLO data.yaml, please rename the label first`
-      }
-    }
-
-    let dataYaml = toDataYamlString('detect', {
-      train_dir: 'train',
-      val_dir: 'val',
-      test_dir: 'test',
-      n_class,
-      class_names,
-    })
-
-    let metadata = {
-      format:
-        'image-ai-builder-dataset-v2 (YOLO detect + supplementary metadata)',
-      project_title: project.title,
-      labels: labels.map(l => ({
-        title: l.title,
-        dependency_title: l.dependency_title,
-        display_order: l.display_order,
-      })),
-      images: images.map(img => ({
-        filename: img.filename,
-        original_filename: img.original_filename,
-        rotation: img.rotation || 0,
-        // recompute from the actual file bytes: the DB column may be null
-        // for rows created before content hashing was introduced
-        content_hash: img.filename
-          ? computeFileHash(join(env.UPLOAD_DIR, img.filename))
-          : null,
-        labels: labelsByImage.get(img.id!) || [],
-        bounding_boxes: boxesByImage.get(img.id!) || [],
-      })),
-    }
-
-    const zip = new AdmZip()
-    zip.addFile('data.yaml', Buffer.from(dataYaml, 'utf-8'))
-    // supplementary metadata: YOLO has no image-level classification /
-    // rotation / content_hash, these are preserved here for round-trip
-    const metadataBuf = Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8')
-    zip.addFile('metadata.json', metadataBuf)
-    // HMAC signature over the metadata bytes: proves the annotation data
-    // (labels / answers / boxes) came from this system unmodified
-    zip.addFile(
-      'metadata.sig',
-      Buffer.from(signDatasetMetadata(metadataBuf), 'utf-8'),
-    )
-    for (let img of images) {
-      if (!img.filename) continue
-      let filePath = join(env.UPLOAD_DIR, img.filename)
-      try {
-        zip.addLocalFile(filePath, 'train/images', img.filename)
-      } catch (e) {
-        console.error('ExportDataset: missing image file', img.filename, e)
-        continue
-      }
-      // one line per box: class_idx x y w h (normalized, center-based)
-      // NOTE: box rotation is not representable in YOLO detect format,
-      // it is preserved in metadata.json only
-      let boxes = boxesByImage.get(img.id!) || []
-      let lines = boxes
-        .map(box => {
-          let class_idx = labelIdToClassIdx.get(box.label_id)
-          if (class_idx == null) return null
-          return toDetectLabelString({
-            class_idx,
-            n_class,
-            x: box.x,
-            y: box.y,
-            width: box.width,
-            height: box.height,
-          })
-        })
-        .filter((line): line is string => line != null)
-      zip.addFile(
-        'train/labels/' + toLabelFilename(img.filename),
-        Buffer.from(lines.join('\n') + '\n', 'utf-8'),
-      )
-    }
-
-    const zipBuffer = zip.toBuffer()
     const base64Zip = zipBuffer.toString('base64')
 
     context.ws.send([
@@ -3459,24 +3491,6 @@ function computeFileHash(filePath: string): string | null {
   } catch {
     return null
   }
-}
-
-// permission check for dataset import/export: admin, project creator,
-// or project member
-function isProjectMember(options: {
-  user: { id?: number | null; is_admin?: boolean | null }
-  project: { id?: number | null; creator_id?: number | null }
-}): boolean {
-  let { user, project } = options
-  if (!user.id) return false
-  if (user.is_admin) return true
-  if (project.creator_id === user.id) return true
-  return (
-    count(proxy.project_member, {
-      project_id: project.id!,
-      user_id: user.id,
-    }) > 0
-  )
 }
 
 // create (or match by title) labels for a project, returns title -> label_id.
@@ -3849,8 +3863,8 @@ async function ImportDataset(context: ExpressContext) {
 
   let user = getAuthUser(context)
   if (!user) throw 'Login required'
-  if (!isProjectMember({ user, project }))
-    throw 'You are not a member of this project'
+  if (!canEditProject(user, project))
+    throw 'You do not have permission to import into this project'
 
   let form = createUploadForm({
     mimeTypeRegex: /^application\/zip$|^application\/x-zip-compressed$/,
@@ -4089,6 +4103,8 @@ function Reclassify(attrs: {}, context: WsContext) {
 
     let project = proxy.project[project_id]
     if (!project) throw 'Project not found'
+    if (!canEditProject(user, project))
+      throw 'You do not have permission to modify this project'
     let label = proxy.label[label_id]
     if (!label || label.project_id !== project_id) throw 'Label not found'
 
@@ -4154,6 +4170,7 @@ function ReloadReview(attrs: {}, context: WsContext) {
   try {
     let body = getContextFormBody(context)
     let input = reloadReviewParser.parse(body)
+    requireViewProjectById(getAuthUser(context), input.project_id)
     let project = proxy.project[input.project_id]
     if (!project) throw 'Project not found'
     let label = proxy.label[input.label_id]

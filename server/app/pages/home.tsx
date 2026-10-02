@@ -200,6 +200,13 @@ function Landing(attrs: {}, context: Context) {
               <Link href="/login" class="cta-btn secondary">
                 <Locale en="Login" zh_hk="登入" zh_cn="登录" />
               </Link>
+              <Link href="/gallery" class="cta-btn secondary">
+                <Locale
+                  en="Browse Datasets"
+                  zh_hk="瀏覽數據集"
+                  zh_cn="浏览数据集"
+                />
+              </Link>
             </div>
           </div>
 
@@ -259,14 +266,14 @@ function Landing(attrs: {}, context: Context) {
             </div>
           </div>
 
-        <div class="landing-footer">
-          <PickLanguage style="margin-bottom: 12px;" />
-          <Locale
-            en="Made with 💝 by Feelings AI"
-            zh_hk="由 Feelings AI 用💝製作"
-            zh_cn="由 Feelings AI 用💝制作"
-          />
-        </div>
+          <div class="landing-footer">
+            <PickLanguage style="margin-bottom: 12px;" />
+            <Locale
+              en="Made with 💝 by Feelings AI"
+              zh_hk="由 Feelings AI 用💝製作"
+              zh_cn="由 Feelings AI 用💝制作"
+            />
+          </div>
         </div>
       </ion-content>
     </>

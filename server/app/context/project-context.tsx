@@ -1,28 +1,64 @@
 import { count, filter } from 'better-sqlite3-proxy'
 import { db } from '../../../db/db.js'
-import { Label, Project, proxy } from '../../../db/proxy.js'
+import { Label, Project, User, proxy } from '../../../db/proxy.js'
 import { getAuthUser } from '../auth/user.js'
 import { DynamicContext } from '../context.js'
 
-// check the access control of the project and viewer
-function checkAccessProject(context: DynamicContext): boolean {
-  let project = getContextProject(context)
-  if (!project) return false
-  // TODO support public/private project
-  let user = getAuthUser(context)
-  if (!user) return false
+// whether the viewer can SEE the project:
+// public -> anyone (including logged-out); private -> admin / creator / member
+export function canViewProject(user: User | null, project: Project): boolean {
+  if (project.is_public) return true
+  if (!user?.id) return false
   if (user.is_admin) return true
-  if (project.creator_id == user.id) return true
-  let is_member = !!count(proxy.project_member, {
-    project_id: project.id!,
-    user_id: user.id!,
-  })
-  if (is_member) return true
-  // TODO log the invalid attempts
-  return false
+  if (project.creator_id === user.id) return true
+  return (
+    count(proxy.project_member, {
+      project_id: project.id!,
+      user_id: user.id,
+    }) > 0
+  )
 }
 
-// TODO call checkAccessProject to check permission
+// whether the viewer can MODIFY the project (annotate/upload/manage):
+// admin / creator / member only — public visibility never grants write access
+export function canEditProject(user: User | null, project: Project): boolean {
+  if (!user?.id) return false
+  if (user.is_admin) return true
+  if (project.creator_id === user.id) return true
+  return (
+    count(proxy.project_member, {
+      project_id: project.id!,
+      user_id: user.id,
+    }) > 0
+  )
+}
+
+// guard for ws/ajax endpoints whose project_id comes from the form body or
+// query (not the url ?project= param) — throws when access is denied
+export function requireViewProjectById(
+  user: User | null,
+  project_id: number,
+): Project {
+  let project = proxy.project[project_id]
+  if (!project) throw 'Project not found'
+  if (!canViewProject(user, project))
+    throw 'You do not have access to this project'
+  return project
+}
+
+// guard for ws/ajax endpoints that modify project data — throws when the
+// viewer is not admin/creator/member
+export function requireEditProjectById(
+  user: User | null,
+  project_id: number,
+): Project {
+  let project = proxy.project[project_id]
+  if (!project) throw 'Project not found'
+  if (!canEditProject(user, project))
+    throw 'You do not have permission to modify this project'
+  return project
+}
+
 export function getContextProject(context: DynamicContext): Project | null {
   let params = new URLSearchParams(context.routerMatch?.search)
 

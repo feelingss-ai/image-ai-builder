@@ -19,8 +19,14 @@ import { getAuthUser } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
 import { proxy, Label } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  canViewProject,
+  getContextProject,
+} from '../context/project-context.js'
+import { getLabelAnswerStats } from '../context/project-stats.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
+import { StatsChart, statsChartStyle } from '../components/stats-chart.js'
 import Script from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 
@@ -51,32 +57,7 @@ let style = Style(/* css */ `
   margin: 0;
   font-size: 0.9rem;
 }
-.stats-chart {
-  display: flex;
-  flex-direction: row;
-  border-radius: 0.5rem;
-  overflow: hidden;
-}
-.stats-chart--bar {
-  padding: 0.5rem;
-  text-align: center;
-}
-.stats-chart--bar[data-label="yes"] {
-  background-color: green;
-  color: white;
-  border-top-left-radius: 0.5rem;
-  border-bottom-left-radius: 0.5rem;
-}
-.stats-chart--bar[data-label="unknown"] {
-  background-color: lightgray;
-  color: black;
-}
-.stats-chart--bar[data-label="no"] {
-  background-color: red;
-  color: white;
-  border-top-right-radius: 0.5rem;
-  border-bottom-right-radius: 0.5rem;
-}
+${statsChartStyle}
 .stats-box-table-scroll {
   overflow-x: auto;
 }
@@ -214,47 +195,6 @@ function AutoLabelTexts(attrs: {}, context: DynamicContext) {
   return <script>autoLabelTexts = {JSON.stringify(texts)}</script>
 }
 
-let select_label_count = db.prepare<
-  { project_id: number },
-  { image_id: number; label_id: number; answers: string }
->(/* sql */ `
-select
-  image.id as image_id
-, label.id as label_id
-, json_group_array(image_label.answer) as answers
-from image
-inner join label
-  on label.project_id = :project_id
-left join image_label
-  on image.id = image_label.image_id
- and label.id = image_label.label_id
-where image.project_id = :project_id
-group by label.id, image.id
-`)
-
-// Images eligible for a label: for a child label (dependency_id set), only
-// images whose parent label is annotated positive (answer = 1) count —
-// same rule as the annotation queue in annotate-image.tsx.
-let select_eligible_image_count = db
-  .prepare<
-    { label_id: number; dependency_id: null | number; project_id: number },
-    number
-  >(
-    /* sql */ `
-select count(*)
-from image
-where image.project_id = :project_id
-and (
-  :dependency_id is null
-  or id in (
-    select image_id from image_label
-    where label_id = :dependency_id and answer = 1
-  )
-)
-`,
-  )
-  .pluck()
-
 // get bounding box count distribution by label_id
 /* example:
 [
@@ -292,50 +232,19 @@ function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   let projectLabels = filter(proxy.label, { project_id })
   let totalCount = <span class="stats-label-count">{projectLabels.length}</span>
 
   // label -> {yes, no, unknown}
+  let labelStats = getLabelAnswerStats(project_id, projectLabels)
   let labels: {
     [label_id: number]: { yes: number; no: number; unknown: number }
   } = {}
-  let rows = select_label_count.all({ project_id })
-  for (let row of rows) {
-    let { label_id } = row
-    let answers = JSON.parse(row.answers) as (1 | 0 | null)[]
-    labels[label_id] ||= { yes: 0, no: 0, unknown: 0 }
-    for (let answer of answers) {
-      switch (answer) {
-        case 1:
-          labels[label_id].yes++
-          break
-        case 0:
-          labels[label_id].no++
-          break
-        case null:
-          labels[label_id].unknown++
-          break
-      }
-    }
-  }
-
-  // For child labels, the denominator is only images whose parent is
-  // annotated yes — recompute unknown so it matches the annotation queue
-  // (unknown = eligible - yes - no, never negative).
-  for (let label of projectLabels) {
-    let label_id = label.id!
-    let stats = labels[label_id]
-    if (!stats) continue
-    let eligible =
-      select_eligible_image_count.get({
-        label_id,
-        dependency_id: label.dependency_id ?? null,
-        project_id,
-      }) ?? 0
-    let known = stats.yes + stats.no
-    stats.unknown = Math.max(0, eligible - known)
+  for (let [label_id, stats] of labelStats) {
+    labels[label_id] = stats
   }
 
   // label -> { box_count -> image_count }
@@ -438,34 +347,6 @@ function Main(attrs: {}, context: DynamicContext) {
         </ion-card-content>
       </ion-card>
     </>
-  )
-}
-
-function StatsChart(attrs: { yes: number; unknown: number; no: number }) {
-  let { yes, unknown, no } = attrs
-  let total = yes + unknown + no
-  return (
-    <div class="stats-chart">
-      <div class="stats-chart--bar" data-label="yes" style={`flex: ${yes};`}>
-        <span>{yes}</span>{' '}
-        <span hidden={yes === 0}>({Math.round((yes / total) * 100)}%)</span>
-      </div>
-      <div
-        class="stats-chart--bar"
-        data-label="unknown"
-        style={`flex: ${unknown};`}
-        hidden={unknown === 0}
-      >
-        <span>{unknown}</span>{' '}
-        <span hidden={unknown === 0}>
-          ({Math.round((unknown / total) * 100)}%)
-        </span>
-      </div>
-      <div class="stats-chart--bar" data-label="no" style={`flex: ${no};`}>
-        <span>{no}</span>{' '}
-        <span hidden={no === 0}>({Math.round((no / total) * 100)}%)</span>
-      </div>
-    </div>
   )
 }
 

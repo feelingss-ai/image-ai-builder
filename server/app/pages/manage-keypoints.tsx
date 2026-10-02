@@ -6,7 +6,11 @@ import Style from '../components/style.js'
 import { DynamicContext, getContextFormBody, WsContext } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  canEditProject,
+  canViewProject,
+  getContextProject,
+} from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { object, string, int, array, id } from 'cast.ts'
 import { nodeToVNode } from '../jsx/vnode.js'
@@ -19,6 +23,7 @@ import { Script } from '../components/script.js'
 import { showError } from '../components/error.js'
 import { EarlyTerminate } from '../../exception.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 
 let pageTitle = (
@@ -326,6 +331,7 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   let templates = filter(proxy.keypoint_template, { project_id })
@@ -579,6 +585,7 @@ function AddPage(attrs: {}, context: DynamicContext) {
 
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   return (
@@ -618,6 +625,7 @@ function EditPage(attrs: {}, context: DynamicContext) {
 
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   let fallbackUrl = `/manage-keypoints?project=${project_id}`
@@ -715,7 +723,7 @@ function Submit(attrs: {}, context: WsContext) {
     if (!project) throw 'Project not found'
     let project_id = project.id!
 
-    if (project.creator_id !== user.id)
+    if (!canEditProject(user, project))
       throw 'You do not have permission to manage keypoints in this project'
 
     let body = getContextFormBody(context)
@@ -775,7 +783,7 @@ function ModifyTemplate(attrs: {}, context: WsContext) {
     if (!template || template.project_id !== project_id) {
       throw 'Template not found'
     }
-    if (project.creator_id !== user.id) {
+    if (!canEditProject(user, project)) {
       throw 'You do not have permission to edit keypoints in this project'
     }
 

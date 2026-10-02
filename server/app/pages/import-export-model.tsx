@@ -13,8 +13,12 @@ import {
 } from '../context.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  canViewProject,
+  getContextProject,
+} from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { filter } from 'better-sqlite3-proxy'
 import { proxy } from '../../../db/proxy.js'
 import { classifierModelCache } from '../model.js'
@@ -224,8 +228,9 @@ let page = (
 function Main(attrs: {}, context: DynamicContext) {
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
-  let project_id = project.id!
   let user = getAuthUser(context)
+  if (!canViewProject(user, project)) return <NoAccessMessage />
+  let project_id = project.id!
   if (!user) {
     return (
       <ion-content id="ImportExportModel" class="ion-padding">

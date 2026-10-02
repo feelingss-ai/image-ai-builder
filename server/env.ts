@@ -35,7 +35,7 @@ export let env = {
   // one-click auto label feature. Defaults match a local Ollama install;
   // for LM Studio use http://localhost:1234/v1 and the loaded model name
   VLM_BASE_URL: 'http://localhost:1234/v1',
-  VLM_MODEL: 'qwen/qwen3-vl-4b',
+  VLM_MODEL: 'minicpm-v-4.6',
   VLM_API_KEY: 'no-api-key',
   EPOCH: 1, // to distinct initial run or restart in serve mode, auto-managed by dev.ts
   UPLOAD_DIR: 'uploads',

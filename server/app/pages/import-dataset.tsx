@@ -18,11 +18,13 @@ import { proxy } from '../../../db/proxy.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { Script } from '../components/script.js'
 import {
+  canViewProject,
   getContextProject,
   getProjectConflictMap,
 } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { array, id, object, string, values } from 'cast.ts'
 
 let pageTitle = (
@@ -272,6 +274,7 @@ function Main(attrs: {}, context: DynamicContext) {
   if (!project) {
     return <NoProjectMessage />
   }
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
   if (!user) {
     return (

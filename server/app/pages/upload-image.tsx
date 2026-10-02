@@ -33,8 +33,14 @@ import { MB } from '@beenotung/tslib/size.js'
 import { dataURItoFile } from '@beenotung/tslib/image.js'
 import { writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
-import { getContextProject } from '../context/project-context.js'
+import {
+  canViewProject,
+  getContextProject,
+  requireEditProjectById,
+  requireViewProjectById,
+} from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import {
   getImageEmbedding,
@@ -419,6 +425,7 @@ function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
   let allImages = filter(proxy.image, { project_id })
   let totalImages = allImages.length
@@ -668,6 +675,8 @@ async function UploadImage(context: ExpressContext) {
     let project_id = +params.get('project')!
     if (!project_id) throw 'missing project id in url'
 
+    requireEditProjectById(getAuthUser(context), project_id)
+
     let form = createUploadForm({ maxFileSize: 20 * MB })
     let [fields, files] = await form.parse(req)
     let uploadDir = env.UPLOAD_DIR
@@ -721,11 +730,16 @@ async function UploadImage(context: ExpressContext) {
 async function RemoveImage(context: ExpressContext) {
   let { req } = context
   try {
+    let user_id = getAuthUserId(context)
+    if (!user_id) throw 'not login'
+
     let filename = req.query.filename
     if (typeof filename !== 'string') throw 'filename is required'
 
     let project_id = +req.query.project!
     if (!project_id) throw 'missing project id in query'
+
+    requireEditProjectById(getAuthUser(context), project_id)
 
     let image = find(proxy.image, { filename })
     if (image) {
@@ -773,6 +787,10 @@ async function ListImages(context: ExpressContext) {
   try {
     let project_id = +req.query.project!
     if (!project_id) throw 'missing project id in query'
+
+    // public projects allow anonymous listing (read-only)
+    requireViewProjectById(getAuthUser(context), project_id)
+
     let offset = +req.query.offset! || 0
     let limit = +req.query.limit! || 50
     if (limit > 200) limit = 200
@@ -801,6 +819,8 @@ async function RemoveAllImages(context: ExpressContext) {
     if (typeof project !== 'string') throw 'project is required'
     let project_id = +project
     if (!project_id) throw 'invalid project id'
+
+    requireEditProjectById(getAuthUser(context), project_id)
     let images = filter(proxy.image, { project_id })
     let uploadDir = env.UPLOAD_DIR || ''
 

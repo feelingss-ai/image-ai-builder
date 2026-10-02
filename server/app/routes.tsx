@@ -41,6 +41,8 @@ import AppAbout from './pages/app-about.js'
 import AppCharacter from './pages/app-character.js'
 import ImportExportModel from './pages/import-export-model.js'
 import ImportDataset from './pages/import-dataset.js'
+import Gallery from './pages/gallery.js'
+import PublicDataset from './pages/public-dataset.js'
 import type { renderWebTemplate } from '../../template/web.js'
 import type { renderIonicTemplate } from '../../template/ionic.js'
 import { VNode } from '../../client/jsx/types.js'
@@ -128,6 +130,8 @@ let routeDict = {
   ...Privacy.routes,
   ...ImportExportModel.routes,
   ...ImportDataset.routes,
+  ...Gallery.routes,
+  ...PublicDataset.routes,
 } satisfies Routes
 
 export let redirectDict: Record<string, string> = {

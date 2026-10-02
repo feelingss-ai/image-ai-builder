@@ -19,11 +19,13 @@ import { id, number, object, optional } from 'cast.ts'
 import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import {
+  canViewProject,
   getContextProject,
   getProjectConflictMap,
 } from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { filter } from 'better-sqlite3-proxy'
 
 let keypointEditorPlugin = loadClientPlugin({
@@ -1029,6 +1031,7 @@ function Main(
 
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   // Get labels for this project only

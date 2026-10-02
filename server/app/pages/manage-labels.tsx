@@ -13,9 +13,12 @@ import {
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import {
+  canEditProject,
+  canViewProject,
   getContextProject,
   getProjectConflictMap,
 } from '../context/project-context.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { object, string, int, boolean, optional } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
@@ -170,6 +173,7 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   // Get labels for this project (use proxy filter for DB query, not array loop)
@@ -372,6 +376,7 @@ function AddPage(attrs: {}, context: DynamicContext) {
 
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   // Get existing labels for parent selection (use proxy filter for DB query), sorted by display_order
@@ -498,6 +503,7 @@ function EditPage(attrs: {}, context: DynamicContext) {
   if (!project) {
     return <NoProjectMessage />
   }
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   let fallbackUrl = `/manage-labels?project=${project_id}`
@@ -717,7 +723,7 @@ function Submit(attrs: {}, context: WsContext) {
     let input = submitParser.parse(body)
 
     // Check project access
-    if (project.creator_id !== user.id)
+    if (!canEditProject(user, project))
       throw 'You do not have permission to add labels to this project'
 
     // Check if label with same title already exists in this project (use proxy find, not array loop)
@@ -826,7 +832,7 @@ function ModifyLabel(attrs: {}, context: WsContext) {
     if (!label || label.project_id !== project_id) {
       throw 'Label not found'
     }
-    if (project.creator_id !== user.id) {
+    if (!canEditProject(user, project)) {
       throw 'You do not have permission to edit labels in this project'
     }
 
@@ -922,7 +928,7 @@ function Delete(attrs: {}, context: WsContext) {
     // Check if project exists and user has access
     let project = proxy.project[project_id]
     if (!project) throw 'Project not found'
-    if (project.creator_id !== user.id)
+    if (!canEditProject(user, project))
       throw 'You do not have permission to delete labels from this project'
 
     // Check if label exists and belongs to this project

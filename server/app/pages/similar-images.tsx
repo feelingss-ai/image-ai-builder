@@ -24,8 +24,12 @@ import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
 import { sessions } from '../session.js'
 import { ServerMessage } from '../../../client/types.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  canViewProject,
+  getContextProject,
+} from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { env } from '../../env.js'
 import { join } from 'path'
 import { promises as fsPromises } from 'fs'
@@ -410,6 +414,7 @@ function Main(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
 
   // fresh projects (esp. bulk imports) have images without embeddings;
   // the client auto-computes them on mount (see initSimilarImages) and

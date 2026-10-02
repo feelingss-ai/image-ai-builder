@@ -8,8 +8,8 @@
 
 - [Pagination for image upload page (6000+ images)](./pagination-for-image-upload.md)
 - [Active learning loop (which images to label next)](./active-learning-loop.md)
-- [Public / private dataset option](./public-sharing-flag.md)
-- [Public dataset gallery (discover / search datasets)](./public-dataset-gallery.md)
+- [Public / private dataset option](./public-sharing-flag.md) - Phase 1+2 implemented 2026-09-30 (flag, access helpers, page+API checks, /uploads gate)
+- [Public dataset gallery (discover / search datasets)](./public-dataset-gallery.md) - Phase 3+4+5 implemented 2026-10-02 (/dataset detail page + /gallery with search + public download)
 - [Agent API / MCP](./agent-api-mcp.md)
 - [Auto collect + annotate workflow](./auto-collect-annotate-workflow.md)
 - [Cross-project transfer learning](./cross-project-transfer-learning.md) - agent proposal, not requested

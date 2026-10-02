@@ -25,12 +25,14 @@ import { EarlyTerminate } from '../../exception.js'
 import { IonButton } from '../components/ion-button.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import {
+  canViewProject,
   getContextLabel,
   getContextProject,
   getProjectConflictMap,
   select_project_label,
 } from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { env } from '../../env.js'
@@ -616,6 +618,7 @@ function Main(attrs: {}, context: DynamicContext) {
   }
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   let label = getContextLabel(context)

@@ -11,8 +11,12 @@ import {
 import { mapArray } from '../components/fragment.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { IonButton } from '../components/ion-button.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  canViewProject,
+  getContextProject,
+} from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { object, string } from 'cast.ts'
 import { Link, Redirect } from '../components/router.js'
@@ -491,6 +495,7 @@ function Main(attrs: {}, context: DynamicContext) {
   }
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
   let labels = filter(proxy.label, { project_id })
   let sortedLabels = [...labels].sort(
@@ -508,11 +513,7 @@ function Main(attrs: {}, context: DynamicContext) {
             <ion-icon name="camera-outline" slot="start"></ion-icon>{' '}
             <Locale en="Open Camera" zh_hk="開啟相機" zh_cn="开启相机" />
           </ion-button>
-          <ion-button
-            id="webcamBtnOff"
-            onclick="toggleWebcam()"
-            hidden
-          >
+          <ion-button id="webcamBtnOff" onclick="toggleWebcam()" hidden>
             <ion-icon name="camera-outline" slot="start"></ion-icon>{' '}
             <Locale en="Close Camera" zh_hk="關閉相機" zh_cn="关闭相机" />
           </ion-button>
@@ -544,8 +545,16 @@ function Main(attrs: {}, context: DynamicContext) {
           id="webcamOutput"
           data-mode="camera"
         >
-          <video id="webcamVideo" muted playsinline style="width: 100%; height: 100%; object-fit: contain;"></video>
-          <canvas id="webcamCanvas" style="width: 100%; height: 100%; object-fit: contain;"></canvas>
+          <video
+            id="webcamVideo"
+            muted
+            playsinline
+            style="width: 100%; height: 100%; object-fit: contain;"
+          ></video>
+          <canvas
+            id="webcamCanvas"
+            style="width: 100%; height: 100%; object-fit: contain;"
+          ></canvas>
         </div>
         {/* placeholder to display user selected image */}
         <div

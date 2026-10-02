@@ -23,10 +23,12 @@ import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
 import { filter, pick } from 'better-sqlite3-proxy'
 import {
+  canViewProject,
   getContextProject,
   select_project_label,
 } from '../context/project-context.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 
 let pageTitle = (
   <Locale en="Review Bounding Box" zh_hk="審視邊界框" zh_cn="审阅边界框" />
@@ -622,6 +624,7 @@ function Main(attrs: {}, context: DynamicContext) {
 
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
+  if (!canViewProject(user, project)) return <NoAccessMessage />
   let project_id = project.id!
 
   let labels = select_project_label.all({ project_id })

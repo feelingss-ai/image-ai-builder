@@ -144,6 +144,7 @@ export type Project = {
   title: string
   creator_id: number
   creator?: User
+  is_public: null | boolean
 }
 
 export type Image = {

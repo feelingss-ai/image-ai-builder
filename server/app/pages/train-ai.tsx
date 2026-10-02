@@ -7,11 +7,15 @@ import {
   ExpressContext,
   getContextFormBody,
 } from '../context.js'
-import { getContextProject } from '../context/project-context.js'
+import {
+  canViewProject,
+  getContextProject,
+} from '../context/project-context.js'
 import { ProjectPageBackButton } from '../components/project-page-back-button.js'
 import { float, int, object, values } from 'cast.ts'
 import { Link } from '../components/router.js'
 import { NoProjectMessage } from '../components/no-project-message.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { showError } from '../components/error.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
 import { Locale, ProjectPageTitle } from '../components/locale.js'
@@ -232,8 +236,9 @@ const model_labels = () => {
 function Main(attrs: {}, context: DynamicContext) {
   let project = getContextProject(context)
   if (!project) return <NoProjectMessage />
-  let project_id = project.id!
   let user = getAuthUser(context)
+  if (!canViewProject(user, project)) return <NoAccessMessage />
+  let project_id = project.id!
   //get data from training_stats table on database and group by label_id (support multiple models)
   let statsByModel: Record<
     number,

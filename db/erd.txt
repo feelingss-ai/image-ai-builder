@@ -152,6 +152,7 @@ project
 id integer PK
 title text
 creator_id integer FK >0- user.id
+is_public boolean NULL
 
 
 image

@@ -13,7 +13,10 @@ import { PageRoute, Routes } from '../routes.js'
 import { fitIonFooter, selectIonTab } from '../styles/mobile-style.js'
 import { characters } from './app-character.js'
 import { Context, DynamicContext } from '../context.js'
-import { getAuthUserId } from '../auth/user.js'
+import { getAuthUser, getAuthUserId } from '../auth/user.js'
+import { canViewProject } from '../context/project-context.js'
+import { proxy } from '../../../db/proxy.js'
+import { NoAccessMessage } from '../components/no-access-message.js'
 import { IonBackButton } from '../components/ion-back-button.js'
 import { IonButton } from '../components/ion-button.js'
 import { Page } from '../components/page.js'
@@ -115,14 +118,11 @@ function Main(attrs: {}, context: DynamicContext) {
     )
   }
 
-  // TODO check if the current user is a member of the project
-  let is_member = true
-  if (!is_member) {
-    return (
-      <ion-content class="ion-padding">
-        <p>You are not a member of this project</p>
-      </ion-content>
-    )
+  // check if the current user can view the project (public or member)
+  let user = getAuthUser(context)
+  let project = proxy.project[+project_id]
+  if (!project || !canViewProject(user, project)) {
+    return <NoAccessMessage />
   }
 
   // let pages: { href: string; title: string }[] = [

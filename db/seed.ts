@@ -22,6 +22,7 @@ proxy.user[1] = {
 proxy.project[1] = {
   creator_id: 1,
   title: 'Lobster Pose',
+  is_public: null,
 }
 
 proxy.label[1] = {

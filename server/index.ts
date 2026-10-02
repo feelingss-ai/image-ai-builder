@@ -13,6 +13,7 @@ import { listenWSSCookie } from './app/cookie.js'
 import { print } from 'listening-on'
 import { logRequest } from './app/log.js'
 import { clearInvalidUserId } from './app/auth/user.js'
+import { uploadsAuthMiddleware } from './app/auth/uploads.js'
 import { env } from './env.js'
 import { HttpError, EarlyTerminate } from './exception.js'
 import { setCaddy } from './caddy.js'
@@ -53,7 +54,7 @@ if (config.development) {
   app.use('/js', express.static(join('dist', 'client')))
 }
 app.use('/js', express.static('build'))
-app.use('/uploads', express.static(env.UPLOAD_DIR))
+app.use('/uploads', uploadsAuthMiddleware, express.static(env.UPLOAD_DIR))
 app.use('/saved_models', express.static('saved_models'))
 app.use('/npm/@ionic/core', express.static('node_modules/@ionic/core'))
 app.use('/npm/swiper', express.static('node_modules/swiper'))

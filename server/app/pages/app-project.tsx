@@ -16,7 +16,7 @@ import { IonBackButton } from '../components/ion-back-button.js'
 import { IonButton } from '../components/ion-button.js'
 import { Script } from '../components/script.js'
 import { getAuthUser, getAuthUserId } from '../auth/user.js'
-import { int, object, string } from 'cast.ts'
+import { boolean, int, object, optional, string } from 'cast.ts'
 import { EarlyTerminate } from '../../exception.js'
 import { invalidateProjectVectorCache } from '../embedding.js'
 import { proxy } from '../../../db/proxy.js'
@@ -48,6 +48,22 @@ let style = Style(/* css */ `
 
 .project-title--stats {
   font-size: 0.9rem;
+}
+
+.project-visibility-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.75rem;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--ion-color-light, #f4f5f8);
+  vertical-align: middle;
+}
+
+.project-visibility-badge ion-icon {
+  font-size: 0.85rem;
+  vertical-align: middle;
 }
 `)
 
@@ -97,6 +113,14 @@ function delete_project(event) {
   let project_id = event.currentTarget.id
   emit('/project/delete-project', {project_id: project_id})
   goto('/app/project')
+}
+
+// toggle public/private visibility of the project (owner only)
+function toggle_project_visibility(event) {
+  event.preventDefault()
+  event.stopPropagation()
+  let project_id = event.currentTarget.id
+  emit('/project/set-visibility', {project_id: project_id})
 }
 
 function manage_member(event) {
@@ -182,6 +206,8 @@ function ProjectItem(attrs: { id: number; user_id: number }) {
 
   let title = project.title
 
+  let is_public = !!project.is_public
+
   let label_count = count(proxy.label, { project_id })
   let image_count = count(proxy.image, { project_id })
 
@@ -192,6 +218,18 @@ function ProjectItem(attrs: { id: number; user_id: number }) {
     >
       <h2 id={`project-title-${attrs.id}`}>
         <span id={`project-name-${attrs.id}`}>{title}</span>{' '}
+        <span
+          class="project-visibility-badge"
+          id={`project-visibility-${attrs.id}`}
+        >
+          <ion-icon
+            id={`project-visibility-icon-${attrs.id}`}
+            name={is_public ? 'globe-outline' : 'lock-closed-outline'}
+          ></ion-icon>{' '}
+          <span id={`project-visibility-text-${attrs.id}`}>
+            {is_public ? 'Public' : 'Private'}
+          </span>
+        </span>{' '}
         <span class="project-title--stats">
           ({label_count || 'no'}{' '}
           <Locale en="labels" zh_hk="標籤" zh_cn="标签" />,{' '}
@@ -208,6 +246,15 @@ function ProjectItem(attrs: { id: number; user_id: number }) {
             color="warning"
           >
             <ion-icon name="person-outline"></ion-icon>
+          </ion-button>
+
+          {/* toggle public/private visibility */}
+          <ion-button
+            id={attrs.id}
+            fill="clear"
+            onclick="toggle_project_visibility(event)"
+          >
+            <ion-icon name="share-social-outline"></ion-icon>
           </ion-button>
 
           {/* edit project */}
@@ -329,6 +376,16 @@ function Main(attrs: {}, context: Context) {
           <ProjectItem id={project.id!} user_id={user_id!} />
         ))}
       </ion-list>
+      <div style="text-align: center; margin-top: 1rem;">
+        <Link href="/gallery">
+          <ion-icon name="globe-outline"></ion-icon>{' '}
+          <Locale
+            en="Browse public datasets"
+            zh_hk="瀏覽公開數據集"
+            zh_cn="浏览公开数据集"
+          />
+        </Link>
+      </div>
       <ion-alert
         id="unauthorized-alert"
         header={Locale(
@@ -360,6 +417,7 @@ function AddProject(attrs: {}, context: WsContext) {
   try {
     let parser = object({
       project_name: string(),
+      is_public: optional(boolean()),
     })
 
     let user_id = getAuthUserId(context)
@@ -375,6 +433,7 @@ function AddProject(attrs: {}, context: WsContext) {
       let project_id = proxy.project.push({
         title: input.project_name,
         creator_id: user_id!,
+        is_public: input.is_public ?? null,
       })
 
       proxy.project_member.push({
@@ -413,12 +472,58 @@ function ModifyProject(attrs: {}, context: DynamicContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
+    let project = proxy.project[input.project_id]
+    if (!project) throw 'Project not found'
+    let user = getAuthUser(context)
+    if (!user) throw 'Login required'
+    if (!user.is_admin && project.creator_id !== user.id)
+      throw 'Only the project owner can rename this project'
+
     proxy.project[input.project_id].title = input.project_name
 
     broadcast([
       'update-text',
       '#project-name-' + input.project_id,
       input.project_name,
+    ])
+  } catch (error) {
+    console.error(error)
+  }
+  throw EarlyTerminate
+}
+
+// toggle public/private visibility of a project (owner/admin only).
+// public projects are viewable by anyone and appear in the public dataset
+// gallery (tasks/public-dataset-gallery.md)
+let setVisibilityParser = object({
+  project_id: int(),
+})
+
+function SetProjectVisibility(attrs: {}, context: WsContext) {
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'Login required'
+
+    let body = getContextFormBody(context)
+    let input = setVisibilityParser.parse(body)
+
+    let project = proxy.project[input.project_id]
+    if (!project) throw 'Project not found'
+    if (!user.is_admin && project.creator_id !== user.id)
+      throw 'Only the project owner can change visibility'
+
+    let is_public = !project.is_public
+    project.is_public = is_public
+
+    broadcast([
+      'update-attrs',
+      `#project-visibility-icon-${input.project_id}`,
+      { name: is_public ? 'globe-outline' : 'lock-closed-outline' },
+    ])
+    broadcast([
+      'update-text',
+      `#project-visibility-text-${input.project_id}`,
+      is_public ? 'Public' : 'Private',
     ])
   } catch (error) {
     console.error(error)
@@ -436,6 +541,13 @@ function DeleteProject(attrs: {}, context: DynamicContext) {
     let input = parser.parse(body)
 
     let project_id = input.project_id
+
+    let project = proxy.project[project_id]
+    if (!project) throw 'Project not found'
+    let user = getAuthUser(context)
+    if (!user) throw 'Login required'
+    if (!user.is_admin && project.creator_id !== user.id)
+      throw 'Only the project owner can delete this project'
 
     // Get all images in the project to delete their files
     let project_images = filter(proxy.image, { project_id })
@@ -617,6 +729,19 @@ function DeleteMember(attrs: {}, context: WsContext) {
     let body = getContextFormBody(context)
     let input = parser.parse(body)
 
+    let project = proxy.project[input.project_id]
+    if (!project) throw 'Project not found'
+    let user = getAuthUser(context)
+    if (!user) throw 'Login required'
+    // owner/admin can remove anyone; a member can only remove themselves
+    // (leave the project)
+    if (
+      !user.is_admin &&
+      project.creator_id !== user.id &&
+      input.user_id !== user.id
+    )
+      throw 'Only the project owner can remove other members'
+
     delete_member.run({
       user_id: input.user_id,
       project_id: input.project_id,
@@ -647,6 +772,13 @@ function AddMember(attrs: {}, context: WsContext) {
 
     let body = getContextFormBody(context)
     let input = parser.parse(body)
+
+    let project = proxy.project[input.project_id]
+    if (!project) throw 'Project not found'
+    let caller = getAuthUser(context)
+    if (!caller) throw 'Login required'
+    if (!caller.is_admin && project.creator_id !== caller.id)
+      throw 'Only the project owner can add members'
 
     let user = find(proxy.user, { username: input.member_name })
     let user_id = user?.id
@@ -743,6 +875,12 @@ let routes = {
     title: apiEndpointTitle,
     description: 'TODO',
     node: <ModifyProject />,
+    streaming: false,
+  },
+  '/project/set-visibility': {
+    title: apiEndpointTitle,
+    description: 'Toggle project public/private visibility (owner/admin only)',
+    node: <SetProjectVisibility />,
     streaming: false,
   },
   '/project/delete-project': {
