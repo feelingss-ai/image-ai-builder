@@ -8,6 +8,9 @@ import { Locale, Title } from '../components/locale.js'
 import { proxy } from '../../../db/proxy.js'
 import { db } from '../../../db/db.js'
 import { getDisplayName } from './profile.js'
+import { getAuthUser } from '../auth/user.js'
+import { IonButton } from '../components/ion-button.js'
+import { IonBackButton } from '../components/ion-back-button.js'
 
 let pageTitle = (
   <Locale en="Public Datasets" zh_hk="公開數據集" zh_cn="公开数据集" />
@@ -288,9 +291,11 @@ let page = (
     {style}
     <ion-header>
       <ion-toolbar color="primary">
+        <GalleryBackButton />
         <ion-title role="heading" aria-level="1">
           {pageTitle}
         </ion-title>
+        <GalleryToolbarExtra />
       </ion-toolbar>
     </ion-header>
     <ion-content id="Gallery" class="ion-padding">
@@ -298,6 +303,28 @@ let page = (
     </ion-content>
   </>
 )
+
+// logged-in users get a back button to their project list; guests don't
+// (there is nothing to go back to)
+function GalleryBackButton(attrs: {}, context: DynamicContext) {
+  let user = getAuthUser(context)
+  if (!user) return null
+  return <IonBackButton href="/app/project" backText="Project" color="light" />
+}
+
+// admins get a Review button in the header to jump to the report review page
+function GalleryToolbarExtra(attrs: {}, context: DynamicContext) {
+  let user = getAuthUser(context)
+  if (!user?.is_admin) return null
+  return (
+    <ion-buttons slot="end">
+      <IonButton url="/report-content/review">
+        <ion-icon name="shield-checkmark-outline" slot="start"></ion-icon>
+        <Locale en="Review" zh_hk="審查" zh_cn="审查" />
+      </IonButton>
+    </ion-buttons>
+  )
+}
 
 let routes = {
   '/gallery': {

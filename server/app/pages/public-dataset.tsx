@@ -1,8 +1,14 @@
 import { o } from '../jsx/jsx.js'
 import { Routes } from '../routes.js'
 import Style from '../components/style.js'
-import { DynamicContext, ExpressContext } from '../context.js'
+import {
+  DynamicContext,
+  ExpressContext,
+  WsContext,
+  getContextFormBody,
+} from '../context.js'
 import { EarlyTerminate } from '../../exception.js'
+import { int, object } from 'cast.ts'
 import { mapArray } from '../components/fragment.js'
 import { Link } from '../components/router.js'
 import { IonBackButton } from '../components/ion-back-button.js'
@@ -185,6 +191,17 @@ function Main(attrs: {}, context: DynamicContext) {
             <ion-icon name="download-outline"></ion-icon>{' '}
             <Locale en="Download" zh_hk="下載" zh_cn="下载" />
           </a>
+        ) : null}
+        {user?.is_admin && project.is_public ? (
+          <ion-button
+            id="unlistDatasetButton"
+            color="danger"
+            size="small"
+            onclick={`emit('/dataset/unlist', { project_id: ${project_id} })`}
+          >
+            <ion-icon name="eye-off-outline" slot="start"></ion-icon>
+            <Locale en="Unlist" zh_hk="下架" zh_cn="下架" />
+          </ion-button>
         ) : null}
       </div>
       <p class="public-dataset-meta">
@@ -411,6 +428,43 @@ async function DownloadDataset(context: ExpressContext) {
   throw EarlyTerminate
 }
 
+// ---------------------------------------------------------------------------
+// admin: unlist a public dataset (moderation)
+// ---------------------------------------------------------------------------
+let unlistParser = object({
+  project_id: int(),
+})
+
+function UnlistDataset(attrs: {}, context: WsContext) {
+  try {
+    let user = getAuthUser(context)
+    if (!user?.is_admin) throw 'Only admins can unlist a dataset'
+
+    let body = getContextFormBody(context)
+    let input = unlistParser.parse(body)
+    let project = proxy.project[input.project_id]
+    if (!project) throw 'Dataset not found'
+
+    project.is_public = false
+
+    context.ws.send([
+      'eval',
+      `var btn = document.getElementById('unlistDatasetButton'); if (btn) btn.remove();`,
+    ])
+    context.ws.send([
+      'eval',
+      `var badge = document.querySelector('.public-dataset-badge'); if (badge) badge.remove();`,
+    ])
+    context.ws.send([
+      'eval',
+      `var header = document.querySelector('.public-dataset-header'); if (header) { var note = document.createElement('p'); note.className = 'public-dataset-meta'; note.textContent = 'Dataset unlisted (now private).'; header.appendChild(note); }`,
+    ])
+  } catch (error) {
+    console.error('UnlistDataset Error:', error)
+  }
+  throw EarlyTerminate
+}
+
 let routes = {
   '/dataset': {
     resolve(context) {
@@ -459,6 +513,11 @@ let routes = {
       await DownloadDataset(context)
       throw EarlyTerminate
     },
+  },
+  '/dataset/unlist': {
+    title: apiEndpointTitle,
+    description: 'Unlist a public dataset (admin only)',
+    node: <UnlistDataset />,
   },
 } satisfies Routes
 

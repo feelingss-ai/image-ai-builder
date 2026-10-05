@@ -11,7 +11,7 @@ import {
 } from '../context.js'
 import { mapArray } from '../components/fragment.js'
 import { object, string, values } from 'cast.ts'
-import { Redirect } from '../components/router.js'
+import { Link, Redirect } from '../components/router.js'
 import { renderError } from '../components/error.js'
 import { getAuthUser, getAuthUserRole } from '../auth/user.js'
 import { Locale, Title } from '../components/locale.js'
@@ -424,6 +424,16 @@ function Submit(attrs: {}, context: DynamicContext) {
   let user = getAuthUser(context)
   let body = getContextFormBody(context)
   let input = submitParser.parse(body)
+  // when the report came from a dataset page, remember which project was
+  // reported (used by the admin review page to show/unlist the dataset)
+  let project_id: number | null = null
+  try {
+    let url = new URL(input.return_url, 'http://x')
+    if (url.pathname === '/dataset') {
+      let project_str = url.searchParams.get('project')
+      project_id = project_str ? +project_str || null : null
+    }
+  } catch {}
   proxy.content_report.push({
     reporter_id: user?.id || null,
     type: input.type,
@@ -433,6 +443,7 @@ function Submit(attrs: {}, context: DynamicContext) {
     review_time: null,
     accept_time: null,
     reject_time: null,
+    project_id,
   })
   return (
     <Redirect
@@ -483,11 +494,20 @@ let reviewStyle = Style(/* css */ `
 `)
 
 function selectPendingReports() {
-  // return filter(proxy.content_report, {
-  //   accept_time: null,
-  //   reject_time: null,
-  // })
-  return proxy.content_report
+  // pending reports first (newest at top), decided reports at the bottom
+  // (most recently decided first)
+  let reports = [...proxy.content_report]
+  let pending = reports
+    .filter(r => r.accept_time == null && r.reject_time == null)
+    .sort((a, b) => b.id! - a.id!)
+  let decided = reports
+    .filter(r => r.accept_time != null || r.reject_time != null)
+    .sort((a, b) => {
+      let a_time = a.accept_time || a.reject_time || 0
+      let b_time = b.accept_time || b.reject_time || 0
+      return b_time - a_time
+    })
+  return [...pending, ...decided]
 }
 
 function countPendingReports() {
@@ -560,14 +580,25 @@ function ReviewPage(attrs: {}, context: DynamicContext) {
   let role = getAuthUserRole(context)
   if (role != 'admin') {
     return (
-      <Page id="Review" title={ReviewPageTitle}>
+      <Page
+        id="Review"
+        title={ReviewPageTitle}
+        backHref="/gallery"
+        backText="Gallery"
+      >
         {renderError('This page is only available to admins', context)}
       </Page>
     )
   }
   let reports = selectPendingReports()
   return (
-    <Page id="Review" title={ReviewPageTitle} class="ion-padding-vertical">
+    <Page
+      id="Review"
+      title={ReviewPageTitle}
+      class="ion-padding-vertical"
+      backHref="/gallery"
+      backText="Gallery"
+    >
       <Content web={webReviewStyle} ionic={ionicStyle} />
       {reviewStyle}
       <p class="ion-padding-horizontal">
@@ -605,6 +636,23 @@ function ReviewPage(attrs: {}, context: DynamicContext) {
                     <Locale en="Guest" zh_hk="訪客" zh_cn="访客" />
                   )}
                 </section>
+                {report.project_id ? (
+                  <section>
+                    <Locale
+                      en="Reported dataset"
+                      zh_hk="被檢舉數據集"
+                      zh_cn="被检举数据集"
+                    />
+                    :{' '}
+                    <Link href={`/dataset?project=${report.project_id}`}>
+                      <Locale
+                        en="View dataset"
+                        zh_hk="查看數據集"
+                        zh_cn="查看数据集"
+                      />
+                    </Link>
+                  </section>
+                ) : null}
                 <section>
                   <Locale en="Remark" zh_hk="備註" zh_cn="备注" />:{' '}
                   <div class="report-remark">
@@ -703,6 +751,12 @@ function Accept(attrs: {}, context: DynamicContext) {
     if (report.reject_time) {
       report.reject_time = null
     }
+    // accepting the report means the content is problematic — unlist the
+    // reported dataset so it disappears from the gallery and /dataset
+    if (report.project_id) {
+      let project = proxy.project[report.project_id]
+      if (project) project.is_public = false
+    }
   })
 }
 
@@ -712,8 +766,16 @@ function Reject(attrs: {}, context: DynamicContext) {
     report.review_time ||= now
     report.reject_time = now
     if (report.accept_time) {
+      // accept-then-reject: the admin changed their mind — re-publish the
+      // dataset that was unlisted by the earlier accept
       report.accept_time = null
+      if (report.project_id) {
+        let project = proxy.project[report.project_id]
+        if (project) project.is_public = true
+      }
     }
+    // plain reject (never accepted): do not touch the project's visibility
+    // — the owner decides whether to publish
   })
 }
 

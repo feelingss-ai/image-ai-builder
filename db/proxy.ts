@@ -137,6 +137,8 @@ export type ContentReport = {
   review_time: null | number
   accept_time: null | number
   reject_time: null | number
+  project_id: null | number
+  project?: Project
 }
 
 export type Project = {
@@ -406,6 +408,7 @@ export let proxy = proxySchema<DBProxy>({
       /* foreign references */
       ['reporter', { field: 'reporter_id', table: 'user' }],
       ['reviewer', { field: 'reviewer_id', table: 'user' }],
+      ['project', { field: 'project_id', table: 'project' }],
     ],
     project: [
       /* foreign references */
