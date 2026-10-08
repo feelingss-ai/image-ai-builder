@@ -1151,6 +1151,15 @@ async function submitBoundingBoxes() {
   emit('/annotate-bounding-box/submitBoundingBox', data)
 }
 
+function undoBoundingBoxSubmission() {
+  let label_id = document.getElementById('label_select').value
+  if (!label_id) return
+  emit('/annotate-bounding-box/undoSubmission', {
+    label_id,
+    project_id: getProjectId(),
+  })
+}
+
 // Function to enter edit mode for a bounding box
 function enterEditMode(boundingBox) {
   console.log('Entering edit mode for bounding box:', boundingBox)
@@ -1920,6 +1929,20 @@ let check_bounding_box_confirmation = db.prepare<
   LIMIT 1
 `)
 
+let select_previous_bounding_box_confirmation = db.prepare<
+  { user_id: number; label_id: number; project_id: number },
+  { id: number; image_id: number } | null
+>(/* sql */ `
+  SELECT ibc.id, ibc.image_id
+  FROM image_bounding_box_confirmation ibc
+  INNER JOIN image i ON i.id = ibc.image_id
+  WHERE ibc.user_id = :user_id
+    AND ibc.label_id = :label_id
+    AND i.project_id = :project_id
+  ORDER BY ibc.id DESC
+  LIMIT 1
+`)
+
 // Revoke confirmation when bounding boxes are edited (add/update/delete)
 // so the user must re-confirm after changes
 let delete_bounding_box_confirmation = db.prepare<
@@ -2032,6 +2055,12 @@ function Main(
         user_id: user.id!,
         project_id: project_id,
       })
+
+  let has_undo = !!select_previous_bounding_box_confirmation.get({
+    label_id,
+    user_id: user.id!,
+    project_id,
+  })
 
   return (
     <>
@@ -2347,6 +2376,16 @@ function Main(
               }
             >
               <ion-icon name="trash" slot="icon-only"></ion-icon>
+            </ion-button>
+            <ion-button
+              id="btn_undo_bounding_box"
+              color="medium"
+              style="flex: 1;"
+              disabled={!has_undo}
+              onclick="undoBoundingBoxSubmission()"
+              title={<Locale en="Undo last submission" zh_hk="還原上次提交" zh_cn="撤銷上次提交" />}
+            >
+              <ion-icon name="arrow-undo" slot="icon-only"></ion-icon>
             </ion-button>
             <ion-button
               color="success"
@@ -3195,6 +3234,106 @@ function SubmitBoundingBox(attrs: {}, context: WsContext) {
   }
 }
 
+let undoBoundingBoxSubmissionParser = object({
+  label_id: id(),
+  project_id: id(),
+})
+
+function UndoBoundingBoxSubmission(attrs: {}, context: WsContext) {
+  try {
+    let throws = makeThrows(context)
+    let user_id = getAuthUserId(context)!
+    if (!user_id)
+      throws({
+        en: 'You must be logged in to undo a submission',
+        zh_hk: '您必須登入才能還原提交',
+        zh_cn: '您必须登录才能撤销提交',
+      })
+
+    let input = undoBoundingBoxSubmissionParser.parse(getContextFormBody(context))
+    let previous = select_previous_bounding_box_confirmation.get({
+      user_id,
+      label_id: input.label_id,
+      project_id: input.project_id,
+    })
+    if (!previous) {
+      context.ws.send(['update-attrs', '#btn_undo_bounding_box', { disabled: true }])
+      throws({
+        en: 'No bounding box submission to undo',
+        zh_hk: '沒有可還原的邊界框提交',
+        zh_cn: '沒有可撤銷的邊界框提交',
+      })
+    }
+
+    delete_bounding_box_confirmation.run({
+      image_id: previous!.image_id,
+      user_id,
+      label_id: input.label_id,
+    })
+    context.ws.send([
+      'update-attrs',
+      '#btn_undo_bounding_box',
+      {
+        disabled: !select_previous_bounding_box_confirmation.get({
+          user_id,
+          label_id: input.label_id,
+          project_id: input.project_id,
+        }),
+      },
+    ])
+    let image = select_image_by_id.get({
+      image_id: previous!.image_id,
+      label_id: input.label_id,
+      project_id: input.project_id,
+    })
+    if (!image) throw 'Previously submitted image is no longer available'
+
+    let confirmed = count_confirmed_bounding_box_images.get({
+      label_id: input.label_id,
+      user_id,
+      project_id: input.project_id,
+    })
+    let total = count_label_images.get({
+      label_id: input.label_id,
+      project_id: input.project_id,
+    })
+    let label = proxy.label[input.label_id]
+    if (label) {
+      context.ws.send([
+        'update-text',
+        `#label_select ion-select-option[value="${input.label_id}"]`,
+        `${label.title} (${confirmed}/${total})`,
+      ])
+    }
+    context.ws.send([
+      'update-attrs',
+      '#label_image',
+      {
+        src: `/uploads/${image.filename}`,
+        'data-image-id': image.id,
+        'data-rotation': image.rotation || 0,
+      },
+    ])
+    context.ws.send([
+      'eval',
+      `
+      document.getElementById('label_image').style.display = '';
+      document.getElementById('no-image-message').hidden = true;
+      document.getElementById('minimapCanvas').style.display = 'block';
+      document.getElementById('previewCanvas').style.display = 'block';
+      window.boundingBoxesData = null;
+      `,
+    ])
+    throw EarlyTerminate
+  } catch (error) {
+    if (error !== EarlyTerminate) {
+      console.error(error)
+      context.ws.send(showError(error))
+    }
+    throw EarlyTerminate
+  }
+}
+
 let routes = {
   '/annotate-bounding-box': {
     resolve(context) {
@@ -3260,6 +3399,11 @@ let routes = {
     title: <Title t={pageTitle} />,
     description: 'Submit bounding box confirmation',
     node: <SubmitBoundingBox />,
+  },
+  '/annotate-bounding-box/undoSubmission': {
+    title: <Title t={pageTitle} />,
+    description: 'Undo last bounding box submission',
+    node: <UndoBoundingBoxSubmission />,
   },
 } satisfies Routes
 

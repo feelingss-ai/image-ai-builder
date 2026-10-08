@@ -599,6 +599,15 @@ async function submitKeypoints() {
   })
 }
 
+function undoKeypointSubmission() {
+  let label_id = document.getElementById('label_select').value
+  if (!label_id) return
+  emit('/annotate-keypoint/undoSubmission', {
+    label_id,
+    project_id: getProjectId(),
+  })
+}
+
 // Zoom helpers (press-and-hold repeating)
 var zoomIntervalId = null
 function startZoom(zoomFn) {
@@ -819,6 +828,20 @@ let select_next_unconfirmed_image = db.prepare<
         AND ibb.user_id = :user_id
     )
   ORDER BY i.id
+  LIMIT 1
+`)
+
+let select_previous_keypoint_confirmation = db.prepare<
+  { label_id: number; user_id: number; project_id: number },
+  { id: number; image_id: number } | null
+>(/* sql */ `
+  SELECT ikc.id, ikc.image_id
+  FROM image_keypoint_confirmation ikc
+  INNER JOIN image i ON i.id = ikc.image_id
+  WHERE ikc.label_id = :label_id
+    AND ikc.user_id = :user_id
+    AND i.project_id = :project_id
+  ORDER BY ikc.id DESC
   LIMIT 1
 `)
 
@@ -1060,6 +1083,12 @@ function Main(
         project_id: project_id,
       })
 
+  let has_undo = !!select_previous_keypoint_confirmation.get({
+    label_id,
+    user_id: user.id!,
+    project_id,
+  })
+
   // keypoint template of the selected label (injected for the client)
   let label = proxy.label[label_id]
   let template = label?.keypoint_template_id
@@ -1258,6 +1287,16 @@ function Main(
             </ion-button>
           </div>
           <div class="kp-button-row">
+            <ion-button
+              id="btn_undo_keypoint"
+              color="medium"
+              style="flex: 1;"
+              disabled={!has_undo}
+              onclick="undoKeypointSubmission()"
+              title={<Locale en="Undo last submission" zh_hk="還原上次提交" zh_cn="撤銷上次提交" />}
+            >
+              <ion-icon name="arrow-undo" slot="icon-only"></ion-icon>
+            </ion-button>
             <ion-button
               color="success"
               style="flex: 1;"
@@ -1753,6 +1792,112 @@ function SubmitKeypoints(attrs: {}, context: WsContext) {
   }
 }
 
+let undoKeypointSubmissionParser = object({
+  label_id: id(),
+  project_id: id(),
+})
+
+function UndoKeypointSubmission(attrs: {}, context: WsContext) {
+  try {
+    let throws = makeThrows(context)
+    let user_id = getAuthUserId(context)!
+    if (!user_id)
+      throws({
+        en: 'You must be logged in to undo a submission',
+        zh_hk: '您必須登入才能還原提交',
+        zh_cn: '您必须登录才能撤销提交',
+      })
+
+    let input = undoKeypointSubmissionParser.parse(getContextFormBody(context))
+    let previous = select_previous_keypoint_confirmation.get({
+      user_id,
+      label_id: input.label_id,
+      project_id: input.project_id,
+    })
+    if (!previous) {
+      context.ws.send(['update-attrs', '#btn_undo_keypoint', { disabled: true }])
+      throws({
+        en: 'No keypoint submission to undo',
+        zh_hk: '沒有可還原的關鍵點提交',
+        zh_cn: '没有可撤销的关键点提交',
+      })
+    }
+
+    delete_keypoint_confirmation.run({
+      image_id: previous!.image_id,
+      user_id,
+      label_id: input.label_id,
+    })
+    context.ws.send([
+      'update-attrs',
+      '#btn_undo_keypoint',
+      {
+        disabled: !select_previous_keypoint_confirmation.get({
+          user_id,
+          label_id: input.label_id,
+          project_id: input.project_id,
+        }),
+      },
+    ])
+    let image = select_image_by_id.get({
+      image_id: previous!.image_id,
+      label_id: input.label_id,
+      project_id: input.project_id,
+      user_id,
+    })
+    if (!image) throw 'Previously submitted image is no longer available'
+
+    let confirmed = count_confirmed_keypoint_images.get({
+      label_id: input.label_id,
+      user_id,
+      project_id: input.project_id,
+    })
+    let eligible = count_keypoint_eligible_images.get({
+      label_id: input.label_id,
+      user_id,
+      project_id: input.project_id,
+    })
+    let label = proxy.label[input.label_id]
+    if (label) {
+      context.ws.send([
+        'update-text',
+        `#label_select ion-select-option[value="${input.label_id}"]`,
+        `${label.title} (${confirmed}/${eligible})${label.keypoint_template_id && proxy.keypoint_template[label.keypoint_template_id] ? '' : ' — no keypoints'}`,
+      ])
+    }
+    context.ws.send([
+      'update-attrs',
+      '#label_image',
+      {
+        src: `/uploads/${image.filename}`,
+        'data-image-id': image.id,
+        'data-rotation': image.rotation || 0,
+      },
+    ])
+    context.ws.send([
+      'eval',
+      `
+      document.getElementById('label_image').style.display = '';
+      document.getElementById('no-image-message').hidden = true;
+      document.getElementById('preview-container').style.display = 'block';
+      currentBoxId = null;
+      window._keypointActiveBoxId = null;
+      window.keypointBoxesData = null;
+      window.keypointData = null;
+      keypointDataAll = [];
+      if (typeof updateBoxSelect === 'function') updateBoxSelect([]);
+      `,
+    ])
+    throw EarlyTerminate
+  } catch (error) {
+    if (error !== EarlyTerminate) {
+      console.error(error)
+      context.ws.send(showError(error))
+    }
+    throw EarlyTerminate
+  }
+}
+
 let routes = {
   '/annotate-keypoint': {
     resolve(context) {
@@ -1813,6 +1958,11 @@ let routes = {
     title: <Title t={pageTitle} />,
     description: 'Submit keypoint confirmation',
     node: <SubmitKeypoints />,
+  },
+  '/annotate-keypoint/undoSubmission': {
+    title: <Title t={pageTitle} />,
+    description: 'Undo last keypoint submission',
+    node: <UndoKeypointSubmission />,
   },
 } satisfies Routes
 
