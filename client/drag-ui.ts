@@ -548,6 +548,27 @@ function setupDragUI(options: {
 
     cameraCanvas.addEventListener('mouseup', () => { isMouseDown = false })
     cameraCanvas.addEventListener('mouseleave', () => { isMouseDown = false })
+
+    // Mouse wheel zooms around the center of the current image view. Keep the
+    // camera center fixed while changing its dimensions so the image does not
+    // drift toward a corner during zoom.
+    cameraCanvas.addEventListener(
+      'wheel',
+      event => {
+        event.preventDefault()
+        const factor = event.deltaY < 0 ? 0.9 : 1.1
+        camera.width = Math.max(
+          1 / image.naturalWidth,
+          Math.min(1, camera.width * factor),
+        )
+        camera.height = Math.max(
+          1 / image.naturalHeight,
+          Math.min(1, camera.height * factor),
+        )
+        resizePreviewToCamera()
+      },
+      { passive: false },
+    )
   }
 
   cameraContext.setTransform()

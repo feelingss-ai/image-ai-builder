@@ -824,12 +824,10 @@ function setupKeypointEditor(options: {
       if (newWidth > maxSize) newWidth = maxSize
       if (newHeight > maxSize) newHeight = maxSize
 
-      let oldWidth = camera.width
-      let oldHeight = camera.height
       camera.width = newWidth
       camera.height = newHeight
-      camera.x -= (newWidth - oldWidth) / 2
-      camera.y -= (newHeight - oldHeight) / 2
+      // Keep the current view center fixed: zooming should expand or shrink
+      // evenly around the image center instead of drifting toward a corner.
       clampCamera()
       resizePreviewToCamera()
     },
