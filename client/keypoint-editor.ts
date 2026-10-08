@@ -130,6 +130,24 @@ function setupKeypointEditor(options: {
     )
   }
 
+  // Use the fitted image area, not the full CSS canvas rectangle. This keeps
+  // one mouse/touch pixel of movement mapped to the same visible pan distance
+  // on portrait, landscape, and letterboxed images.
+  function getPanContentSize(rect: DOMRect) {
+    if (
+      getComputedStyle(canvas).objectFit !== 'contain' ||
+      !canvas.width ||
+      !canvas.height
+    ) {
+      return { width: rect.width, height: rect.height }
+    }
+    let scale = Math.min(rect.width / canvas.width, rect.height / canvas.height)
+    return {
+      width: Math.max(1, canvas.width * scale),
+      height: Math.max(1, canvas.height * scale),
+    }
+  }
+
   // Initialize touch tracking
   let lastTouches: Record<number, Touch> = {}
 
@@ -561,6 +579,7 @@ function setupKeypointEditor(options: {
     }
     if (isPanning) {
       let rect = canvas.getBoundingClientRect()
+      let contentSize = getPanContentSize(rect)
       let deltaX = event.clientX - lastPointerX
       let deltaY = event.clientY - lastPointerY
 
@@ -571,8 +590,8 @@ function setupKeypointEditor(options: {
         -deltaX * Math.sin(camera.rotate * 2 * Math.PI) +
         deltaY * Math.cos(camera.rotate * 2 * Math.PI)
 
-      camera.x -= (rotatedDeltaX / rect.width) * camera.width
-      camera.y -= (rotatedDeltaY / rect.height) * camera.height
+      camera.x -= (rotatedDeltaX / contentSize.width) * camera.width
+      camera.y -= (rotatedDeltaY / contentSize.height) * camera.height
 
       clampCamera()
 
@@ -667,6 +686,7 @@ function setupKeypointEditor(options: {
 
   canvas.addEventListener('touchmove', event => {
     let rect = canvas.getBoundingClientRect()
+    let contentSize = getPanContentSize(rect)
     let touchCount = event.touches.length
 
     // dragging a keypoint with a single finger: move the point, never pan
@@ -712,8 +732,10 @@ function setupKeypointEditor(options: {
         -deltaX * Math.sin(camera.rotate * 2 * Math.PI) +
         deltaY * Math.cos(camera.rotate * 2 * Math.PI)
 
-      camera.x -= ((rotatedDeltaX / rect.width) * camera.width) / touchCount
-      camera.y -= ((rotatedDeltaY / rect.height) * camera.height) / touchCount
+      camera.x -=
+        ((rotatedDeltaX / contentSize.width) * camera.width) / touchCount
+      camera.y -=
+        ((rotatedDeltaY / contentSize.height) * camera.height) / touchCount
 
       clampCamera()
     }

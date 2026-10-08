@@ -78,6 +78,27 @@ function setupDragUI(options: {
     camera.y = Math.max(camera.height / 2, Math.min(1 - camera.height / 2, camera.y))
   }
 
+  // Return the canvas's actual displayed content size. In contain mode the
+  // canvas element can have letterboxing, so using its outer rectangle makes
+  // panning move at different speeds horizontally and vertically.
+  function getPanContentSize(rect: DOMRect) {
+    if (
+      getComputedStyle(cameraCanvas).objectFit !== 'contain' ||
+      !cameraCanvas.width ||
+      !cameraCanvas.height
+    ) {
+      return { width: rect.width, height: rect.height }
+    }
+    let scale = Math.min(
+      rect.width / cameraCanvas.width,
+      rect.height / cameraCanvas.height,
+    )
+    return {
+      width: Math.max(1, cameraCanvas.width * scale),
+      height: Math.max(1, cameraCanvas.height * scale),
+    }
+  }
+
   // Initialize touch tracking
   let lastTouches: Record<number, Touch> = {}
 
@@ -325,6 +346,7 @@ function setupDragUI(options: {
       // debugMoveMessage.textContent =
       //   'touchmove: ' + JSON.stringify(formatTouches(event.touches), null, 2)
       let rect = cameraCanvas.getBoundingClientRect()
+      let contentSize = getPanContentSize(rect)
       let touchCount = event.touches.length
 
       // detect pan (translation)
@@ -341,8 +363,10 @@ function setupDragUI(options: {
           -deltaX * Math.sin(camera.rotate * 2 * Math.PI) +
           deltaY * Math.cos(camera.rotate * 2 * Math.PI)
 
-        camera.x -= ((rotatedDeltaX / rect.width) * camera.width) / touchCount
-        camera.y -= ((rotatedDeltaY / rect.height) * camera.height) / touchCount
+        camera.x -=
+          ((rotatedDeltaX / contentSize.width) * camera.width) / touchCount
+        camera.y -=
+          ((rotatedDeltaY / contentSize.height) * camera.height) / touchCount
 
         clampCamera()
       }
@@ -526,6 +550,7 @@ function setupDragUI(options: {
     cameraCanvas.addEventListener('mousemove', event => {
       if (!isMouseDown) return
       let rect = cameraCanvas.getBoundingClientRect()
+      let contentSize = getPanContentSize(rect)
       let deltaX = event.clientX - lastMouseX
       let deltaY = event.clientY - lastMouseY
 
@@ -536,8 +561,8 @@ function setupDragUI(options: {
         -deltaX * Math.sin(camera.rotate * 2 * Math.PI) +
         deltaY * Math.cos(camera.rotate * 2 * Math.PI)
 
-      camera.x -= ((rotatedDeltaX / rect.width) * camera.width)
-      camera.y -= ((rotatedDeltaY / rect.height) * camera.height)
+      camera.x -= (rotatedDeltaX / contentSize.width) * camera.width
+      camera.y -= (rotatedDeltaY / contentSize.height) * camera.height
 
       clampCamera()
 
