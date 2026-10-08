@@ -299,11 +299,27 @@ function setupKeypointEditor(options: {
     let overlayAlpha =
       window.keypointOverlayOpacity == null ? 1 : window.keypointOverlayOpacity
 
+    // Transform scale of render(): how many SCREEN pixels one image pixel
+    // is drawn with. All overlay sizes (dots, rings, lines, fonts) are
+    // divided by this so they stay a CONSTANT size on screen while the
+    // user zooms in/out (same perceived behaviour as the bounding box).
+    let viewWidth = camera.width * image.naturalWidth
+    let viewHeight = camera.height * image.naturalHeight
+    let scale = Math.min(
+      canvas.width / viewWidth,
+      canvas.height / viewHeight,
+    )
+    // screen-px constants converted to image-px units
+    let dotRadius = 8 / scale // keypoint dot radius (screen px)
+    let ringWidth = 2 / scale // white ring / black ring / edge line width
+    let edgeWidth = 2 / scale // skeleton edge width
+    let boxLineWidth = 2 / scale // bounding box outline width
+
     // Draw all boxes: the active one highlighted, others dimmed
     let activeId = activeBoxId()
     for (let box of boxes) {
       let isActive = box.id === activeId
-      drawBox(box, isActive)
+      drawBox(box, isActive, boxLineWidth)
     }
 
     if (overlayAlpha <= 0) return
@@ -313,10 +329,13 @@ function setupKeypointEditor(options: {
     if (activeBox && template && template.edges) {
       context.save()
       context.globalAlpha = overlayAlpha
-      // single bright colour for the skeleton: a per-edge gradient would be
-      // noisy, and the white/dark halo below keeps it readable anywhere
-      context.strokeStyle = '#00e5ff'
-      context.lineWidth = Math.max(1, canvas.width * 0.004)
+      // Inverted-colour skeleton: drawing a WHITE line with the 'difference'
+      // composite operation yields |background - 255| per pixel, i.e. the
+      // exact inverse of the image colour under every part of the line —
+      // maximum contrast on any background, no pixel sampling needed.
+      context.globalCompositeOperation = 'difference'
+      context.strokeStyle = '#ffffff'
+      context.lineWidth = edgeWidth
       for (let edge of template.edges) {
         let a = keypoints[edge[0]]
         let b = keypoints[edge[1]]
@@ -331,7 +350,7 @@ function setupKeypointEditor(options: {
     }
 
     // Draw keypoints
-    let radius = Math.max(4, canvas.width * 0.012)
+    let radius = dotRadius
     context.save()
     context.globalAlpha = overlayAlpha
     for (let kp of keypoints) {
@@ -346,46 +365,36 @@ function setupKeypointEditor(options: {
         // invisible: hollow circle with a dark outline so it stays visible
         // on light backgrounds too
         context.strokeStyle = '#999'
-        context.lineWidth = Math.max(1, radius * 0.3)
+        context.lineWidth = ringWidth
         context.beginPath()
         context.arc(px, py, radius, 0, 2 * Math.PI)
         context.stroke()
       } else {
         // visible: per-dot rainbow fill (each circle has its own top-left ->
-        // bottom-right gradient) + white ring + dark outer ring, so the dot
-        // is readable on any background colour
+        // bottom-right gradient) + a white ring. No dark outer ring: the
+        // white ring alone separates the dot from the image.
         context.fillStyle = createRainbowGradient(px, py, radius)
         context.beginPath()
         context.arc(px, py, radius, 0, 2 * Math.PI)
         context.fill()
         context.strokeStyle = '#ffffff'
-        context.lineWidth = Math.max(1, radius * 0.35)
-        context.stroke()
-        context.strokeStyle = 'rgba(0,0,0,0.75)'
-        context.lineWidth = Math.max(1, radius * 0.15)
-        context.beginPath()
-        context.arc(px, py, radius * 1.25, 0, 2 * Math.PI)
+        context.lineWidth = ringWidth
         context.stroke()
       }
       if (isSelected) {
-        // selection ring: white + dark double ring for contrast
-        context.strokeStyle = '#ffffff'
-        context.lineWidth = Math.max(1, radius * 0.5)
+        // selection ring: a single BLACK ring at the outermost layer
+        context.strokeStyle = '#000000'
+        context.lineWidth = ringWidth
         context.beginPath()
         context.arc(px, py, radius * 1.8, 0, 2 * Math.PI)
-        context.stroke()
-        context.strokeStyle = 'rgba(0,0,0,0.75)'
-        context.lineWidth = Math.max(1, radius * 0.2)
-        context.beginPath()
-        context.arc(px, py, radius * 2.1, 0, 2 * Math.PI)
         context.stroke()
       }
       // label: white text with a dark outline (readable on any background)
       if (template && template.names[kp.idx]) {
         context.fillStyle = '#fff'
         context.strokeStyle = '#000'
-        context.lineWidth = Math.max(1, radius * 0.25)
-        context.font = `${Math.max(10, radius * 1.6)}px Arial`
+        context.lineWidth = ringWidth
+        context.font = `${Math.max(13 / scale, radius * 2.0)}px Arial`
         context.textAlign = 'center'
         context.textBaseline = 'bottom'
         let label = template.names[kp.idx]
@@ -401,7 +410,7 @@ function setupKeypointEditor(options: {
     return (window as any)._keypointActiveBoxId
   }
 
-  function drawBox(box: KeypointBox, isActive: boolean) {
+  function drawBox(box: KeypointBox, isActive: boolean, lineWidth: number) {
     let imgW = image.naturalWidth
     let imgH = image.naturalHeight
     let boxWidth = box.width * imgW
@@ -412,11 +421,23 @@ function setupKeypointEditor(options: {
     context.save()
     context.translate(boxLeft + boxWidth / 2, boxTop + boxHeight / 2)
     context.rotate(-box.rotate * 2 * Math.PI)
-    context.lineWidth = Math.max(1, Math.max(imgW, imgH) * 0.004)
-    if (isActive) {
-      context.strokeStyle = '#3880ff'
-    } else {
-      context.strokeStyle = 'rgba(128,128,128,0.6)'
+    // line width is passed in screen-px units (already divided by the
+    // transform scale) so the outline stays a constant size while zooming
+    context.lineWidth = lineWidth
+    // Rainbow conic gradient outline — same look as the bbx review page
+    // (createConicGradient sweeping the full hue circle around the box
+    // centre). Inactive boxes are thinner and semi-transparent so the
+    // active one stands out.
+    let gradient = context.createConicGradient(0, 0, 0)
+    let n = 32
+    for (let i = 0; i <= n; i++) {
+      let h = (360 * i) / n
+      gradient.addColorStop(i / n, 'hsl(' + h + ',100%,50%)')
+    }
+    context.strokeStyle = gradient
+    if (!isActive) {
+      context.globalAlpha = 0.6
+      context.lineWidth = lineWidth * 0.75
     }
     context.strokeRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight)
     context.restore()
@@ -505,7 +526,16 @@ function setupKeypointEditor(options: {
   // Hit-test: find a keypoint near the given image position (within radius)
   function findKeypointAt(nx: number, ny: number) {
     let keypoints = window.keypointData || []
-    let radius = Math.max(0.005, 8 / image.naturalWidth)
+    // hit radius matches the on-screen dot size (8px) + a small margin,
+    // converted to image units with the current transform scale so the
+    // touch target stays constant while zooming
+    let viewWidth = camera.width * image.naturalWidth
+    let viewHeight = camera.height * image.naturalHeight
+    let scale = Math.min(
+      canvas.width / viewWidth,
+      canvas.height / viewHeight,
+    )
+    let radius = 12 / scale / image.naturalWidth
     let best: Keypoint | null = null
     let bestDist = Infinity
     for (let kp of keypoints) {

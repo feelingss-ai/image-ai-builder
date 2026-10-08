@@ -1293,7 +1293,13 @@ function Main(
               style="flex: 1;"
               disabled={!has_undo}
               onclick="undoKeypointSubmission()"
-              title={<Locale en="Undo last submission" zh_hk="還原上次提交" zh_cn="撤銷上次提交" />}
+              title={
+                <Locale
+                  en="Undo last submission"
+                  zh_hk="還原上次提交"
+                  zh_cn="撤銷上次提交"
+                />
+              }
             >
               <ion-icon name="arrow-undo" slot="icon-only"></ion-icon>
             </ion-button>
@@ -1815,7 +1821,11 @@ function UndoKeypointSubmission(attrs: {}, context: WsContext) {
       project_id: input.project_id,
     })
     if (!previous) {
-      context.ws.send(['update-attrs', '#btn_undo_keypoint', { disabled: true }])
+      context.ws.send([
+        'update-attrs',
+        '#btn_undo_keypoint',
+        { disabled: true },
+      ])
       throws({
         en: 'No keypoint submission to undo',
         zh_hk: '沒有可還原的關鍵點提交',
@@ -1869,7 +1879,7 @@ function UndoKeypointSubmission(attrs: {}, context: WsContext) {
       'update-attrs',
       '#label_image',
       {
-        src: `/uploads/${image.filename}`,
+        'src': `/uploads/${image.filename}`,
         'data-image-id': image.id,
         'data-rotation': image.rotation || 0,
       },
