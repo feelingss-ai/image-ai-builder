@@ -269,9 +269,9 @@ function Main(attrs: {}, context: DynamicContext) {
         <ion-item>
           4.{' '}
           <Locale
-            en="Bounding Box Classification"
-            zh_hk="邊界框分類"
-            zh_cn="边界框分类"
+            en="Bounding Box Detection"
+            zh_hk="Bounding Box 偵測"
+            zh_cn="Bounding Box 检测"
           />
         </ion-item>
         <ion-item>
@@ -292,19 +292,17 @@ function Main(attrs: {}, context: DynamicContext) {
             </IonButton>
             <IonButton
               fill="solid"
-              color="medium"
-              disabled={true}
-              url={'/train-ai?project=' + project_id}
+              color="primary"
+              url={'/train-bbox-ai?project=' + project_id}
             >
-              <Locale en="Train AI" zh_hk="訓練 AI" zh_cn="训练 AI" />
+              <Locale en="Train BBox AI" zh_hk="訓練 BBox AI" zh_cn="训练 BBox AI" />
             </IonButton>
             <IonButton
               fill="solid"
-              color="medium"
-              disabled={true}
-              url={'/preview-ai?project=' + project_id}
+              color="primary"
+              url={'/preview-bbox-ai?project=' + project_id}
             >
-              <Locale en="Preview AI" zh_hk="預覽 AI" zh_cn="预览 AI" />
+              <Locale en="Preview BBox AI" zh_hk="預覽 BBox AI" zh_cn="预览 BBox AI" />
             </IonButton>
           </ion-buttons>
         </ion-item>

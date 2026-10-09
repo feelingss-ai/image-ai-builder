@@ -6,6 +6,8 @@ import SimilarImages from './pages/similar-images.js'
 import Stats from './pages/stats.js'
 import PreviewAI from './pages/preview-ai.js'
 import TrainAI from './pages/train-ai.js'
+import TrainBoundingBoxAI from './pages/train-bbox-ai.js'
+import PreviewBoundingBoxAI from './pages/preview-bbox-ai.js'
 import AnnotateImage from './pages/annotate-image.js'
 import AnnotateBoundingBox from './pages/annotate-bounding-box.js'
 import AnnotateKeypoint from './pages/annotate-keypoint.js'
@@ -106,6 +108,8 @@ let routeDict = {
   ...Stats.routes,
   ...PreviewAI.routes,
   ...TrainAI.routes,
+  ...TrainBoundingBoxAI.routes,
+  ...PreviewBoundingBoxAI.routes,
   ...AnnotateImage.routes,
   ...AnnotateBoundingBox.routes,
   ...AnnotateKeypoint.routes,
