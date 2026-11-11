@@ -48,6 +48,8 @@ import {
   invalidateRelationModelCache,
   getSimilarityMode,
   setSimilarityMode,
+  getUiVersion,
+  setUiVersion,
 } from '../similarity-scorer.js'
 import { trainMultiTaskModel } from '../relation-multitask.js'
 import { RELATION_MODEL_VERSION } from '../relation-model.js'
@@ -88,6 +90,13 @@ let style = Style(/* css */ `
 .similar-mode-select {
   max-width: 8rem;
   font-size: 0.85rem;
+}
+/* the switch between the new and the legacy page version */
+.similar-version-switch {
+  margin-left: auto;
+  font-size: 0.8rem;
+  --padding-start: 0.5rem;
+  --padding-end: 0.5rem;
 }
 .similar-section {
   margin-top: 0.5rem;
@@ -271,6 +280,10 @@ let style = Style(/* css */ `
 .triplet-count {
   color: #666;
 }
+.triplet-hint {
+  color: #999;
+  font-style: italic;
+}
 /* the keyboard hint inside the answer buttons */
 .triplet-option kbd {
   display: inline-block;
@@ -290,26 +303,6 @@ let style = Style(/* css */ `
   border-color: rgba(255, 255, 255, 0.6);
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
-}
-/* the upcoming triplets in the batch */
-.triplet-pending-row {
-  display: flex;
-  gap: 0.4rem;
-  margin-top: 0.6rem;
-}
-.triplet-pending {
-  flex: 1;
-  height: 2.5rem;
-  border: 1px dashed #ccc;
-  border-radius: 0.35rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.5);
-}
-.triplet-pending-label {
-  font-size: 0.75rem;
-  color: #aaa;
 }
 /* the progress toward the target number of annotations */
 .triplet-progress-label {
@@ -555,6 +548,29 @@ async function trainRelationModel() {
 }
 
 /**
+ * Switches the page between the new version (trained model + triplet
+ * annotation) and the legacy one (weighted cosine + pair ranking).
+ *
+ * The whole page is reloaded because the two versions render different
+ * sections — the server decides which one to show.
+ */
+async function switchUiVersion(version) {
+  try {
+    const json = await fetch_json(
+      '/similar-images/set-version?project=' + getProjectId() + '&version=' + version,
+    );
+    if (json.error) {
+      if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
+      return;
+    }
+    // reload so the server renders the other version
+    window.location.reload();
+  } catch (error) {
+    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
+  }
+}
+
+/**
  * Switches the scoring mode: 'relation' (the trained model) or
  * 'weighted' (the original per-dimension weight). The choice is stored
  * on the server, because the pair list is rendered by a synchronous
@@ -654,29 +670,20 @@ function renderTripletBatch(count) {
     );
   }).join('');
 
-  // the upcoming triplets, shown small
-  const upcoming = tripletBatch.slice(tripletIndex + 1).map(function (t, i) {
-    return (
-      '<div class="triplet-pending">' +
-      '<span class="triplet-pending-label">' + (tripletIndex + i + 2) + '</span>' +
-      '</div>'
-    );
-  }).join('');
-
   box.innerHTML =
     '<div class="triplet-meta">' +
     '<span class="triplet-position">Triplet ' + (tripletIndex + 1) + ' of ' + tripletBatch.length + '</span>' +
     '<span class="triplet-count">Annotated: ' + count + '</span>' +
+    '<span class="triplet-hint">Press 1-4 to answer</span>' +
     '<button type="button" class="triplet-option" onclick="loadTripletBatch()">Skip batch</button>' +
     '</div>' +
     '<div class="triplet-images">' + images + '</div>' +
     '<div class="triplet-options">' +
-    '<button type="button" class="triplet-option" data-relation="0" onclick="answerTriplet(0)"><kbd>1</kbd> A and B</button>' +
-    '<button type="button" class="triplet-option" data-relation="1" onclick="answerTriplet(1)"><kbd>2</kbd> A and C</button>' +
-    '<button type="button" class="triplet-option" data-relation="2" onclick="answerTriplet(2)"><kbd>3</kbd> B and C</button>' +
-    '<button type="button" class="triplet-option" data-relation="3" onclick="answerTriplet(3)"><kbd>4</kbd> All equal</button>' +
-    '</div>' +
-    '<div class="triplet-pending-row">' + upcoming + '</div>';
+    '<button type="button" class="triplet-option" data-relation="0" onclick="answerTriplet(0)"><kbd>1</kbd> A and B are the most similar</button>' +
+    '<button type="button" class="triplet-option" data-relation="1" onclick="answerTriplet(1)"><kbd>2</kbd> A and C are the most similar</button>' +
+    '<button type="button" class="triplet-option" data-relation="2" onclick="answerTriplet(2)"><kbd>3</kbd> B and C are the most similar</button>' +
+    '<button type="button" class="triplet-option" data-relation="3" onclick="answerTriplet(3)"><kbd>4</kbd> All three are equally similar</button>' +
+    '</div>';
 }
 
 // The progress bar toward the target number of annotations.
@@ -815,9 +822,11 @@ async function initSimilarImages() {
     findSimilarPairs();
   }
   // load a batch of triplets to annotate (the relation classifier
-  // needs these)
-  loadTripletBatch();
-  bindTripletShortcuts();
+  // needs these) — only the new version has the triplet section
+  if (document.getElementById('tripletBox')) {
+    loadTripletBatch();
+    bindTripletShortcuts();
+  }
 }
 initSimilarImages();
 
@@ -962,6 +971,12 @@ function Main(attrs: {}, context: DynamicContext) {
       model_version: EMBEDDING_MODEL_VERSION,
     }) ?? 0
 
+  // the page shows either the new version (trained model + triplet
+  // annotation) or the legacy one (weighted cosine + pair ranking) —
+  // never both. The new version is the default; the switch in the
+  // toolbar brings the legacy one back.
+  let isNew = getUiVersion(project.id!) === 'new'
+
   return (
     <>
       {missingEmbeddings > 0 && (
@@ -977,26 +992,42 @@ function Main(attrs: {}, context: DynamicContext) {
         </div>
       )}
       <div class="similar-toolbar">
-        <ion-button color="primary" onclick="trainModel()">
-          <ion-icon name="sparkles" slot="start"></ion-icon>
-          <span>
-            <Locale
-              en="Train Model"
-              zh_hk="訓練模型"
-              zh_cn="训练模型"
-            />
-          </span>
-        </ion-button>
-        <ion-button color="tertiary" onclick="trainWeight()">
-          <ion-icon name="fitness" slot="start"></ion-icon>
-          <span>
-            <Locale
-              en="Train from Ranking"
-              zh_hk="用排序訓練"
-              zh_cn="用排序训练"
-            />
-          </span>
-        </ion-button>
+        {isNew ? (
+          <>
+            <ion-button color="primary" onclick="trainModel()">
+              <ion-icon name="sparkles" slot="start"></ion-icon>
+              <span>
+                <Locale en="Train Model" zh_hk="訓練模型" zh_cn="训练模型" />
+              </span>
+            </ion-button>
+            <ion-select
+              id="modeSelect"
+              class="similar-mode-select"
+              interface="popover"
+              value={getSimilarityMode(project.id!)}
+            >
+              <ion-select-option value="relation">
+                <Locale en="Model" zh_hk="模型" zh_cn="模型" />
+              </ion-select-option>
+              <ion-select-option value="weighted">
+                <Locale en="Weighted" zh_hk="加權" zh_cn="加权" />
+              </ion-select-option>
+            </ion-select>
+          </>
+        ) : (
+          <>
+            <ion-button color="tertiary" onclick="trainWeight()">
+              <ion-icon name="fitness" slot="start"></ion-icon>
+              <span>
+                <Locale
+                  en="Train from Ranking"
+                  zh_hk="用排序訓練"
+                  zh_cn="用排序训练"
+                />
+              </span>
+            </ion-button>
+          </>
+        )}
         <ion-select
           id="topKSelect"
           class="top-k-select"
@@ -1013,19 +1044,29 @@ function Main(attrs: {}, context: DynamicContext) {
             <Locale en="Top 20" zh_hk="前 20" zh_cn="前 20" />
           </ion-select-option>
         </ion-select>
-        <ion-select
-          id="modeSelect"
-          class="similar-mode-select"
-          interface="popover"
-          value={getSimilarityMode(project.id!)}
+        <ion-button
+          class="similar-version-switch"
+          fill="outline"
+          size="small"
+          onclick={`switchUiVersion('${isNew ? 'legacy' : 'new'}')`}
         >
-          <ion-select-option value="relation">
-            <Locale en="Model" zh_hk="模型" zh_cn="模型" />
-          </ion-select-option>
-          <ion-select-option value="weighted">
-            <Locale en="Weighted" zh_hk="加權" zh_cn="加权" />
-          </ion-select-option>
-        </ion-select>
+          <ion-icon name="swap-horizontal" slot="start"></ion-icon>
+          <span>
+            {isNew ? (
+              <Locale
+                en="Switch to legacy version"
+                zh_hk="切換舊版本"
+                zh_cn="切换旧版本"
+              />
+            ) : (
+              <Locale
+                en="Switch to new version"
+                zh_hk="切換新版"
+                zh_cn="切换新版"
+              />
+            )}
+          </span>
+        </ion-button>
       </div>
       <div class="similar-section">
         <h3>
@@ -1043,46 +1084,48 @@ function Main(attrs: {}, context: DynamicContext) {
           />
         </div>
       </div>
-      <div class="similar-section">
-        <h3>
-          <Locale
-            en="Which two of these three are the most similar?"
-            zh_hk="這三張圖中哪兩張最相似？"
-            zh_cn="这三张图中哪两张最相似？"
-          />
-        </h3>
-        <p class="similar-hint">
-          <Locale
-            en="Pick the closest pair, or say that all three are about equally similar. These answers teach the model what similarity means for this dataset."
-            zh_hk="選出最相似的一對，或表示三張都差不多。這些答案會教會模型這個數據集裡的「相似」是什麼意思。"
-            zh_cn="选出最相似的一对，或表示三张都差不多。这些答案会教会模型这个数据集里的「相似」是什么意思。"
-          />
-        </p>
-        <div id="tripletProgress"></div>
-        <div id="tripletBox" class="triplet-box">
-          <div class="similar-hint">
+      {isNew && (
+        <div class="similar-section" id="tripletSection">
+          <h3>
             <Locale
-              en="Loading a triplet..."
-              zh_hk="正在載入三元組..."
-              zh_cn="正在载入三元组..."
+              en="Which two of these three are the most similar?"
+              zh_hk="這三張圖中哪兩張最相似？"
+              zh_cn="这三张图中哪两张最相似？"
             />
+          </h3>
+          <p class="similar-hint">
+            <Locale
+              en="Pick the closest pair, or say that all three are about equally similar. These answers teach the model what similarity means for this dataset."
+              zh_hk="選出最相似的一對，或表示三張都差不多。這些答案會教會模型這個數據集裡的「相似」是什麼意思。"
+              zh_cn="选出最相似的一对，或表示三张都差不多。这些答案会教会模型这个数据集里的「相似」是什么意思。"
+            />
+          </p>
+          <div id="tripletProgress"></div>
+          <div id="tripletBox" class="triplet-box">
+            <div class="similar-hint">
+              <Locale
+                en="Loading a triplet..."
+                zh_hk="正在載入三元組..."
+                zh_cn="正在载入三元组..."
+              />
+            </div>
           </div>
+          <ion-button
+            color="tertiary"
+            size="small"
+            onclick="trainRelationModel()"
+          >
+            <ion-icon name="school" slot="start"></ion-icon>
+            <span>
+              <Locale
+                en="Train Relation Model"
+                zh_hk="訓練關係模型"
+                zh_cn="训练关系模型"
+              />
+            </span>
+          </ion-button>
         </div>
-        <ion-button
-          color="tertiary"
-          size="small"
-          onclick="trainRelationModel()"
-        >
-          <ion-icon name="school" slot="start"></ion-icon>
-          <span>
-            <Locale
-              en="Train Relation Model"
-              zh_hk="訓練關係模型"
-              zh_cn="训练关系模型"
-            />
-          </span>
-        </ion-button>
-      </div>
+      )}
     </>
   )
 }
@@ -1713,6 +1756,40 @@ async function PreloadScorerApi(context: ExpressContext) {
  * Switch the scoring mode of a project: 'relation' (the trained model,
  * the default) or 'weighted' (the original per-dimension weight).
  */
+/**
+ * Switch which version of the page is shown: the new one (the trained
+ * model plus the triplet annotation) or the legacy one (the weighted
+ * cosine plus the pair ranking only).
+ */
+async function SetUiVersionApi(context: ExpressContext) {
+  let { req } = context
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'not login'
+    let project_id = +req.query.project!
+    if (!project_id) throw 'missing project id in query'
+    let project = proxy.project[project_id]
+    if (!project) throw 'project not found'
+
+    let version = String(req.query.version || 'new')
+    if (version !== 'new' && version !== 'legacy') {
+      return { error: 'unknown version: ' + version }
+    }
+    setUiVersion({ project_id, version })
+
+    // the legacy version ranks the pairs with the weighted cosine
+    if (version === 'legacy') {
+      setSimilarityMode({ project_id, mode: 'weighted' })
+    }
+    await preloadProjectScorer({ project_id })
+
+    return { ok: true, version }
+  } catch (error) {
+    console.error(error)
+    return { error: String(error) }
+  }
+}
+
 async function SetSimilarityModeApi(context: ExpressContext) {
   let { req } = context
   try {
@@ -1945,6 +2022,10 @@ let routes = {
   '/similar-images/set-mode': ajaxRoute({
     description: 'switch the scoring mode of a project',
     api: SetSimilarityModeApi,
+  }),
+  '/similar-images/set-version': ajaxRoute({
+    description: 'switch between the new and the legacy page version',
+    api: SetUiVersionApi,
   }),
   '/similar-images/triplet': ajaxRoute({
     description: 'suggest a triplet of images to annotate',

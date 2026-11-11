@@ -145,6 +145,36 @@ export function getPreloadedScorer(project_id: number): PairScorer | null {
 let similarityModeCache = new Map<number, SimilarityMode>()
 
 /**
+ * Which version of the page is shown: the new one (the trained model
+ * plus the triplet annotation) or the legacy one (the weighted cosine
+ * plus the pair ranking only).
+ *
+ * The legacy version is kept so a user who prefers the old workflow
+ * can switch back without losing anything.
+ */
+export type UiVersion = 'new' | 'legacy'
+
+let uiVersionCache = new Map<number, UiVersion>()
+
+/**
+ * The UI version of a project. Defaults to 'new'.
+ */
+export function getUiVersion(project_id: number): UiVersion {
+  return uiVersionCache.get(project_id) ?? 'new'
+}
+
+/**
+ * Set the UI version of a project.
+ */
+export function setUiVersion(options: {
+  project_id: number
+  version: UiVersion
+}): void {
+  let { project_id, version } = options
+  uiVersionCache.set(project_id, version)
+}
+
+/**
  * The mode of a project. Defaults to 'relation'.
  */
 export function getSimilarityMode(project_id: number): SimilarityMode {
