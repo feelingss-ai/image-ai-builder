@@ -812,6 +812,9 @@ async function initSimilarImages() {
   // load the similarity model into the server cache first — the pair
   // search is synchronous on the server, so the model has to be ready
   await preloadScorer();
+  // the websocket may still be connecting (the model load above is
+  // async), and emit() on a connecting socket throws
+  await waitForWebSocket();
   // if some images have no embedding yet, compute them first — the
   // server endpoint broadcasts progress and findSimilarPairs() runs
   // automatically when done (see computeEmbeddings)
@@ -829,6 +832,26 @@ async function initSimilarImages() {
   }
 }
 initSimilarImages();
+
+// Waits until the websocket is open. Calling emit() while it is still
+// connecting throws "InvalidStateError: ... Still in CONNECTING state".
+function waitForWebSocket() {
+  return new Promise(function (resolve) {
+    let check = function () {
+      let socket = window.__ws;
+      if (!socket || socket.readyState === 1) {
+        // open (or no socket at all) — go ahead
+        resolve(undefined);
+      } else if (socket.readyState === 3) {
+        // closed — give up rather than wait forever
+        resolve(undefined);
+      } else {
+        setTimeout(check, 50);
+      }
+    };
+    check();
+  });
+}
 
 // ion-select is an Ionic web component: it does NOT fire a native
 // 'change' event, so an inline onchange attribute never runs. Bind an
