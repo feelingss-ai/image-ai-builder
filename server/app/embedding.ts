@@ -7,6 +7,10 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { GaIsland, best } from 'ga-island'
 import { DAGSort, NativeSort, TreeSort } from 'graph-sort'
+import {
+  createWeightedScorer,
+  type PairScorer,
+} from './similarity-scorer.js'
 
 /**
  * Embedding service for "find similar images".
@@ -96,6 +100,30 @@ type ProjectVectorCache = {
 }
 
 let projectVectorCache = new Map<number, ProjectVectorCache>()
+
+/**
+ * Get the cached embedding matrix of a project, loading it from SQLite
+ * on first use. Callers must not mutate the returned arrays.
+ *
+ * Exposed so the relation model training can reuse the same cached
+ * matrix instead of loading ~50MB of vectors a second time.
+ */
+export function getProjectVectorCache(project_id: number): ProjectVectorCache {
+  let cache = projectVectorCache.get(project_id)
+  if (!cache || cache.model_version !== EMBEDDING_MODEL_VERSION) {
+    let rows = select_project_embeddings.all({
+      project_id,
+      model_version: EMBEDDING_MODEL_VERSION,
+    })
+    cache = {
+      image_ids: rows.map(row => row.image_id),
+      vectors: rows.map(row => blobToVector(row.vector)),
+      model_version: EMBEDDING_MODEL_VERSION,
+    }
+    projectVectorCache.set(project_id, cache)
+  }
+  return cache
+}
 
 /**
  * Drop the cached embedding matrix for a project. Call after any write
@@ -277,32 +305,50 @@ export type SimilarPair = {
   image_id_b: number
   filename_b: string
   score: number
+  /**
+   * The score shown to the user, already scaled to a 0-100 range.
+   *
+   * The weighted cosine is bounded to [-1, 1], so its raw value is used
+   * directly. The relation model has no such bound — its scores are
+   * only meaningful relative to each other — so the scores are scaled
+   * so the best pair in the list becomes 100%.
+   */
+  score_percent: number
 }
 
 /**
  * Find the top-K most similar image pairs across a whole project
- * (pairwise, not anchored to a single query image). Weighted cosine
- * similarity (bounded to [-1, 1], so the displayed percentage stays
- * within 100%); images without an embedding are skipped. Uses the same
- * project vector cache as findSimilarImages.
+ * (pairwise, not anchored to a single query image). Images without an
+ * embedding are skipped. Uses the same project vector cache as
+ * findSimilarImages.
+ *
+ * The final score comes from the given scorer — the trained relation
+ * model by default, or the weighted cosine when no model is available.
+ * The coarse pass always uses the plain cosine: it is cheap and it
+ * only has to produce a candidate pool.
  *
  * Two-stage retrieval:
  * 1. coarse pass: plain (unweighted) cosine over all C(n,2) pairs, a
  *    min-heap keeps the top-(k*6) pairs as the candidate pool (~0.1s)
  * 2. refine: graph-sort (TreeSort/DAGSort by candidate count) ranks the
- *    small candidate pool by the weighted cosine — graph-sort shines
- *    here because the pool is small, so it needs only a few thousand
- *    cheap comparisons instead of hundreds of thousands over all pairs
+ *    small candidate pool by the scorer — graph-sort shines here
+ *    because the pool is small, so it needs only a few thousand cheap
+ *    comparisons instead of hundreds of thousands over all pairs
  */
 export function findTopSimilarPairs(options: {
   project_id: number
   k?: number
+  /** scores the candidate pairs; defaults to the weighted cosine */
+  scorer?: PairScorer
 }): SimilarPair[] {
   let { project_id, k = 5 } = options
   k = Math.min(k, 100)
 
-  // learned weight from user feedback (null = plain cosine)
+  // learned weight from user feedback (null = plain cosine); only used
+  // by the weighted scorer, the relation model has its own weights
   let weight = getEmbeddingWeight({ project_id })
+  let scorer =
+    options.scorer ?? createWeightedScorer({ weight })
 
   // load (or reuse) the project's full embedding matrix
   let cache = projectVectorCache.get(project_id)
@@ -325,47 +371,28 @@ export function findTopSimilarPairs(options: {
   // capture the non-optional cache for use in nested functions
   let vectorCache = cache
 
-  // pre-normalize all vectors twice:
-  // - plainNormalized: for the coarse pass (unweighted cosine)
-  // - weightedNormalized: for the refine pass (weighted cosine, what the
-  //   page displays) — each dimension scaled by weight[d] before
-  //   normalizing by the WEIGHTED norm, so the dot product is a true
-  //   weighted cosine in [-1, 1]
+  // pre-normalize all vectors for the coarse pass (unweighted cosine)
   let plainNorms = new Float32Array(n)
-  let weightedNorms = new Float32Array(n)
   let plainVectors: (Float32Array | null)[] = new Array(n)
-  let weightedVectors: (Float32Array | null)[] = new Array(n)
   for (let i = 0; i < n; i++) {
     let vector = cache.vectors[i]!
     let dims = vector.length
     let plainLength = 0
-    let weightedLength = 0
     for (let d = 0; d < dims; d++) {
       let value = vector[d]!
       plainLength += value * value
-      // the weighted vector's dimension is value * weight[d], so its
-      // squared norm contribution is (value * weight[d])^2
-      let weightedValue = value * (weight ? weight[d]! : 1)
-      weightedLength += weightedValue * weightedValue
     }
     plainLength = Math.sqrt(plainLength)
-    weightedLength = Math.sqrt(weightedLength)
-    if (plainLength === 0 || weightedLength === 0) {
+    if (plainLength === 0) {
       plainVectors[i] = null
-      weightedVectors[i] = null
       continue
     }
     plainNorms[i] = plainLength
-    weightedNorms[i] = weightedLength
     let plain = new Float32Array(dims)
-    let weighted = new Float32Array(dims)
     for (let d = 0; d < dims; d++) {
-      let value = vector[d]!
-      plain[d] = value / plainLength
-      weighted[d] = (value * (weight ? weight[d]! : 1)) / weightedLength
+      plain[d] = vector[d]! / plainLength
     }
     plainVectors[i] = plain
-    weightedVectors[i] = weighted
   }
 
   // dot product of two pre-normalized vectors
@@ -375,14 +402,6 @@ export function findTopSimilarPairs(options: {
       sum += a[d]! * b[d]!
     }
     return sum
-  }
-
-  // weighted cosine of one pair (i < j) — what the page displays
-  function pairScore(i: number, j: number): number {
-    let vectorA = weightedVectors[i]
-    let vectorB = weightedVectors[j]
-    if (!vectorA || !vectorB) return 0
-    return dot(vectorA, vectorB)
   }
 
   // plain (unweighted) cosine of one pair — for the coarse pass
@@ -400,7 +419,47 @@ export function findTopSimilarPairs(options: {
       image_id_b: vectorCache.image_ids[b],
       filename_b: proxy.image[vectorCache.image_ids[b]]?.filename ?? '',
       score,
+      score_percent: score * 100,
     }
+  }
+
+  /**
+   * Scale the scores so the page can show them as a percentage.
+   *
+   * The weighted cosine is bounded to [-1, 1], so 1 already means "as
+   * similar as possible" and the raw value can be shown directly. The
+   * relation model has no such bound — its scores are only meaningful
+   * relative to each other — so the best pair in the list becomes 100%
+   * and the others are scaled proportionally.
+   *
+   * When the spread is tiny the model has not really learned anything
+   * yet: the relative order is still meaningful, but presenting it as
+   * "0% to 100%" would claim a confidence that is not there. Such a
+   * list is reported as "not confident" instead.
+   */
+  function withScoreScale(pairs: SimilarPair[]): SimilarPair[] {
+    if (pairs.length === 0) return pairs
+    if (scorer.mode === 'weighted') return pairs
+
+    let best = -Infinity
+    let worst = Infinity
+    for (let pair of pairs) {
+      if (pair.score > best) best = pair.score
+      if (pair.score < worst) worst = pair.score
+    }
+    let range = best - worst
+    if (range <= 0) {
+      // all pairs scored the same — show them all as 100%
+      return pairs.map(pair => ({ ...pair, score_percent: 100 }))
+    }
+    // a spread this small means the model has not separated the pairs
+    if (range < 1e-3) {
+      return pairs.map(pair => ({ ...pair, score_percent: Number.NaN }))
+    }
+    return pairs.map(pair => ({
+      ...pair,
+      score_percent: ((pair.score - worst) / range) * 100,
+    }))
   }
 
   // ------------------------------------------------------------------
@@ -472,29 +531,34 @@ export function findTopSimilarPairs(options: {
   let candidateCount = candidates.length
 
   // ------------------------------------------------------------------
-  // stage 2: refine — graph-sort ranks the small candidate pool by the
-  // weighted cosine (the metric the page displays)
+  // stage 2: refine — rank the small candidate pool by the scorer
+  // (the metric the page displays)
   // ------------------------------------------------------------------
+  // The whole candidate pool is scored in one batch: the relation model
+  // projects both sides of every pair, and doing that in one call is
+  // far cheaper than scoring the pairs one by one.
+  let candidateScores = scorer.scoreMany(
+    candidates.map(candidate => ({
+      a: vectorCache.vectors[candidate.a]!,
+      b: vectorCache.vectors[candidate.b]!,
+    })),
+  )
+
   // when the candidate pool is small enough that k covers most of it,
   // scoring everything directly is simpler and just as fast
   if (k >= candidateCount) {
-    let all: SimilarPair[] = candidates.map(candidate => ({
-      ...toSimilarPair(
-        candidate.a,
-        candidate.b,
-        pairScore(candidate.a, candidate.b),
-      ),
+    let all: SimilarPair[] = candidates.map((candidate, index) => ({
+      ...toSimilarPair(candidate.a, candidate.b, candidateScores[index]!),
     }))
     all.sort((a, b) => b.score - a.score)
-    return all
+    return withScoreScale(all)
   }
 
   let scoreCache = new Map<number, number>()
   function cachedScore(candidateIndex: number): number {
     let score = scoreCache.get(candidateIndex)
     if (score === undefined) {
-      let candidate = candidates[candidateIndex]!
-      score = pairScore(candidate.a, candidate.b)
+      score = candidateScores[candidateIndex]!
       scoreCache.set(candidateIndex, score)
     }
     return score
@@ -528,8 +592,10 @@ export function findTopSimilarPairs(options: {
   )
   let topCandidates = sorter.popTopN(k)
 
-  return topCandidates.map(candidate =>
-    toSimilarPair(candidate.a, candidate.b, cachedScore(candidate.index)),
+  return withScoreScale(
+    topCandidates.map(candidate =>
+      toSimilarPair(candidate.a, candidate.b, cachedScore(candidate.index)),
+    ),
   )
 }
 

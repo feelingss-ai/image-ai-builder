@@ -289,6 +289,17 @@ export type EmbeddingWeight = {
   trained_at: number
 }
 
+export type RelationModel = {
+  id?: null | number
+  project_id: number
+  project?: Project
+  label_id: null | number
+  label?: Label
+  model_version: string
+  spec: string
+  trained_at: number
+}
+
 export type SimilarPairFeedback = {
   id?: null | number
   project_id: number
@@ -319,6 +330,22 @@ export type SimilarPairComparison = {
   pair_lo_b_id: number
   pair_lo_b?: Image
   hi_more_similar: number
+  created_at: number
+}
+
+export type SimilarTriplet = {
+  id?: null | number
+  project_id: number
+  project?: Project
+  user_id: number
+  user?: User
+  image_a_id: number
+  image_a?: Image
+  image_b_id: number
+  image_b?: Image
+  image_c_id: number
+  image_c?: Image
+  relation: number
   created_at: number
 }
 
@@ -361,8 +388,10 @@ export type DBProxy = {
   image_keypoint_confirmation: ImageKeypointConfirmation[]
   image_embedding: ImageEmbedding[]
   embedding_weight: EmbeddingWeight[]
+  relation_model: RelationModel[]
   similar_pair_feedback: SimilarPairFeedback[]
   similar_pair_comparison: SimilarPairComparison[]
+  similar_triplet: SimilarTriplet[]
   label_conflict: LabelConflict[]
 }
 
@@ -478,6 +507,11 @@ export let proxy = proxySchema<DBProxy>({
       ['project', { field: 'project_id', table: 'project' }],
       ['label', { field: 'label_id', table: 'label' }],
     ],
+    relation_model: [
+      /* foreign references */
+      ['project', { field: 'project_id', table: 'project' }],
+      ['label', { field: 'label_id', table: 'label' }],
+    ],
     similar_pair_feedback: [
       /* foreign references */
       ['project', { field: 'project_id', table: 'project' }],
@@ -493,6 +527,14 @@ export let proxy = proxySchema<DBProxy>({
       ['pair_hi_b', { field: 'pair_hi_b_id', table: 'image' }],
       ['pair_lo_a', { field: 'pair_lo_a_id', table: 'image' }],
       ['pair_lo_b', { field: 'pair_lo_b_id', table: 'image' }],
+    ],
+    similar_triplet: [
+      /* foreign references */
+      ['project', { field: 'project_id', table: 'project' }],
+      ['user', { field: 'user_id', table: 'user' }],
+      ['image_a', { field: 'image_a_id', table: 'image' }],
+      ['image_b', { field: 'image_b_id', table: 'image' }],
+      ['image_c', { field: 'image_c_id', table: 'image' }],
     ],
     label_conflict: [
       /* foreign references */

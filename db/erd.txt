@@ -280,6 +280,16 @@ source text
 trained_at integer
 
 
+relation_model
+--------------
+id integer PK
+project_id integer FK >0- project.id
+label_id integer NULL FK >0- label.id
+model_version text
+spec text
+trained_at integer
+
+
 similar_pair_feedback
 ---------------------
 id integer PK
@@ -302,6 +312,18 @@ pair_hi_b_id integer FK >0- image.id
 pair_lo_a_id integer FK >0- image.id
 pair_lo_b_id integer FK >0- image.id
 hi_more_similar integer
+created_at integer
+
+
+similar_triplet
+---------------
+id integer PK
+project_id integer FK >0- project.id
+user_id integer FK >0- user.id
+image_a_id integer FK >0- image.id
+image_b_id integer FK >0- image.id
+image_c_id integer FK >0- image.id
+relation integer
 created_at integer
 
 
