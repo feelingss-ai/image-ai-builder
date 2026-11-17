@@ -58,6 +58,7 @@ import {
   suggestTripletBatch,
   trainRelationClassifier,
   countTriplets,
+  TRIPLET_SCHEMA_VERSION,
 } from '../relation-triplet.js'
 
 let pageTitle = <Locale en="Similar Images" zh_hk="相似圖片" zh_cn="相似图片" />
@@ -304,6 +305,11 @@ let style = Style(/* css */ `
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
 }
+/* the two global answers ("all similar" / "all different") */
+.triplet-option-wide {
+  flex: 1 1 100%;
+  text-align: left;
+}
 /* the progress toward the target number of annotations */
 .triplet-progress-label {
   display: flex;
@@ -522,8 +528,8 @@ function deleteImage(btn, image_id) {
   }
 }
 
-// Trains the relation classifier (the 4-way "which two of these three
-// are the most similar" model) on the annotated triplets.
+// Trains the relation classifier (the 5-way "which one of these three
+// is the most different" model) on the annotated triplets.
 async function trainRelationModel() {
   if (typeof showToast === 'function') {
     showToast('Training relation model...', 'info', 'top-end', 0);
@@ -608,8 +614,6 @@ async function switchSimilarityMode(mode) {
 var tripletBatch = [];
 // The index of the triplet the user is working on.
 var tripletIndex = 0;
-// The image picked first in the current triplet.
-var tripletPending = null;
 // How many triplets to show at once.
 var TRIPLET_BATCH_SIZE = 4;
 // The target number of annotations to reach.
@@ -628,7 +632,6 @@ async function loadTripletBatch() {
     }
     tripletBatch = json.triplets || [];
     tripletIndex = 0;
-    tripletPending = null;
     if (tripletBatch.length === 0) {
       const box = document.getElementById('tripletBox');
       if (box) {
@@ -674,15 +677,16 @@ function renderTripletBatch(count) {
     '<div class="triplet-meta">' +
     '<span class="triplet-position">Triplet ' + (tripletIndex + 1) + ' of ' + tripletBatch.length + '</span>' +
     '<span class="triplet-count">Annotated: ' + count + '</span>' +
-    '<span class="triplet-hint">Press 1-4 to answer</span>' +
+    '<span class="triplet-hint">Click an image, or press 1-5</span>' +
     '<button type="button" class="triplet-option" onclick="loadTripletBatch()">Skip batch</button>' +
     '</div>' +
     '<div class="triplet-images">' + images + '</div>' +
     '<div class="triplet-options">' +
-    '<button type="button" class="triplet-option" data-relation="0" onclick="answerTriplet(0)"><kbd>1</kbd> A and B are the most similar</button>' +
-    '<button type="button" class="triplet-option" data-relation="1" onclick="answerTriplet(1)"><kbd>2</kbd> A and C are the most similar</button>' +
-    '<button type="button" class="triplet-option" data-relation="2" onclick="answerTriplet(2)"><kbd>3</kbd> B and C are the most similar</button>' +
-    '<button type="button" class="triplet-option" data-relation="3" onclick="answerTriplet(3)"><kbd>4</kbd> All three are equally similar</button>' +
+    '<button type="button" class="triplet-option" data-relation="0" onclick="answerTriplet(0)"><kbd>1</kbd> A is the odd one out</button>' +
+    '<button type="button" class="triplet-option" data-relation="1" onclick="answerTriplet(1)"><kbd>2</kbd> B is the odd one out</button>' +
+    '<button type="button" class="triplet-option" data-relation="2" onclick="answerTriplet(2)"><kbd>3</kbd> C is the odd one out</button>' +
+    '<button type="button" class="triplet-option triplet-option-wide" data-relation="3" onclick="answerTriplet(3)"><kbd>4</kbd> All three are equally similar</button>' +
+    '<button type="button" class="triplet-option triplet-option-wide" data-relation="4" onclick="answerTriplet(4)"><kbd>5</kbd> All three are different</button>' +
     '</div>';
 }
 
@@ -731,7 +735,6 @@ async function answerTriplet(relation) {
 
     // move to the next triplet in the batch; load a new batch when the
     // current one is exhausted
-    tripletPending = null;
     tripletIndex++;
     if (tripletIndex >= tripletBatch.length) {
       await loadTripletBatch();
@@ -744,58 +747,32 @@ async function answerTriplet(relation) {
   }
 }
 
-// The image picked first; the second click completes the pair.
-// var (not let) because the inline script is re-executed on every update.
-var tripletPending = null;
-
-// Highlights the two images of the chosen relation and dims the third.
+// Answers the question by clicking the image that does not belong.
 function selectTripletImage(img) {
-  const box = document.getElementById('tripletBox');
-  if (!box) return;
+  // A single click answers the question: that image is the odd one out.
+  //   a -> 0, b -> 1, c -> 2
   const key = img.closest('.triplet-image').dataset.tripletKey;
+  const relation = { a: 0, b: 1, c: 2 }[key];
+  if (relation === undefined) return;
 
-  if (tripletPending === null) {
-    // first click: remember it and mark it
-    tripletPending = key;
+  // give a quick visual confirmation before the next triplet replaces it
+  const box = document.getElementById('tripletBox');
+  if (box) {
     for (const el of box.querySelectorAll('.triplet-image img')) {
       el.classList.remove('triplet-selected', 'triplet-muted');
-      el.closest('.triplet-image').dataset.tripletKey === key &&
+      if (el.closest('.triplet-image').dataset.tripletKey === key) {
         el.classList.add('triplet-selected');
-    }
-    return;
-  }
-
-  if (tripletPending === key) {
-    // clicking the same image again cancels the selection
-    tripletPending = null;
-    for (const el of box.querySelectorAll('.triplet-image img')) {
-      el.classList.remove('triplet-selected', 'triplet-muted');
+      }
     }
     for (const el of box.querySelectorAll('.triplet-option[data-relation]')) {
-      el.classList.remove('triplet-option-active');
+      el.classList.toggle(
+        'triplet-option-active',
+        Number(el.dataset.relation) === relation,
+      );
     }
-    return;
   }
 
-  // second click: the two images form the most similar pair
-  const first = tripletPending;
-  tripletPending = null;
-  const pair = [first, key].sort();
-  // a~b -> 0, a~c -> 1, b~c -> 2
-  const relation = { 'a,b': 0, 'a,c': 1, 'b,c': 2 }[pair.join(',')];
-
-  for (const el of box.querySelectorAll('.triplet-image img')) {
-    const elKey = el.closest('.triplet-image').dataset.tripletKey;
-    el.classList.remove('triplet-selected', 'triplet-muted');
-    if (pair.indexOf(elKey) >= 0) el.classList.add('triplet-selected');
-    else el.classList.add('triplet-muted');
-  }
-  for (const el of box.querySelectorAll('.triplet-option[data-relation]')) {
-    el.classList.toggle(
-      'triplet-option-active',
-      Number(el.dataset.relation) === relation,
-    );
-  }
+  answerTriplet(relation);
 }
 
 // Sends the answer to the server and loads the next triplet.
@@ -878,11 +855,10 @@ function bindModeSelect() {
 }
 
 // Keyboard shortcuts for the triplet annotation:
-//   1 / 2 / 3  — the pair A&B / A&C / B&C is the most similar
+//   1 / 2 / 3  — image A / B / C is the odd one out
 //   4          — all three are equally similar
-//   Q / W / E  — pick the first image of the pair (A / B / C)
-//   Enter      — confirm the pair picked with Q/W/E
-//   Arrow keys — move between the images of the current triplet
+//   5          — all three are different
+//   Q / W / E  — answer by clicking image A / B / C directly
 function bindTripletShortcuts() {
   if (document.body.dataset.tripletKeysBound) return;
   document.body.dataset.tripletKeysBound = '1';
@@ -896,17 +872,20 @@ function bindTripletShortcuts() {
     if (event.ctrlKey || event.altKey || event.metaKey) return;
 
     const key = event.key;
+    // 1-3 pick the odd one out, 4-5 are the two global answers
     if (key === '1') { answerTriplet(0); event.preventDefault(); }
     else if (key === '2') { answerTriplet(1); event.preventDefault(); }
     else if (key === '3') { answerTriplet(2); event.preventDefault(); }
     else if (key === '4') { answerTriplet(3); event.preventDefault(); }
+    else if (key === '5') { answerTriplet(4); event.preventDefault(); }
+    // Q/W/E answer with the image itself
     else if (key === 'q' || key === 'Q') { pickTripletImage('a'); event.preventDefault(); }
     else if (key === 'w' || key === 'W') { pickTripletImage('b'); event.preventDefault(); }
     else if (key === 'e' || key === 'E') { pickTripletImage('c'); event.preventDefault(); }
   });
 }
 
-// Picks the first image of the pair (used by the Q/W/E shortcuts).
+// Answers with the image the given key refers to (used by Q/W/E).
 function pickTripletImage(key) {
   const el = document.querySelector(
     '#tripletBox .triplet-image[data-triplet-key="' + key + '"] img',
@@ -1111,16 +1090,16 @@ function Main(attrs: {}, context: DynamicContext) {
         <div class="similar-section" id="tripletSection">
           <h3>
             <Locale
-              en="Which two of these three are the most similar?"
-              zh_hk="這三張圖中哪兩張最相似？"
-              zh_cn="这三张图中哪两张最相似？"
+              en="Which one of these three is the most different?"
+              zh_hk="這三張圖中哪一張最不同？"
+              zh_cn="这三张图中哪一张最不同？"
             />
           </h3>
           <p class="similar-hint">
             <Locale
-              en="Pick the closest pair, or say that all three are about equally similar. These answers teach the model what similarity means for this dataset."
-              zh_hk="選出最相似的一對，或表示三張都差不多。這些答案會教會模型這個數據集裡的「相似」是什麼意思。"
-              zh_cn="选出最相似的一对，或表示三张都差不多。这些答案会教会模型这个数据集里的「相似」是什么意思。"
+              en="Click the image that does not belong, or use the buttons below when all three are similar or all three are different. These answers teach the model what similarity means for this dataset."
+              zh_hk="點擊那張格格不入的圖，或在下方按鈕選擇「三者都差不多」或「三者都相異」。這些答案會教會模型這個數據集裡的「相似」是什麼意思。"
+              zh_cn="点击那张格格不入的图，或在下方按钮选择「三者都差不多」或「三者都相异」。这些答案会教会模型这个数据集里的「相似」是什么意思。"
             />
           </p>
           <div id="tripletProgress"></div>
@@ -1164,16 +1143,17 @@ let findPairsParser = object({
   mode: optional(values(['relation' as const, 'weighted' as const])),
 })
 
-// The answer to a triplet annotation: which two of the three images
-// are the most similar, or that all three are equally similar.
-// The relation values are 0-3, so `id()` (which requires a minimum of
+// The answer to a triplet annotation: which one of the three images is
+// the most different, or that all three are equally similar / all
+// three are different.
+// The relation values are 0-4, so `id()` (which requires a minimum of
 // 1) cannot be used here.
 let tripletAnswerParser = object({
   project_id: id(),
   image_a_id: id(),
   image_b_id: id(),
   image_c_id: id(),
-  relation: values([0, 1, 2, 3] as const),
+  relation: values([0, 1, 2, 3, 4] as const),
 })
 
 // ---------------------------------------------------------------------------
@@ -1924,8 +1904,9 @@ async function GetTripletsApi(context: ExpressContext) {
 }
 
 /**
- * Save the user's answer: which two of the three images are the most
- * similar (or that all three are equally similar).
+ * Save the user's answer: which one of the three images is the most
+ * different (or that all three are equally similar / all three are
+ * different).
  */
 async function AnswerTripletApi(context: ExpressContext) {
   let { req } = context
@@ -1959,6 +1940,7 @@ async function AnswerTripletApi(context: ExpressContext) {
       },
       {
         relation: input.relation,
+        schema_version: TRIPLET_SCHEMA_VERSION,
         created_at: Math.floor(Date.now() / 1000),
       },
     )

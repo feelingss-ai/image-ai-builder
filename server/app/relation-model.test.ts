@@ -10,6 +10,9 @@ import {
   scorePairs,
   normalizeVector,
   RELATION_LABELS,
+  convertLegacyRelation,
+  relationOddOneOut,
+  relationMostSimilarPair,
   type RelationModelBundle,
 } from './relation-model.js'
 import { splitBySession, type RankingConstraint } from './relation-training.js'
@@ -83,7 +86,7 @@ describe('createRelationModel', () => {
 })
 
 describe('createRelationClassifierModel', () => {
-  it('should build a 3-input model with a 4-way output', () => {
+  it('should build a 3-input model with a 5-way output', () => {
     let { model, projector, relationHead } = createRelationClassifierModel({
       inputDims: 1280,
       projDims: 32,
@@ -91,10 +94,10 @@ describe('createRelationClassifierModel', () => {
     expect(model.inputs.length).to.equal(3)
     expect(model.outputs.length).to.equal(1)
     expect(model.outputs[0]!.shape[1]).to.equal(RELATION_LABELS.length)
-    expect(RELATION_LABELS.length).to.equal(4)
+    expect(RELATION_LABELS.length).to.equal(5)
     // the projector is shared between the three inputs
     expect(projector.countParams()).to.equal(1280 * 32 + 32)
-    expect(relationHead.countParams()).to.equal(3 * 4 + 4)
+    expect(relationHead.countParams()).to.equal(3 * 5 + 5)
   })
 
   it('should produce probabilities that sum to one', () => {
@@ -108,7 +111,7 @@ describe('createRelationClassifierModel', () => {
       tf.tensor2d([[0, 0, 0, 0, 0, 0, 0, 1]]),
     ]) as tfjs.Tensor
     let values = result.dataSync()
-    expect(values.length).to.equal(4)
+    expect(values.length).to.equal(5)
     let sum = 0
     for (let value of values) sum += value
     expect(sum).to.be.closeTo(1, 1e-5)
@@ -127,6 +130,40 @@ describe('createRelationClassifierModel', () => {
     let first = (model.predict(inputs) as tfjs.Tensor).dataSync()
     let second = (model.predict(inputs) as tfjs.Tensor).dataSync()
     expect(Array.from(first)).to.deep.equal(Array.from(second))
+  })
+})
+
+describe('convertLegacyRelation', () => {
+  it('should map the old pair classes onto the odd-one-out classes', () => {
+    // old: 0 = a&b most similar -> the odd one out is c -> 2
+    expect(convertLegacyRelation(0)).to.equal(2)
+    // old: 1 = a&c most similar -> the odd one out is b -> 1
+    expect(convertLegacyRelation(1)).to.equal(1)
+    // old: 2 = b&c most similar -> the odd one out is a -> 0
+    expect(convertLegacyRelation(2)).to.equal(0)
+    // old: 3 = all equally similar -> unchanged
+    expect(convertLegacyRelation(3)).to.equal(3)
+  })
+
+  it('should keep the class added by the new scheme', () => {
+    expect(convertLegacyRelation(4)).to.equal(4)
+  })
+
+  it('should round-trip the odd one out', () => {
+    for (let relation of [0, 1, 2] as const) {
+      let odd = relationOddOneOut(relation)
+      expect(odd).to.be.at.least(0)
+      // the closest pair is the other two images
+      let pair = relationMostSimilarPair(relation)!
+      expect(pair).to.not.include(odd)
+    }
+  })
+
+  it('should report no odd one out for the global answers', () => {
+    expect(relationOddOneOut(3)).to.equal(-1)
+    expect(relationOddOneOut(4)).to.equal(-1)
+    expect(relationMostSimilarPair(3)).to.equal(null)
+    expect(relationMostSimilarPair(4)).to.equal(null)
   })
 })
 

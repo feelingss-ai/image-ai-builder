@@ -7,13 +7,14 @@ import { EMBEDDING_DIMS, getProjectVectorCache } from './embedding.js'
 import {
   createRelationClassifierModel,
   normalizeVector,
+  convertLegacyRelation,
   RELATION_LABELS,
   type RelationClass,
 } from './relation-model.js'
 
 /**
- * Triplet relation annotation: "which two of these three images are
- * the most similar".
+ * Triplet relation annotation: "which one of these three images is
+ * the most different".
  *
  * This is the direct counterpart of the pair ranking feedback: the
  * pairs say which of two pairs is more similar, the triplets say which
@@ -35,6 +36,18 @@ export type TripletAnnotation = {
   created_at: number
 }
 
+/**
+ * The annotation scheme version.
+ *
+ * Version 1 asked "which pair is the most similar?" and stored the
+ * pair. Version 2 asks "which one is the most different?" and stores
+ * the odd one out. The two schemes use the same numbers with a
+ * different meaning, so the rows have to say which scheme they follow.
+ *
+ * Rows without a version predate the change and follow version 1.
+ */
+export const TRIPLET_SCHEMA_VERSION = 2
+
 let select_triplets = db.prepare<
   { project_id: number },
   {
@@ -42,23 +55,28 @@ let select_triplets = db.prepare<
     image_b_id: number
     image_c_id: number
     relation: number
+    schema_version: number | null
     created_at: number
   }
 >(/* sql */ `
-  select image_a_id, image_b_id, image_c_id, relation, created_at
+  select image_a_id, image_b_id, image_c_id, relation, schema_version, created_at
   from similar_triplet
   where project_id = :project_id
 `)
 
 /**
- * Load the triplet annotations of a project.
+ * Load the triplet annotations of a project, converting the rows that
+ * follow the old scheme.
  */
 export function loadTriplets(project_id: number): TripletAnnotation[] {
   return select_triplets.all({ project_id }).map(row => ({
     image_a_id: row.image_a_id,
     image_b_id: row.image_b_id,
     image_c_id: row.image_c_id,
-    relation: row.relation as RelationClass,
+    relation:
+      row.schema_version === TRIPLET_SCHEMA_VERSION
+        ? (row.relation as RelationClass)
+        : convertLegacyRelation(row.relation),
     created_at: row.created_at,
   }))
 }

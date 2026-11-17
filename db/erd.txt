@@ -324,6 +324,7 @@ image_a_id integer FK >0- image.id
 image_b_id integer FK >0- image.id
 image_c_id integer FK >0- image.id
 relation integer
+schema_version integer NULL
 created_at integer
 
 

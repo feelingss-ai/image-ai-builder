@@ -346,6 +346,7 @@ export type SimilarTriplet = {
   image_c_id: number
   image_c?: Image
   relation: number
+  schema_version: null | number
   created_at: number
 }
 

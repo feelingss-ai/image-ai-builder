@@ -82,20 +82,89 @@ export type RelationModelBundle = {
 // ---------------------------------------------------------------------------
 
 /**
- * The four possible relations between three images.
+ * The five possible relations between three images.
  *
- * The first three say which pair is the most similar (the third image
- * is the odd one out); the last one says all three are about equally
- * similar.
+ * The question asked is "which one of these three is the most
+ * different?", so the first three classes name the odd one out — the
+ * other two images then form the most similar pair. The last two cover
+ * the cases where no image stands out.
  */
 export const RELATION_LABELS = [
-  'a~b',
-  'a~c',
-  'b~c',
-  'all equal',
+  'a is the odd one out',
+  'b is the odd one out',
+  'c is the odd one out',
+  'all equally similar',
+  'all dissimilar',
 ] as const
 
-export type RelationClass = 0 | 1 | 2 | 3
+export type RelationClass = 0 | 1 | 2 | 3 | 4
+
+/**
+ * Convert a relation stored by the old annotation scheme into the
+ * current one.
+ *
+ * The question used to be "which pair is the most similar?", so the
+ * stored classes were:
+ *
+ *   0 -> a&b are the most similar  (the odd one out is c)
+ *   1 -> a&c are the most similar  (the odd one out is b)
+ *   2 -> b&c are the most similar  (the odd one out is a)
+ *   3 -> all three are equally similar
+ *
+ * The question is now "which one is the most different?", so the odd
+ * one out is named directly and the mapping is:
+ *
+ *   0 -> 2   (c is the odd one out)
+ *   1 -> 1   (b is the odd one out)
+ *   2 -> 0   (a is the odd one out)
+ *   3 -> 3   (all equally similar — unchanged)
+ *
+ * The data written by the current scheme is stored as-is; only the
+ * rows from before the change need converting.
+ */
+export function convertLegacyRelation(relation: number): RelationClass {
+  switch (relation) {
+    case 0:
+      return 2
+    case 1:
+      return 1
+    case 2:
+      return 0
+    case 3:
+      return 3
+    default:
+      // 4 (all dissimilar) only exists in the current scheme
+      return 4
+  }
+}
+
+/**
+ * The index of the odd one out, given the relation class.
+ * Returns -1 when no image stands out (all equally similar or all
+ * dissimilar).
+ */
+export function relationOddOneOut(relation: RelationClass): number {
+  return relation <= 2 ? relation : -1
+}
+
+/**
+ * The pair that is the most similar, given the relation class.
+ * Returns null when no image stands out.
+ */
+export function relationMostSimilarPair(
+  relation: RelationClass,
+): [number, number] | null {
+  switch (relation) {
+    case 0:
+      return [1, 2] // a is odd, so b&c are the closest pair
+    case 1:
+      return [0, 2] // b is odd, so a&c are the closest pair
+    case 2:
+      return [0, 1] // c is odd, so a&b are the closest pair
+    default:
+      return null
+  }
+}
 
 /**
  * A layer that concatenates several [batch, 1] tensors into a single
