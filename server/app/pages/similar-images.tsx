@@ -22,7 +22,7 @@ import { Script } from '../components/script.js'
 import { loadClientPlugin } from '../../client-plugin.js'
 import { EarlyTerminate } from '../../exception.js'
 import { nodeToVNode } from '../jsx/vnode.js'
-import { sessions } from '../session.js'
+import { sessions, sessionToContext } from '../session.js'
 import { ServerMessage } from '../../../client/types.js'
 import {
   canViewProject,
@@ -60,8 +60,29 @@ import {
   countTriplets,
   TRIPLET_SCHEMA_VERSION,
 } from '../relation-triplet.js'
+import {
+  resolveSimilarImagesMessages,
+  formatMessage,
+  type SimilarImagesMessageKey,
+} from './similar-images-messages.js'
 
 let pageTitle = <Locale en="Similar Images" zh_hk="相似圖片" zh_cn="相似图片" />
+
+/**
+ * The translated text of a message, with its {placeholders} replaced.
+ *
+ * Used by the websocket components, which send their messages to the
+ * browser as plain JavaScript — so the text has to be resolved on the
+ * server, where the language is known.
+ */
+function msg(
+  context: DynamicContext,
+  key: SimilarImagesMessageKey,
+  values?: Record<string, string | number>,
+): string {
+  let text = resolveSimilarImagesMessages(context)[key]
+  return formatMessage(text, values)
+}
 
 let sweetAlertPlugin = loadClientPlugin({
   entryFile: 'dist/client/sweetalert.js',
@@ -350,7 +371,39 @@ let style = Style(/* css */ `
 }
 `)
 
-let script = Script(/* js */ `
+// The body of the client-side script of this page.
+//
+// It is rendered by the `SimilarImagesScript` component (instead of
+// directly) so the messages it shows can be translated to the user's
+// language: the script runs in the browser, where the language is
+// only known through the cookie, so the server resolves the texts
+// and injects them as the `MSG` dictionary below.
+//
+// Note: the top-level variables use `var` — the script is re-executed
+// on every websocket update, and `let`/`const` would throw "Identifier
+// already declared" the second time.
+let scriptBody = /* js */ `
+var MSG = __MESSAGES__;
+
+// The translated text of a message key.
+function t(key) {
+  return MSG[key] || key;
+}
+
+// The translated text of a message key, with its {placeholders}
+// replaced by the given values.
+//
+// Note: the placeholder pattern is built with string concatenation
+// instead of a regular expression — this code lives inside a template
+// literal, where the backslashes of a regex would be consumed.
+function fmt(key, values) {
+  let template = t(key);
+  if (!values) return template;
+  return Object.keys(values).reduce(function (text, name) {
+    return text.split('{' + name + '}').join(String(values[name]));
+  }, template);
+}
+
 function getProjectId() {
   const params = new URLSearchParams(window.location.search);
   return parseInt(params.get('project') || '0');
@@ -358,31 +411,31 @@ function getProjectId() {
 
 async function computeEmbeddings() {
   if (typeof showToast === 'function') {
-    showToast('Computing embeddings...', 'info', 'top-end', 0);
+    showToast(t('computingEmbeddings'), 'info', 'top-end', 0);
   }
   try {
     const json = await fetch_json('/similar-images/compute-embeddings?project=' + getProjectId());
     if (json.error) {
-      if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
-      else alert('Error: ' + json.error);
+      if (typeof showToast === 'function') showToast(t('error') + ': ' + json.error, 'error');
+      else alert(t('error') + ': ' + json.error);
     } else {
       // clarify the "all skipped" case: it means every image already had
       // an embedding (e.g. computed during upload), not that nothing ran
       if (typeof showToast === 'function') {
         if (json.embedded > 0) {
-          showToast('Done: ' + json.embedded + ' embedded, ' + json.skipped + ' skipped', 'success');
+          showToast(fmt('computeEmbeddingsDone', { embedded: json.embedded, skipped: json.skipped }), 'success');
         } else {
-          showToast('All ' + json.skipped + ' images already have embeddings — nothing to compute', 'info');
+          showToast(fmt('computeEmbeddingsAllDone', { skipped: json.skipped }), 'info');
         }
-      } else alert('Done: ' + json.embedded + ' embedded, ' + json.skipped + ' skipped');
+      } else alert(fmt('computeEmbeddingsDone', { embedded: json.embedded, skipped: json.skipped }));
       // the missing-embedding banner is now stale — remove it
       const hint = document.getElementById('embedHint');
       if (hint) hint.remove();
       findSimilarPairs();
     }
   } catch (error) {
-    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
-    else alert('Error: ' + error);
+    if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
+    else alert(t('error') + ': ' + error);
   }
 }
 
@@ -398,7 +451,7 @@ function findSimilarPairs() {
   const container = document.getElementById('similarPairs');
   if (container) {
     container.className = 'similar-hint';
-    container.textContent = 'Searching...';
+    container.textContent = t('searching');
   }
   emit('/similar-images/find-pairs', {
     project_id: getProjectId(),
@@ -449,7 +502,7 @@ function movePair(btn, direction) {
 // and refreshes the list — no manual "Find Similar" step.
 function trainWeight() {
   if (typeof showToast === 'function') {
-    showToast('Training AI from your ranking...', 'info', 'top-end', 0);
+    showToast(t('trainingFromRanking'), 'info', 'top-end', 0);
   }
   emit('/similar-images/train-weight', {
     project_id: getProjectId(),
@@ -463,25 +516,25 @@ function trainWeight() {
 // re-searched with the new model.
 async function trainModel() {
   if (typeof showToast === 'function') {
-    showToast('Training similarity model...', 'info', 'top-end', 0);
+    showToast(t('trainingModel'), 'info', 'top-end', 0);
   }
   try {
     const json = await fetch_json('/similar-images/train-model?project=' + getProjectId());
     if (json.error) {
-      if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
-      else alert('Error: ' + json.error);
+      if (typeof showToast === 'function') showToast(t('error') + ': ' + json.error, 'error');
+      else alert(t('error') + ': ' + json.error);
     } else {
       if (typeof showToast === 'function') {
         showToast(
-          'Model trained (best epoch ' + json.bestEpoch + ')',
+          fmt('modelTrained', { epoch: json.bestEpoch }),
           'success'
         );
       }
       findSimilarPairs();
     }
   } catch (error) {
-    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
-    else alert('Error: ' + error);
+    if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
+    else alert(t('error') + ': ' + error);
   }
 }
 
@@ -512,19 +565,19 @@ function deleteImage(btn, image_id) {
     // body { position: fixed }, and swal2's default height-auto
     // class collapses the body to 0px (white screen)
     Swal.fire({
-      title: 'Delete this image?',
-      text: 'It will be removed from the dataset (including annotations).',
+      title: t('deleteImageTitle'),
+      text: t('deleteImageText'),
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: 'Delete',
-      cancelButtonText: 'Cancel',
+      confirmButtonText: t('deleteButton'),
+      cancelButtonText: t('cancelButton'),
       confirmButtonColor: '#dc3545',
       heightAuto: false,
     }).then(result => {
       if (result.isConfirmed) doDelete();
     });
   } else {
-    if (confirm('Delete this image? It will be removed from the dataset.')) doDelete();
+    if (confirm(t('deleteImageConfirm'))) doDelete();
   }
 }
 
@@ -532,24 +585,24 @@ function deleteImage(btn, image_id) {
 // is the most different" model) on the annotated triplets.
 async function trainRelationModel() {
   if (typeof showToast === 'function') {
-    showToast('Training relation model...', 'info', 'top-end', 0);
+    showToast(t('trainingRelationModel'), 'info', 'top-end', 0);
   }
   try {
     const json = await fetch_json('/similar-images/train-relation?project=' + getProjectId());
     if (json.error) {
-      if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
-      else alert('Error: ' + json.error);
+      if (typeof showToast === 'function') showToast(t('error') + ': ' + json.error, 'error');
+      else alert(t('error') + ': ' + json.error);
     } else {
       if (typeof showToast === 'function') {
         showToast(
-          'Relation model trained: ' + (json.accuracy * 100).toFixed(1) + '% accuracy',
+          fmt('relationModelTrained', { accuracy: (json.accuracy * 100).toFixed(1) }),
           'success'
         );
       }
     }
   } catch (error) {
-    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
-    else alert('Error: ' + error);
+    if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
+    else alert(t('error') + ': ' + error);
   }
 }
 
@@ -566,13 +619,13 @@ async function switchUiVersion(version) {
       '/similar-images/set-version?project=' + getProjectId() + '&version=' + version,
     );
     if (json.error) {
-      if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
+      if (typeof showToast === 'function') showToast(t('error') + ': ' + json.error, 'error');
       return;
     }
     // reload so the server renders the other version
     window.location.reload();
   } catch (error) {
-    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
+    if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
   }
 }
 
@@ -588,20 +641,20 @@ async function switchSimilarityMode(mode) {
       '/similar-images/set-mode?project=' + getProjectId() + '&mode=' + mode,
     );
     if (json.error) {
-      if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
+      if (typeof showToast === 'function') showToast(t('error') + ': ' + json.error, 'error');
       return;
     }
     if (typeof showToast === 'function') {
       showToast(
         mode === 'relation'
-          ? 'Using the trained model'
-          : 'Using the weighted cosine',
+          ? t('usingTrainedModel')
+          : t('usingWeightedCosine'),
         'info',
       );
     }
     findSimilarPairs();
   } catch (error) {
-    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
+    if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
   }
 }
 
@@ -636,16 +689,16 @@ async function loadTripletBatch() {
       const box = document.getElementById('tripletBox');
       if (box) {
         box.innerHTML =
-          '<div class="similar-hint">No more triplets to annotate. ' +
-          'The dataset may not have enough images with embeddings.</div>';
+          '<div class="similar-hint">' + t('noMoreTriplets') + '</div>';
       }
       renderTripletProgress(json.count || 0);
       return;
     }
+    renderTripletProgress(json.count || 0);
     renderTripletBatch(json.count || 0);
   } catch (error) {
     console.error('failed to load triplet batch', error);
-    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
+    if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
   }
 }
 
@@ -675,18 +728,32 @@ function renderTripletBatch(count) {
 
   box.innerHTML =
     '<div class="triplet-meta">' +
-    '<span class="triplet-position">Triplet ' + (tripletIndex + 1) + ' of ' + tripletBatch.length + '</span>' +
-    '<span class="triplet-count">Annotated: ' + count + '</span>' +
-    '<span class="triplet-hint">Click an image, or press 1-5</span>' +
-    '<button type="button" class="triplet-option" onclick="loadTripletBatch()">Skip batch</button>' +
+    '<span class="triplet-position">' +
+      fmt('tripletPosition', { current: tripletIndex + 1, total: tripletBatch.length }) +
+    '</span>' +
+    '<span class="triplet-count">' + fmt('annotatedCount', { count: count }) + '</span>' +
+    '<span class="triplet-hint">' + t('clickImageHint') + '</span>' +
+    '<button type="button" class="triplet-option" onclick="loadTripletBatch()">' +
+      t('skipBatch') +
+    '</button>' +
     '</div>' +
     '<div class="triplet-images">' + images + '</div>' +
     '<div class="triplet-options">' +
-    '<button type="button" class="triplet-option" data-relation="0" onclick="answerTriplet(0)"><kbd>1</kbd> A is the odd one out</button>' +
-    '<button type="button" class="triplet-option" data-relation="1" onclick="answerTriplet(1)"><kbd>2</kbd> B is the odd one out</button>' +
-    '<button type="button" class="triplet-option" data-relation="2" onclick="answerTriplet(2)"><kbd>3</kbd> C is the odd one out</button>' +
-    '<button type="button" class="triplet-option triplet-option-wide" data-relation="3" onclick="answerTriplet(3)"><kbd>4</kbd> All three are equally similar</button>' +
-    '<button type="button" class="triplet-option triplet-option-wide" data-relation="4" onclick="answerTriplet(4)"><kbd>5</kbd> All three are different</button>' +
+    '<button type="button" class="triplet-option" data-relation="0" onclick="answerTriplet(0)"><kbd>1</kbd> ' +
+      t('oddOneOutA') +
+    '</button>' +
+    '<button type="button" class="triplet-option" data-relation="1" onclick="answerTriplet(1)"><kbd>2</kbd> ' +
+      t('oddOneOutB') +
+    '</button>' +
+    '<button type="button" class="triplet-option" data-relation="2" onclick="answerTriplet(2)"><kbd>3</kbd> ' +
+      t('oddOneOutC') +
+    '</button>' +
+    '<button type="button" class="triplet-option triplet-option-wide" data-relation="3" onclick="answerTriplet(3)"><kbd>4</kbd> ' +
+      t('allEquallySimilar') +
+    '</button>' +
+    '<button type="button" class="triplet-option triplet-option-wide" data-relation="4" onclick="answerTriplet(4)"><kbd>5</kbd> ' +
+      t('allDifferent') +
+    '</button>' +
     '</div>';
 }
 
@@ -697,7 +764,7 @@ function renderTripletProgress(count) {
   const pct = Math.min(100, Math.round((count / TRIPLET_TARGET) * 100));
   el.innerHTML =
     '<div class="triplet-progress-label">' +
-    '<span>Annotated triplets</span>' +
+    '<span>' + t('annotatedTriplets') + '</span>' +
     '<span>' + count + ' / ' + TRIPLET_TARGET + '</span>' +
     '</div>' +
     '<div class="triplet-progress"><div class="triplet-progress-bar" style="width:' + pct + '%"></div></div>';
@@ -726,8 +793,8 @@ async function answerTriplet(relation) {
       },
     );
     if (json.error) {
-      if (typeof showToast === 'function') showToast('Error: ' + json.error, 'error');
-      else alert('Error: ' + json.error);
+      if (typeof showToast === 'function') showToast(t('error') + ': ' + json.error, 'error');
+      else alert(t('error') + ': ' + json.error);
       return;
     }
 
@@ -742,8 +809,8 @@ async function answerTriplet(relation) {
       renderTripletBatch(json.count || 0);
     }
   } catch (error) {
-    if (typeof showToast === 'function') showToast('Error: ' + error, 'error');
-    else alert('Error: ' + error);
+    if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
+    else alert(t('error') + ': ' + error);
   }
 }
 
@@ -892,7 +959,26 @@ function pickTripletImage(key) {
   );
   if (el) selectTripletImage(el);
 }
-`)
+`
+
+/**
+ * The client-side script of this page.
+ *
+ * It is a component (instead of a plain script element) so the
+ * messages it shows can be translated: the script runs in the
+ * browser, where the language is only known through the cookie, so
+ * the server resolves the texts and injects them into the script.
+ */
+function SimilarImagesScript(attrs: {}, context: DynamicContext) {
+  let messages = resolveSimilarImagesMessages(context)
+  // the dictionary is inlined as JSON — the strings are escaped, so
+  // quotes or line breaks inside a translation cannot break the script
+  let json = JSON.stringify(messages)
+  // replaceAll (instead of replace) so every placeholder is filled,
+  // even if the script is edited to use the dictionary more than once
+  let js = scriptBody.replaceAll('__MESSAGES__', json)
+  return Script(js)
+}
 
 // back to the manage-dataset page this page is opened from (not the
 // project home) — mirrors ProjectPageBackButton but targets manage-dataset
@@ -924,7 +1010,7 @@ let page = (
       <Main />
     </ion-content>
     {sweetAlertPlugin.node}
-    {script}
+    <SimilarImagesScript />
   </>
 )
 
@@ -1247,7 +1333,9 @@ function PairRank(attrs: {}, context: WsContext) {
        let badge = row.querySelector('.rank-badge')
        if (badge) badge.textContent = String(index + 1)
      })
-     if (typeof showToast === 'function') showToast('Ranking saved', 'success')`
+     if (typeof showToast === 'function') showToast(${JSON.stringify(
+       msg(context, 'rankingSaved'),
+     )}, 'success')`
     context.ws.send(['eval', code])
     throw EarlyTerminate
   } catch (error) {
@@ -1290,7 +1378,9 @@ function TrainSimilarWeight(attrs: {}, context: WsContext) {
       context.ws.send([
         'eval',
         `if (typeof showToast === 'function')
-           showToast('Need at least 2 ranked pairs to train. Move some pairs first.', 'warning')`,
+           showToast(${JSON.stringify(
+             msg(context, 'needTwoPairs'),
+           )}, 'warning')`,
       ])
       throw EarlyTerminate
     }
@@ -1317,7 +1407,9 @@ function TrainSimilarWeight(attrs: {}, context: WsContext) {
     context.ws.send([
       'eval',
       `if (typeof showToast === 'function')
-         showToast('AI trained from your ranking (GA, ${elapsedMs}ms) — list refreshed (${mode} mode)', 'success')`,
+         showToast(${JSON.stringify(
+           msg(context, 'aiTrainedFromRanking', { elapsed: elapsedMs, mode }),
+         )}, 'success')`,
     ])
     throw EarlyTerminate
   } catch (error) {
@@ -1402,7 +1494,7 @@ function sendSimilarPairs(
                   <button
                     type="button"
                     class="img-delete-btn"
-                    title="Delete this image"
+                    title={msg(context, 'deleteImageTooltip')}
                     onclick={`deleteImage(this, ${item.image_id_a})`}
                   >
                     ×
@@ -1418,7 +1510,7 @@ function sendSimilarPairs(
                   <button
                     type="button"
                     class="img-delete-btn"
-                    title="Delete this image"
+                    title={msg(context, 'deleteImageTooltip')}
                     onclick={`deleteImage(this, ${item.image_id_b})`}
                   >
                     ×
@@ -1428,7 +1520,7 @@ function sendSimilarPairs(
                   class="similar-score"
                   title={
                     Number.isNaN(item.score_percent)
-                      ? 'The model has not separated these pairs yet — the order still reflects the plain cosine.'
+                      ? msg(context, 'notSeparatedTooltip')
                       : ''
                   }
                 >
@@ -1440,7 +1532,7 @@ function sendSimilarPairs(
                   <button
                     type="button"
                     class="rank-up"
-                    title="Move up (more similar)"
+                    title={msg(context, 'moveUpTooltip')}
                     onclick="movePair(this, 'up')"
                     disabled={index === 0}
                   >
@@ -1449,7 +1541,7 @@ function sendSimilarPairs(
                   <button
                     type="button"
                     class="rank-down"
-                    title="Move down (less similar)"
+                    title={msg(context, 'moveDownTooltip')}
                     onclick="movePair(this, 'down')"
                     disabled={index === results.length - 1}
                   >
@@ -1533,7 +1625,9 @@ function DeleteImage(attrs: {}, context: WsContext) {
     sendSimilarPairs(results, context)
     context.ws.send([
       'eval',
-      `if (typeof showToast === 'function') showToast('Image deleted', 'success')`,
+      `if (typeof showToast === 'function') showToast(${JSON.stringify(
+        msg(context, 'imageDeleted'),
+      )}, 'success')`,
     ])
     throw EarlyTerminate
   } catch (error) {
@@ -1549,20 +1643,22 @@ function DeleteImage(attrs: {}, context: WsContext) {
 // compute embeddings (toolbar backfill)
 // ---------------------------------------------------------------------------
 function broadcastProgress(project_id: number, done: number, total: number) {
-  let message: ServerMessage = [
-    'eval',
-    `if (typeof document !== 'undefined' && typeof Swal !== 'undefined') {
+  sessions.forEach(session => {
+    if (!session.url?.startsWith('/similar-images')) return
+    // each session gets the message in its own language
+    let context = sessionToContext(session, session.url)
+    let text = msg(context, 'computingEmbeddingsProgress', { done, total })
+    let message: ServerMessage = [
+      'eval',
+      `if (typeof document !== 'undefined' && typeof Swal !== 'undefined') {
       if (Swal.isVisible()) {
-        Swal.update({ title: 'Computing embeddings... ${done}/${total}' })
+        Swal.update({ title: ${JSON.stringify(text)} })
       } else {
-        showToast('Computing embeddings... ${done}/${total}', 'info', 'top-end', 0)
+        showToast(${JSON.stringify(text)}, 'info', 'top-end', 0)
       }
     }`,
-  ]
-  sessions.forEach(session => {
-    if (session.url?.startsWith('/similar-images')) {
-      session.ws.send(message)
-    }
+    ]
+    session.ws.send(message)
   })
 }
 
@@ -1628,22 +1724,17 @@ async function TrainRelationModelApi(context: ExpressContext) {
         broadcastTrainingProgress(project_id, epoch, loss)
       },
       onValidation: (epoch, ranking, classification) => {
-        let extra =
-          classification == null
-            ? ''
-            : `, relation ${(classification * 100).toFixed(1)}%`
-        broadcastTrainingProgress(
-          project_id,
-          epoch,
-          NaN,
-          `ranking ${(ranking * 100).toFixed(1)}%${extra}`,
-        )
+        // the accuracies are translated per session in
+        // broadcastTrainingProgress, so only the numbers are passed here
+        broadcastTrainingProgress(project_id, epoch, NaN, {
+          rankingAccuracy: ranking,
+          classificationAccuracy: classification,
+        })
       },
     })
     if (!result) {
       return {
-        error:
-          'Not enough ranking feedback. Move some pairs up or down first, then train again.',
+        error: msg(context, 'notEnoughRanking'),
       }
     }
 
@@ -1683,21 +1774,55 @@ function broadcastTrainingProgress(
   project_id: number,
   epoch: number,
   loss: number,
-  detail = '',
+  detail?:
+    | {
+        rankingAccuracy: number
+        classificationAccuracy: number | null
+      }
+    | string,
 ) {
-  let lossText = Number.isNaN(loss) ? '' : `, loss ${loss.toFixed(4)}`
-  let message: ServerMessage = [
-    'eval',
-    /* javascript */ `
+  sessions.forEach(session => {
+    if (!session.url?.startsWith('/similar-images')) return
+    // each session gets the message in its own language
+    let context = sessionToContext(session, session.url)
+    let lossText = Number.isNaN(loss)
+      ? ''
+      : msg(context, 'loss', { loss: loss.toFixed(4) })
+    let detailText = ''
+    if (typeof detail === 'string') {
+      detailText = detail
+    } else if (detail) {
+      let parts: string[] = []
+      if (detail.rankingAccuracy != null) {
+        parts.push(
+          msg(context, 'rankingAccuracy', {
+            accuracy: (detail.rankingAccuracy * 100).toFixed(1),
+          }),
+        )
+      }
+      if (detail.classificationAccuracy != null) {
+        parts.push(
+          msg(context, 'relationAccuracy', {
+            accuracy: (detail.classificationAccuracy * 100).toFixed(1),
+          }),
+        )
+      }
+      detailText = parts.join(', ')
+    }
+    let text = msg(context, 'trainingProgress', {
+      epoch,
+      loss: lossText,
+      detail: detailText ? ' — ' + detailText : '',
+    })
+    let message: ServerMessage = [
+      'eval',
+      /* javascript */ `
       if (typeof showToast === 'function') {
-        showToast('Training model: epoch ${epoch}${lossText}${detail ? ' — ' + detail : ''}', 'info', 'top-end', 0)
+        showToast(${JSON.stringify(text)}, 'info', 'top-end', 0)
       }
     `,
-  ]
-  sessions.forEach(session => {
-    if (session.url?.startsWith('/similar-images')) {
-      session.ws.send(message)
-    }
+    ]
+    session.ws.send(message)
   })
 }
 
@@ -1709,27 +1834,37 @@ function broadcastTrainingDone(
     bestEpoch: number
   },
 ) {
-  let parts: string[] = []
-  if (result.rankingAccuracy != null) {
-    parts.push(`ranking ${(result.rankingAccuracy * 100).toFixed(1)}%`)
-  }
-  if (result.classificationAccuracy != null) {
-    parts.push(`relation ${(result.classificationAccuracy * 100).toFixed(1)}%`)
-  }
-  let accuracy = parts.length > 0 ? ` (${parts.join(', ')})` : ''
-  let message: ServerMessage = [
-    'eval',
-    /* javascript */ `
+  sessions.forEach(session => {
+    if (!session.url?.startsWith('/similar-images')) return
+    // each session gets the message in its own language
+    let context = sessionToContext(session, session.url)
+    let parts: string[] = []
+    if (result.rankingAccuracy != null) {
+      parts.push(
+        msg(context, 'rankingAccuracy', {
+          accuracy: (result.rankingAccuracy * 100).toFixed(1),
+        }),
+      )
+    }
+    if (result.classificationAccuracy != null) {
+      parts.push(
+        msg(context, 'relationAccuracy', {
+          accuracy: (result.classificationAccuracy * 100).toFixed(1),
+        }),
+      )
+    }
+    let accuracy = parts.length > 0 ? ` (${parts.join(', ')})` : ''
+    let text = msg(context, 'trainingDone', { accuracy })
+    let message: ServerMessage = [
+      'eval',
+      /* javascript */ `
       if (typeof showToast === 'function') {
-        showToast('Model trained${accuracy}', 'success')
+        showToast(${JSON.stringify(text)}, 'success')
       }
       if (typeof findSimilarPairs === 'function') findSimilarPairs()
     `,
-  ]
-  sessions.forEach(session => {
-    if (session.url?.startsWith('/similar-images')) {
-      session.ws.send(message)
-    }
+    ]
+    session.ws.send(message)
   })
 }
 
@@ -1843,7 +1978,7 @@ async function GetTripletApi(context: ExpressContext) {
       scorer: scorer ?? undefined,
     })
     if (!triplet) {
-      return { error: 'Not enough images with embeddings to build a triplet' }
+      return { error: msg(context, 'notEnoughImagesForTriplet') }
     }
 
     return {
@@ -1973,8 +2108,7 @@ async function TrainRelationClassifierApi(context: ExpressContext) {
     })
     if (!result) {
       return {
-        error:
-          'Not enough triplet annotations. Answer at least 4 triplets first.',
+        error: msg(context, 'notEnoughTriplets'),
       }
     }
 
