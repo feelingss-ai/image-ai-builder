@@ -21,11 +21,12 @@ import {
  * of three images forms the closest pair (or that all three are about
  * equally similar).
  *
- * The four classes are:
- *   0: a and b are the most similar, c is the odd one out
- *   1: a and c are the most similar, b is the odd one out
- *   2: b and c are the most similar, a is the odd one out
+ * The five classes are:
+ *   0: a is the odd one out (b and c are the closest pair)
+ *   1: b is the odd one out (a and c are the closest pair)
+ *   2: c is the odd one out (a and b are the closest pair)
  *   3: all three are about equally similar
+ *   4: all three are different (no close pair)
  */
 
 export type TripletAnnotation = {
@@ -34,6 +35,14 @@ export type TripletAnnotation = {
   image_c_id: number
   relation: RelationClass
   created_at: number
+}
+
+/**
+ * A triplet annotation with the id of its row, so it can be deleted
+ * again (undo).
+ */
+export type StoredTripletAnnotation = TripletAnnotation & {
+  id: number
 }
 
 /**
@@ -93,6 +102,78 @@ export function countTriplets(project_id: number): number {
       .pluck()
       .get({ project_id }) ?? 0
   )
+}
+
+// The last triplet annotation of a user in a project — the one the
+// undo button reverts. The id breaks the tie between annotations
+// written within the same second.
+let select_last_triplet = db.prepare<
+  { project_id: number; user_id: number },
+  {
+    id: number
+    image_a_id: number
+    image_b_id: number
+    image_c_id: number
+    relation: number
+    schema_version: number | null
+    created_at: number
+  }
+>(/* sql */ `
+  select id, image_a_id, image_b_id, image_c_id, relation, schema_version, created_at
+  from similar_triplet
+  where project_id = :project_id and user_id = :user_id
+  order by created_at desc, id desc
+  limit 1
+`)
+
+/**
+ * The last triplet annotation of a user in a project, or null when
+ * there is none.
+ *
+ * Only the annotations of the given user are considered: undoing
+ * somebody else's answer would silently discard their work.
+ */
+export function selectLastTriplet(
+  project_id: number,
+  user_id: number,
+): StoredTripletAnnotation | null {
+  let row = select_last_triplet.get({ project_id, user_id })
+  if (!row) return null
+  return {
+    id: row.id,
+    image_a_id: row.image_a_id,
+    image_b_id: row.image_b_id,
+    image_c_id: row.image_c_id,
+    relation:
+      row.schema_version === TRIPLET_SCHEMA_VERSION
+        ? (row.relation as RelationClass)
+        : convertLegacyRelation(row.relation),
+    created_at: row.created_at,
+  }
+}
+
+/**
+ * Delete a triplet annotation (undo).
+ *
+ * Returns true when the row was deleted.
+ */
+export function deleteTriplet(id: number): boolean {
+  let info = db
+    .prepare<{ id: number }, unknown>(
+      /* sql */ `delete from similar_triplet where id = :id`,
+    )
+    .run({ id })
+  return info.changes > 0
+}
+
+/**
+ * Whether the user has a triplet annotation that can be undone.
+ */
+export function hasTripletAnnotation(
+  project_id: number,
+  user_id: number,
+): boolean {
+  return !!select_last_triplet.get({ project_id, user_id })
 }
 
 /**

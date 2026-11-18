@@ -58,6 +58,9 @@ import {
   suggestTripletBatch,
   trainRelationClassifier,
   countTriplets,
+  selectLastTriplet,
+  deleteTriplet,
+  hasTripletAnnotation,
   TRIPLET_SCHEMA_VERSION,
 } from '../relation-triplet.js'
 import {
@@ -330,6 +333,17 @@ let style = Style(/* css */ `
 .triplet-option-wide {
   flex: 1 1 100%;
   text-align: left;
+}
+/* the undo button — pushed to the right of the meta row */
+.triplet-undo {
+  margin-left: auto;
+}
+.triplet-undo:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.triplet-undo:disabled:hover {
+  border-color: #ccc;
 }
 /* the progress toward the target number of annotations */
 .triplet-progress-label {
@@ -671,6 +685,11 @@ var tripletIndex = 0;
 var TRIPLET_BATCH_SIZE = 4;
 // The target number of annotations to reach.
 var TRIPLET_TARGET = 50;
+// Whether the user has an answer that can be undone.
+var tripletCanUndo = false;
+// The triplet the user last answered — kept so it can be put back on
+// screen after an undo.
+var tripletLastAnswered = null;
 
 // Loads a batch of triplets to annotate.
 async function loadTripletBatch() {
@@ -685,6 +704,7 @@ async function loadTripletBatch() {
     }
     tripletBatch = json.triplets || [];
     tripletIndex = 0;
+    tripletCanUndo = !!json.canUndo;
     if (tripletBatch.length === 0) {
       const box = document.getElementById('tripletBox');
       if (box) {
@@ -736,6 +756,11 @@ function renderTripletBatch(count) {
     '<button type="button" class="triplet-option" onclick="loadTripletBatch()">' +
       t('skipBatch') +
     '</button>' +
+    '<button type="button" class="triplet-option triplet-undo" id="tripletUndo" ' +
+      'title="' + t('undoTooltip') + '" ' +
+      'onclick="undoTriplet()"' +
+      (tripletCanUndo ? '' : ' disabled') +
+    '>↶ ' + t('undo') + '</button>' +
     '</div>' +
     '<div class="triplet-images">' + images + '</div>' +
     '<div class="triplet-options">' +
@@ -800,6 +825,18 @@ async function answerTriplet(relation) {
 
     renderTripletProgress(json.count || 0);
 
+    // remember the triplet that was just answered, so an undo can put
+    // it back on screen
+    tripletLastAnswered = {
+      image_a_id: current.image_a_id,
+      image_b_id: current.image_b_id,
+      image_c_id: current.image_c_id,
+      filename_a: current.filename_a,
+      filename_b: current.filename_b,
+      filename_c: current.filename_c,
+    };
+    tripletCanUndo = true;
+
     // move to the next triplet in the batch; load a new batch when the
     // current one is exhausted
     tripletIndex++;
@@ -808,6 +845,39 @@ async function answerTriplet(relation) {
     } else {
       renderTripletBatch(json.count || 0);
     }
+  } catch (error) {
+    if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
+    else alert(t('error') + ': ' + error);
+  }
+}
+
+// Undoes the last answer: the annotation is deleted on the server and
+// the same triplet is put back on screen, so the user can pick another
+// answer straight away.
+async function undoTriplet() {
+  try {
+    const json = await fetch_json(
+      '/similar-images/triplet-undo?project=' + getProjectId(),
+      { method: 'POST' },
+    );
+    if (json.error) {
+      if (typeof showToast === 'function') showToast(t('error') + ': ' + json.error, 'error');
+      else alert(t('error') + ': ' + json.error);
+      return;
+    }
+
+    renderTripletProgress(json.count || 0);
+    tripletCanUndo = !!json.canUndo;
+
+    // put the reverted triplet back on screen
+    const restored = json.restored;
+    if (restored) {
+      tripletBatch = [restored];
+      tripletIndex = 0;
+    }
+    renderTripletBatch(json.count || 0);
+
+    if (typeof showToast === 'function') showToast(t('undone'), 'success');
   } catch (error) {
     if (typeof showToast === 'function') showToast(t('error') + ': ' + error, 'error');
     else alert(t('error') + ': ' + error);
@@ -926,6 +996,7 @@ function bindModeSelect() {
 //   4          — all three are equally similar
 //   5          — all three are different
 //   Q / W / E  — answer by clicking image A / B / C directly
+//   Ctrl / Cmd + Z — undo the last answer
 function bindTripletShortcuts() {
   if (document.body.dataset.tripletKeysBound) return;
   document.body.dataset.tripletKeysBound = '1';
@@ -935,6 +1006,19 @@ function bindTripletShortcuts() {
     const tag = (event.target && event.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (tripletBatch.length === 0) return;
+
+    // undo — handled before the modifier check below, because Ctrl+Z
+    // is the one shortcut that needs a modifier
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      if (event.key === 'z' || event.key === 'Z') {
+        if (tripletCanUndo) {
+          undoTriplet();
+          event.preventDefault();
+        }
+        return;
+      }
+    }
+
     // let the browser handle the usual modifier combinations
     if (event.ctrlKey || event.altKey || event.metaKey) return;
 
@@ -2031,6 +2115,9 @@ async function GetTripletsApi(context: ExpressContext) {
         filename_c: proxy.image[triplet.image_c_id]?.filename ?? '',
       })),
       count: countTriplets(project_id),
+      // whether the undo button should be enabled — only the user's
+      // own annotations can be undone
+      canUndo: hasTripletAnnotation(project_id, user.id!),
     }
   } catch (error) {
     console.error(error)
@@ -2081,6 +2168,57 @@ async function AnswerTripletApi(context: ExpressContext) {
     )
 
     return { ok: true, count: countTriplets(input.project_id) }
+  } catch (error) {
+    console.error(error)
+    return { error: String(error) }
+  }
+}
+
+/**
+ * Undo the last triplet annotation of the current user.
+ *
+ * Only the annotations of the user who clicks the button are
+ * reverted — undoing somebody else's answer would silently discard
+ * their work.
+ *
+ * The deleted annotation is returned, so the client can put the same
+ * triplet back on screen and let the user pick another answer.
+ */
+async function UndoTripletApi(context: ExpressContext) {
+  let { req } = context
+  try {
+    let user = getAuthUser(context)
+    if (!user) throw 'not login'
+    let project_id = +req.query.project!
+    if (!project_id) throw 'missing project id in query'
+    let project = proxy.project[project_id]
+    if (!project) throw 'project not found'
+
+    let last = selectLastTriplet(project_id, user.id!)
+    if (!last) {
+      return { error: msg(context, 'nothingToUndo') }
+    }
+
+    deleteTriplet(last.id)
+
+    // the images of the reverted triplet, so the client can show it again
+    let imageOf = (image_id: number) => proxy.image[image_id]
+    let restored = {
+      image_a_id: last.image_a_id,
+      image_b_id: last.image_b_id,
+      image_c_id: last.image_c_id,
+      filename_a: imageOf(last.image_a_id)?.filename ?? '',
+      filename_b: imageOf(last.image_b_id)?.filename ?? '',
+      filename_c: imageOf(last.image_c_id)?.filename ?? '',
+      relation: last.relation,
+    }
+
+    return {
+      ok: true,
+      count: countTriplets(project_id),
+      canUndo: hasTripletAnnotation(project_id, user.id!),
+      restored,
+    }
   } catch (error) {
     console.error(error)
     return { error: String(error) }
@@ -2177,6 +2315,10 @@ let routes = {
   '/similar-images/triplet-answer': ajaxRoute({
     description: 'save the relation answer of an annotated triplet',
     api: AnswerTripletApi,
+  }),
+  '/similar-images/triplet-undo': ajaxRoute({
+    description: 'undo the last relation answer of the current user',
+    api: UndoTripletApi,
   }),
   '/similar-images/train-relation': ajaxRoute({
     description: 'train the relation classifier on the annotated triplets',

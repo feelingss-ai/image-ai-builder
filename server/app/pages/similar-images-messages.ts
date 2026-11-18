@@ -247,6 +247,26 @@ export const similarImagesMessages = {
     zh_hk: '帶向量的圖片不足，無法組成三元組',
     zh_cn: '带向量的图片不足，无法组成三元组',
   },
+  undo: {
+    en: 'Undo',
+    zh_hk: '還原',
+    zh_cn: '还原',
+  },
+  undoTooltip: {
+    en: 'Undo the last answer (Ctrl+Z)',
+    zh_hk: '還原上一個答案（Ctrl+Z）',
+    zh_cn: '还原上一个答案（Ctrl+Z）',
+  },
+  nothingToUndo: {
+    en: 'Nothing to undo',
+    zh_hk: '沒有可以還原的答案',
+    zh_cn: '没有可以还原的答案',
+  },
+  undone: {
+    en: 'Last answer undone',
+    zh_hk: '已還原上一個答案',
+    zh_cn: '已还原上一个答案',
+  },
 } satisfies Record<string, LocaleVariants<string>>
 
 export type SimilarImagesMessageKey = keyof typeof similarImagesMessages

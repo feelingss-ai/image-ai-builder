@@ -391,7 +391,10 @@ describe('trainRelationModelOnData', () => {
     expect(result).to.equal(null)
   })
 
-  it('should learn to rank a within-group pair above a cross-group pair', () => {
+  it('should learn to rank a within-group pair above a cross-group pair', function () {
+    // the training runs real backprop, which takes a few seconds —
+    // longer than mocha's default 2s timeout on slower machines
+    this.timeout(20000)
     let groups = 4
     let perGroup = 6
     let { vectors, groupOf } = makeGroupedVectors(groups, perGroup)
@@ -432,7 +435,8 @@ describe('trainRelationModelOnData', () => {
     expect(accuracy).to.be.greaterThan(0.9)
   })
 
-  it('should reduce the loss while training', () => {
+  it('should reduce the loss while training', function () {
+    this.timeout(20000)
     let { vectors } = makeGroupedVectors(3, 4)
     let constraints: RankingConstraint[] = []
     for (let i = 0; i < vectors.length; i += 2) {
@@ -458,7 +462,8 @@ describe('trainRelationModelOnData', () => {
     expect(losses[losses.length - 1]!).to.be.lessThan(losses[0]!)
   })
 
-  it('should keep the best epoch when a validation set is given', () => {
+  it('should keep the best epoch when a validation set is given', function () {
+    this.timeout(20000)
     let { vectors } = makeGroupedVectors(3, 6)
     let train: RankingConstraint[] = []
     let validation: RankingConstraint[] = []
@@ -492,7 +497,8 @@ describe('trainRelationModelOnData', () => {
     expect(result!.validationAccuracy!).to.equal(Math.max(...accuracies))
   })
 
-  it('should stop early when the validation accuracy stops improving', () => {
+  it('should stop early when the validation accuracy stops improving', function () {
+    this.timeout(20000)
     let { vectors } = makeGroupedVectors(3, 6)
     let train: RankingConstraint[] = []
     let validation: RankingConstraint[] = []
